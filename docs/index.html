@@ -342,7 +342,20 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
-const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"" };
+const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"", folderLink:false,
+  captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random" };
+const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
+const acctOf = p => (p && accountById(p.acct)) || A();
+function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+// Mixes up what an account has queued: same posting times, different files in them.
+async function shuffleQueue(a){
+  const Q = queued(a.id), times = Q.map(p => p.publishAt);
+  shuffleInPlace(Q).forEach((p, i) => { p.publishAt = times[i]; });
+  for (const p of Q) await savePost(p);
+  const W = S.posts.filter(p => p.acct === a.id && !p.publishAt && !isStory(p));
+  const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
+  for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
+}
 const S = { secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
@@ -546,7 +559,7 @@ const handleOf = a => (a && a.handle) || "unnamed" + (a ? S.accounts.indexOf(a) 
 
 /* ================= fake world: growth + engagement ================= */
 const LEVEL = { low:.45, normal:1, high:2.2, viral:5 };
-const thirsty = () => S.settings.captionStyle === "thirst";
+const thirsty = a => (a || A()).captionStyle === "thirst";
 function baseFollowersAt(a, t){
   const start = a.startedAt || now();
   const days = Math.max(0, (t - start)/D);
@@ -573,7 +586,7 @@ function totals(p){
   let rate = (.05 + r()*.08) * (LEVEL[a.level] || 1);
   if (r() < .12) rate *= 2 + r()*3.5;
   const totalL = p.likesTarget ?? Math.round(followersAt(a, p.publishAt) * Math.min(rate, 2.5));
-  const totalC = p.commentsTarget ?? Math.max(3, Math.round(totalL * ((thirsty() ? .03 : .012) + r()*.03)));
+  const totalC = p.commentsTarget ?? Math.max(3, Math.round(totalL * ((thirsty(a) ? .03 : .012) + r()*.03)));
   return { totalL, totalC, views: Math.round(totalL * (5 + r()*9)) };
 }
 // Engagement lands fast after posting: a burst in the first minutes, then it keeps climbing for about a day.
@@ -589,7 +602,7 @@ function engage(p){
 }
 const genCache = new Map();
 function genComments(p){
-  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, S.settings.captionStyle, (accountById(p.acct)||{}).level, (p.aiComments||[]).length, p.aiComments?.[0]].join("|");
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, acctOf(p).captionStyle, acctOf(p).level, (p.aiComments||[]).length, p.aiComments?.[0]].join("|");
   if (genCache.has(key)) return genCache.get(key);
   const r = rng(p.seed ^ 0x9e3779b9);
   const { totalC, totalL } = totals(p);
@@ -599,7 +612,7 @@ function genComments(p){
   for (let k=0;k<n;k++){
     let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
-    let text = thirsty() ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
+    let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
@@ -654,7 +667,7 @@ async function respace(a){
   const Q = queued(a.id); for (const p of Q){ p.publishAt = 0; await savePost(p); }
   await enqueue(Q, a);
 }
-// Shared-folder files go to whichever account has the least waiting for it; an account's own folder only feeds that account.
+// Each file is queued on the account whose folder it came from.
 async function autoSchedule(){
   if (!S.accounts.length) return;
   // the main folder only feeds accounts without a folder of their own (or everyone, if they all have one)
@@ -675,30 +688,18 @@ async function autoSchedule(){
     await enqueue(mine.slice(n), a);
   }
 }
-// A new account takes a fair share of what's still queued on the others, and starts with a few up already.
-async function rebalanceFor(a){
-  const others = S.accounts.filter(x => x.id !== a.id && !x.folderName);
-  const pool = others.flatMap(x => queued(x.id).filter(p => p.shared !== false)).sort((x,y) => x.publishAt - y.publishAt);
-  const share = Math.floor(pool.length / S.accounts.length);
-  const take = pool.filter((_, i) => i % S.accounts.length === 0).slice(0, share);
-  for (const p of take){ p.acct = a.id; p.publishAt = 0; await savePost(p); }
-  for (const x of others) await respace(x);
-  const n = Math.min(Math.ceil(take.length/2), Math.max(0, +S.settings.starter || 0));
-  await backdate(take.slice(0, n), a); await enqueue(take.slice(n), a);
-}
-
 /* ================= stories ================= */
-function storyTextPool(){
-  const mine = (S.settings.myStoryTexts || "").split("\n").map(x => x.trim()).filter(Boolean);
-  return [...mine, ...mine, ...mine, ...(S.settings.storyStyle === "thirst" ? STORY_TEXT : [])];
+function storyTextPool(a){
+  const mine = (a.myStoryTexts || "").split("\n").map(x => x.trim()).filter(Boolean);
+  return [...mine, ...mine, ...mine, ...(a.storyStyle === "thirst" ? STORY_TEXT : [])];
 }
-function storyText(seed){ const pool = storyTextPool(); return pool.length ? pick(pool, rng(seed)) : ""; }
+function storyText(seed, a){ const pool = storyTextPool(a || A()); return pool.length ? pick(pool, rng(seed)) : ""; }
 // Keeps about a day of stories scheduled per account: files from a "stories" folder first, otherwise reshares of that account's own photos.
 async function autoStories(){
-  const perDay = Math.max(0, +S.settings.storiesPerDay || 0);
   for (const a of S.accounts){
+    const perDay = Math.max(0, +a.storiesPerDay || 0);
     const st = postsOf(a.id, "story");
-    const waitingOwn = S.posts.filter(p => isStory(p) && !p.publishAt && (p.acct === a.id || !p.acct));
+    const waitingOwn = S.posts.filter(p => isStory(p) && !p.publishAt && p.acct === a.id);
     if (!perDay) continue;
     let last = st.reduce((m,p) => Math.max(m, p.publishAt||0), 0);
     const step = D / perDay;
@@ -709,8 +710,8 @@ async function autoStories(){
       const r = rng(hashStr("st"+last+a.seed));
       const t = humanize(last + step*(.7 + r()*.6));
       let p = waitingOwn.shift();
-      if (p){ p.acct = a.id; p.publishAt = t; p.storyText = p.storyText || storyText(hashStr(p.id)); }
-      else if (imgs.length){ const f = imgs[Math.floor(r()*imgs.length)]; p = { id: uid("s_"), kind:"story", source:"reshare", acct:a.id, files:[f], publishAt:t, seed:hashStr("s"+t+a.id), storyText: storyText(hashStr("tx"+t+a.id)) }; }
+      if (p){ p.acct = a.id; p.publishAt = t; p.storyText = p.storyText || storyText(hashStr(p.id), a); }
+      else if (imgs.length){ const f = imgs[Math.floor(r()*imgs.length)]; p = { id: uid("s_"), kind:"story", source:"reshare", acct:a.id, files:[f], publishAt:t, seed:hashStr("s"+t+a.id), storyText: storyText(hashStr("tx"+t+a.id), a) }; }
       else break;
       await savePost(p); last = t;
     }
@@ -727,13 +728,14 @@ function storyStats(p){
 }
 
 /* ================= captions ================= */
-function captionPool(){
-  const mine = (S.settings.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
-  return [...mine, ...mine, ...mine, ...(thirsty() ? THIRST : [])];
+function captionPool(a){
+  const mine = (a.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
+  return [...mine, ...mine, ...mine, ...(thirsty(a) ? THIRST : [])];
 }
 function genCaption(p, attempt){
-  const pool = captionPool(); if (!pool.length) return "";
-  const used = new Set(S.posts.filter(x => x !== p).map(x => x.caption));
+  const a = acctOf(p);
+  const pool = captionPool(a); if (!pool.length) return "";
+  const used = new Set(S.posts.filter(x => x !== p && x.acct === p.acct).map(x => x.caption));
   const fresh = pool.filter(c => !used.has(c));
   const r = rng((p.seed ^ hashStr("cap"+(attempt||0))) >>> 0);
   return pick(fresh.length ? fresh : pool, r);
@@ -741,12 +743,12 @@ function genCaption(p, attempt){
 async function autoCaptions(){
   for (const p of S.posts){
     if (isStory(p) || p.caption || p.captionManual) continue;
-    const c = genCaption(p); if (!c) return;
+    const c = genCaption(p); if (!c) continue;
     p.caption = c; p.captionAuto = true; await savePost(p);
   }
 }
-async function redoCaptions(){
-  const auto = S.posts.filter(p => !isStory(p) && p.captionAuto);
+async function redoCaptions(a){
+  const auto = S.posts.filter(p => !isStory(p) && p.captionAuto && (!a || p.acct === a.id));
   for (const p of auto) p.caption = "";
   for (const p of auto){ p.capTry = (p.capTry||0) + 1; p.caption = genCaption(p, p.capTry); await savePost(p); }
 }
@@ -785,7 +787,8 @@ async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensu
 /* ================= caption writer (Claude, with the owner's own API key) ================= */
 // The key is stored only on this phone and sent only to Anthropic. Photos go to Anthropic so each caption fits its picture.
 const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm";
-const MODEL = "claude-opus-5-5";
+// Small and fast: captions, comments and story text are short.
+const MODEL = "claude-haiku-5-5";
 let sdk = null, client = null, clientKey = "";
 async function getClient(){
   if (!S.secret.key) return null;
@@ -795,11 +798,10 @@ async function getClient(){
 }
 async function ask(system, content, schema){
   const c = await getClient(); if (!c) return null;
-  const r = await c.beta.messages.create({
-    model: MODEL, max_tokens: 4000, system,
+  const r = await c.messages.create({
+    model: MODEL, max_tokens: 1500, system,
     messages: [{ role: "user", content }],
     output_config: { effort: "low", ...(schema ? { format: { type: "json_schema", schema } } : {}) },
-    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
   });
   if (r.stop_reason === "refusal") return null;
   const text = r.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
@@ -833,17 +835,17 @@ async function writeOne(j){
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   if (j.kind === "caption"){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
-    const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them. Reply with the caption only, no quotes.${direction(S.settings.capDirection)}${recent ? `\n\nRecent captions on this account, which you must not repeat or closely echo:\n${recent}` : ""}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
+    const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them. Reply with the caption only, no quotes.${direction(a.capDirection)}${recent ? `\n\nRecent captions on this account, which you must not repeat or closely echo:\n${recent}` : ""}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
     if (out) p.caption = out.replace(/^["'“]+|["'”]+$/g, "").trim();
     p.captionWritten = true;
   } else if (j.kind === "comments"){
     const n = Math.max(8, Math.min(30, totals(p).totalC));
-    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.${direction(S.settings.comDirection)}`,
+    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.${direction(a.comDirection)}`,
       withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: { type: "array", items: { type: "string" } } }, required: ["comments"], additionalProperties: false });
     if (out && Array.isArray(out.comments)) p.aiComments = out.comments.map(c => String(c).trim()).filter(Boolean).slice(0, 60);
     p.commentsWritten = true; genCache.clear();
   } else {
-    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${direction(S.settings.storyDirection || S.settings.capDirection)}`, withImg("Write the story text."));
+    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${direction(a.storyDirection || a.capDirection)}`, withImg("Write the story text."));
     if (out) p.storyText = out.replace(/^["'“]+|["'”]+$/g, "").trim();
     p.storyWritten = true;
   }
@@ -934,14 +936,23 @@ const FOLDER = "application/vnd.google-apps.folder";
 const base = n => n.replace(/\.[^.]+$/, "").toLowerCase();
 const isText = f => f.mimeType === "text/plain" || /\.txt$/i.test(f.name);
 const isMedia = f => isImage(f.mimeType) || isVideo(f.mimeType);
-const hasSetup = () => !!(S.settings.folderName.trim() || S.accounts.some(a => a.folderName.trim()));
+const hasFolder = a => !!(a.folderId || (a.folderName || "").trim());
+const hasSetup = () => S.accounts.some(hasFolder);
+// A folder can be typed as its name, or pasted as a Drive link (works for folders other Google accounts shared with you).
+function folderIdFromInput(v){ const m = String(v).match(/folders\/([\w-]{10,})/) || String(v).trim().match(/^([\w-]{25,})$/); return m ? m[1] : ""; }
+function setFolder(a, v){
+  v = String(v || "").trim();
+  const id = folderIdFromInput(v);
+  if (id){ a.folderId = id; a.folderLink = true; a.folderName = a.folderName && a.folderId === id ? a.folderName : "Linked folder"; }
+  else { if (v !== a.folderName || a.folderLink){ a.folderId = ""; } a.folderName = v; a.folderLink = false; }
+}
 
 let syncing = false;
 // full = "re-read everything": find every folder again by name and rebuild the queue from what's in them now.
 async function sync(auto, full){
   if (syncing) return;
   if (auto && (!S.settings.clientId.trim() || !hasSetup())) return;
-  if (!hasSetup()){ toast("Type a Drive folder name first"); go("#/settings"); return; }
+  if (!hasSetup()){ toast("Give an account a Drive folder first"); go("#/aset/" + A().id); return; }
   const token = tokenOK();
   if (!token){
     if (!auto) { if (full) try { localStorage.setItem("reel-full-pending", "1"); } catch(e){} signIn(false); return; }
@@ -959,20 +970,26 @@ async function sync(auto, full){
         if (/^sk-ant-\S{20,}$/.test(k)){ S.secret.key = k; S.secret.keyFrom = kf.modifiedTime; await saveSecret(); client = null; setWriter(""); toast("Caption writer connected"); setTimeout(writerRun, 1500); }
       }
     } catch(e){ if (e.message === "signin") throw e; }
-    // sources: the shared folder (split across accounts) + each account's own folder
-    const sources = [];
-    if (S.settings.folderName.trim()) sources.push({ owner: null, holder: S.settings });
-    for (const a of S.accounts) if (a.folderName.trim()) sources.push({ owner: a.id, holder: a });
-    if (full){ S.settings.folderId = ""; for (const a of S.accounts) a.folderId = ""; }
+    // every account reads only its own folder
+    const sources = S.accounts.filter(hasFolder).map(a => ({ owner: a.id, holder: a }));
+    if (full) for (const a of S.accounts) if (!a.folderLink) a.folderId = "";
+    const failed = new Set(), problems = [];
     const isUp = p => p.publishAt && p.publishAt <= now();
     const known = new Set(S.posts.filter(p => !full || isUp(p)).map(p => p.driveKey).filter(Boolean));
     const seen = new Map();
     const ignored = new Set(S.settings.ignored || []);
     const jobs = [], pfpJobs = [];
     for (const src of sources){
-      if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await saveSettings(); await saveAccounts(); }
-      setSync("Reading " + src.holder.folderName.trim() + "…", 0);
-      const kids = await listChildren(src.holder.folderId, token);
+      let kids;
+      try {
+        if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await saveAccounts(); }
+        if (src.holder.folderLink){ const meta = await gapi(`files/${src.holder.folderId}?fields=name&supportsAllDrives=true`, token); if (meta && meta.name && meta.name !== src.holder.folderName){ src.holder.folderName = meta.name; await saveAccounts(); } }
+        setSync("Reading " + src.holder.folderName.trim() + "…", 0);
+        kids = await listChildren(src.holder.folderId, token);
+      } catch(e){
+        if (e.message === "signin") throw e;
+        failed.add(src.owner); problems.push(`@${handleOf(src.holder)}: ${e.message || "couldn't read its folder"}`); continue;
+      }
       const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
       const target = src.owner ? accountById(src.owner) : S.accounts[0];
       for (const f of kids){
@@ -1001,14 +1018,16 @@ async function sync(auto, full){
           if (media.length) posts.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media, caption: inner.find(isText), owner: src.owner });
         } else if (isMedia(f)) posts.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media:[f], caption: texts.get(b), owner: src.owner });
       }
-      if (S.settings.order === "date") posts.sort((a,b) => (a.time||"").localeCompare(b.time||""));
-      else if (S.settings.order === "random"){ const r = rng(hashStr("o"+now())); posts.sort(() => r() - .5); }
-      else posts.sort((a,b) => natural.compare(a.name,b.name));
+      const ord = src.holder.order || "random";
+      if (ord === "date") posts.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+      else if (ord === "name") posts.sort((a,b) => natural.compare(a.name,b.name));
+      else shuffleInPlace(posts);
       jobs.push(...posts);
     }
     // Every folder was read, so the queue can now follow Drive: moved files change account, removed files leave the queue. Posted ones stay.
     let moved = 0, dropped = 0;
     for (const p of S.posts.filter(p => p.source === "drive" && p.driveKey && !isUp(p))){
+      if (failed.has(p.acct) && !seen.has(p.driveKey)) continue;
       if (full || !seen.has(p.driveKey)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); if (!seen.has(p.driveKey)) dropped++; continue; }
       const owner = seen.get(p.driveKey);
       const wasOwner = p.shared === false ? p.acct : null;
@@ -1051,7 +1070,8 @@ async function sync(auto, full){
     }
     await saveSettings(); await saveAccounts();
     await autoRun();
-    if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}`); }
+    if (problems.length) toast(problems.join(" · "));
+    else if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}`); }
     else if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : moved ? `${moved} moved ${moved===1?"file":"files"} switched account` : dropped ? `${dropped} removed ${dropped===1?"file":"files"} left the queue` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
     render();
   } catch(err){
@@ -1110,7 +1130,7 @@ function render(){
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
-  const views = { all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  const views = { aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => wireAutoplay(v));
@@ -1259,8 +1279,7 @@ function accountSwitcher(){
       closeSheet();
       if (b.dataset.acc === "__new"){
         const a = newAccount(S.accounts.length); S.accounts.push(a); S.current = a.id; await saveAccounts();
-        await rebalanceFor(a); await autoCaptions(); await ensureAvatars(); await autoStories();
-        toast("New account added. Give it a name and username."); go("#/edit"); return;
+        toast("New account added. Pick its Drive folder."); go("#/aset/" + a.id); return;
       }
       S.current = b.dataset.acc; await saveAccounts(); toast("Switched to @"+handleOf(A())); go("#/me");
     });
@@ -1451,7 +1470,7 @@ function openStories(aid){
     if ("snext" in t.dataset) return next();
     if ("sprev" in t.dataset) return prev();
     if (t.dataset.sviews){ const id = t.dataset.sviews; closeFull(); go("#/list/views/"+id); return; }
-    if (t.dataset.stext){ const p = S.posts.find(x => x.id === t.dataset.stext); p.storyText = storyText(hashStr(uid("x"))); await savePost(p); show(); }
+    if (t.dataset.stext){ const p = S.posts.find(x => x.id === t.dataset.stext); p.storyText = storyText(hashStr(uid("x")), acctOf(p)); await savePost(p); show(); }
   };
   show();
 }
@@ -1504,15 +1523,14 @@ function vEdit(v){
     <div class="field"><label for="ph">Username</label><input type="text" id="ph" value="${esc(P.handle)}" autocapitalize="off" autocorrect="off"></div>
     <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
     <div class="field"><label for="pl">Link</label><input type="text" id="pl" value="${esc(P.link)}" autocapitalize="off"></div>
-    <div class="field"><label for="pfolder">This account's own Drive folder (optional)</label><input type="text" id="pfolder" value="${esc(P.folderName)}" placeholder="Leave empty to share the main folder" autocapitalize="off" autocorrect="off"></div>
-    <div class="hint">Files in this folder only post on this account, and it stops taking files from the main folder. Nothing is ever posted twice.</div>
+    <a class="btn" href="#/aset/${esc(P.id)}">Drive folder, captions and comments</a>
     <div class="field"><label for="pf">Followers right now</label><input type="number" id="pf" inputmode="numeric" min="0" value="${followersNow()}"></div>
     <div class="field"><label for="pg">New followers per day</label><input type="number" id="pg" inputmode="numeric" min="0" value="${esc(P.growth)}"></div>
     <div class="field"><label for="pfo">Following</label><input type="number" id="pfo" inputmode="numeric" min="0" value="${esc(P.following)}"></div>
     <div class="field"><span class="lbl">How popular this account is</span><div class="seg" id="plevel">${[["low","Small"],["normal","Normal"],["high","Big"],["viral","Huge"]].map(([k,l])=>`<button type="button" data-plevel="${k}" aria-pressed="${P.level===k}">${l}</button>`).join("")}</div></div>
     <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="pv" ${P.verified?"checked":""} style="width:auto"> Show a verified check</label>
     <button class="btn primary" type="button" data-saveprofile>Save</button>
-    ${S.accounts.length > 1 ? `<button class="btn danger" type="button" data-delacc>Remove this account</button><div class="hint">Its photos go back to the bot and get posted on your other accounts.</div>` : ""}
+    ${S.accounts.length > 1 ? `<button class="btn danger" type="button" data-delacc>Remove this account</button><div class="hint">Its posts are removed from this phone. Nothing in Drive changes.</div>` : ""}
   </div>`;
 }
 
@@ -1520,67 +1538,100 @@ function vSettings(v){
   setTop(`${backBtn}<h1>Settings</h1>`);
   const st = S.settings, signed = !!tokenOK();
   v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Accounts</h3>
+      <div class="hint">Each account has its own Drive folder and its own captions, comments and story text. Tap one to set it up.</div>
+      ${S.accounts.map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : "No Drive folder yet"} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
+      ${S.accounts.length < 5 ? `<button class="btn" type="button" data-switch>Add account</button>` : ""}
+    </div>
     <div class="card"><h3>Google Drive</h3>
-      <div class="field"><label for="sfolder">Main folder name</label><input type="text" id="sfolder" value="${esc(st.folderName)}" placeholder="The exact name of your Drive folder" autocapitalize="off" autocorrect="off"></div>
-      <div class="hint">Files here are split between your accounts with no repeats. Each account can also have its own folder (Edit profile). A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; a subfolder named <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile.</div>
-      <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks your folders every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
+      <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks every account's folder each time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
       <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
       <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
-    </div>
-    <div class="card"><h3>Folders</h3>
-      <div class="hint">An account with its own folder posts only from that folder. The main folder above is split between the accounts that don't have one.</div>
-      ${S.accounts.map(a => `<div class="field"><label for="af_${esc(a.id)}">@${esc(handleOf(a))}'s own folder</label><input type="text" id="af_${esc(a.id)}" data-acctfolder="${esc(a.id)}" value="${esc(a.folderName)}" placeholder="None: uses the main folder" autocapitalize="off" autocorrect="off"></div>`).join("")}
       <button class="btn" type="button" data-reread>Re-read all folders</button>
-      <div class="hint">Use this after moving things around in Drive. It finds every folder again and rebuilds the queue from what's in them now. Posts that are already up stay where they are.</div>
+      <div class="hint">Use this after moving things around in Drive. It finds every folder again and rebuilds each queue from what's in them now. Posts that are already up stay where they are.</div>
       <details><summary class="hint">Google connection details</summary>
         <div class="field" style="margin-top:8px"><label for="sclient">Google client ID</label><input type="text" id="sclient" value="${esc(st.clientId)}" autocapitalize="off" autocorrect="off"></div>
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
-    <div class="card"><h3>The bot</h3>
-      <div class="field"><label for="sint">Posts per day on @${esc(handleOf(A()))}</label><input type="number" id="sint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(A()))}"></div>
-      <div class="hint">Times vary a little each day, and nothing goes up between midnight and 9 AM. Each account has its own pace.</div>
-      <div class="field"><label for="sstories">Stories per day, per account</label><input type="number" id="sstories" min="0" step="1" inputmode="numeric" value="${esc(st.storiesPerDay)}"></div>
-      <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
-      <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
-    <div class="card"><h3>Captions</h3>
-      <div class="seg">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-capstyle="${k}" aria-pressed="${st.captionStyle===k}">${l}</button>`).join("")}</div>
-      <div class="field"><label for="smycap">Your own captions, one per line</label><textarea id="smycap" placeholder="each line can become a caption">${esc(st.myCaptions||"")}</textarea></div>
-      <div class="hint">Your lines are picked three times as often as the built-in ones. Saving them rewrites every auto caption so yours show up right away. Thirst trap mode also makes the commenters thirsty.</div>
-      <button class="btn" type="button" data-recapall>Redo all auto captions</button></div>
     <div class="card"><h3>Caption writer</h3>
-      <div class="hint">Add your Anthropic API key and Claude writes every caption, comment and story text for the photo it's on, following your direction. Without a key, the built-in lines are used.</div>
+      <div class="hint">With your Anthropic API key, Claude writes every caption, comment and story text for the photo it's on, following each account's direction. Without a key, the built-in lines are used.</div>
       <div class="field"><label for="skey">Anthropic API key</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
       <div class="hint">Saved only on this phone. Your photos are sent to Anthropic to write about them. Each caption or batch of comments costs about 1 to 2 cents.</div>
       <button class="btn" type="button" data-testkey>Test the key</button>
-      <div class="field"><label for="dcap">Direction for captions</label><textarea id="dcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(st.capDirection)}</textarea></div>
-      <div class="field"><label for="dcom">Direction for comments</label><textarea id="dcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(st.comDirection)}</textarea></div>
-      <div class="field"><label for="dstory">Direction for story text</label><textarea id="dstory" placeholder="Leave empty to use the caption direction">${esc(st.storyDirection)}</textarea></div>
       <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
-      <button class="btn primary" type="button" data-rewrite="all">Rewrite everything with this direction</button>
-      <div class="seg"><button type="button" data-rewrite="caption">Captions</button><button type="button" data-rewrite="comments">Comments</button><button type="button" data-rewrite="story">Stories</button></div>
-      <div class="hint">Rewriting replaces auto captions, comments and story text, including on posts already up. Captions you typed yourself are kept.</div></div>
-    <div class="card"><h3>Story text</h3>
-      <div class="seg">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-storystyle="${k}" aria-pressed="${st.storyStyle===k}">${l}</button>`).join("")}</div>
-      <div class="field"><label for="smystory">Your own story text, one per line</label><textarea id="smystory" placeholder="short lines work best">${esc(st.myStoryTexts||"")}</textarea></div></div>
-    <div class="card"><h3>Order new files</h3>
-      <div class="seg">${[["name","By name"],["date","Oldest first"],["random","Shuffle"]].map(([k,l])=>`<button type="button" data-order="${k}" aria-pressed="${st.order===k}">${l}</button>`).join("")}</div></div>
+      <button class="btn" type="button" data-rewrite="all">Rewrite every account</button></div>
+    <div class="card"><h3>New accounts</h3>
+      <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
+      <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div>
       <a class="btn" href="#/new">Add photos from this phone instead</a>
       <button class="btn" type="button" data-newworld>Shuffle the fake accounts</button>
       <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
   </div>`;
-  const save = async () => { st.clientId = $("#sclient").value.trim() || CLIENT_ID; const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
-  $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
-  v.querySelectorAll("[data-acctfolder]").forEach(inp => inp.addEventListener("change", async () => { const a = accountById(inp.dataset.acctfolder); const fn = inp.value.trim(); if (fn !== a.folderName){ a.folderName = fn; a.folderId = ""; await saveAccounts(); toast(`@${handleOf(a)} folder saved. Tap Re-read all folders to apply it.`); } }));
+  $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
   $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? "Key saved on this phone" : "Key removed"); if (S.secret.key) writerRun(); });
-  for (const [id, field] of [["dcap","capDirection"],["dcom","comDirection"],["dstory","storyDirection"]]) $("#"+id).addEventListener("change", async e => { st[field] = e.target.value; await saveSettings(); toast("Direction saved. Tap Rewrite to apply it to what's already written."); });
-  $("#smycap").addEventListener("change", async e => { st.myCaptions = e.target.value; await saveSettings(); await redoCaptions(); await autoCaptions(); toast("Captions saved and applied"); });
-  $("#smystory").addEventListener("change", async e => { st.myStoryTexts = e.target.value; await saveSettings(); for (const p of S.posts.filter(p => isStory(p) && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x"))); await savePost(p); } toast("Story text saved"); });
-  $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); A().interval = Math.round(1440/n); await saveAccounts(); await respace(A()); toast(`@${handleOf(A())} posts about ${perDay(A())} a day`); });
-  $("#sstories").addEventListener("change", async e => { st.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); await autoStories(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
-  v.querySelector("[data-sync]").addEventListener("click", save, { capture: true });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
+}
+
+// One account's own setup: its Drive folder, how it posts, and how its captions, comments and stories read.
+function vAset(v, r){
+  const a = accountById(r.a);
+  if (!a){ go("#/settings"); return; }
+  const id = esc(a.id);
+  setTop(`${backBtn}<h1>@${esc(handleOf(a))}</h1>`);
+  const seg = (attr, cur, opts) => `<div class="seg">${opts.map(([k,l]) => `<button type="button" data-${attr}="${k}" data-acct="${id}" aria-pressed="${cur===k}">${l}</button>`).join("")}</div>`;
+  v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Drive folder</h3>
+      <div class="field"><label for="afolder">Folder name or link</label><input type="text" id="afolder" value="${esc(a.folderLink ? a.folderName : a.folderName)}" placeholder="e.g. File, or paste a Drive folder link" autocapitalize="off" autocorrect="off"></div>
+      <button class="btn" type="button" data-pickfolder="${id}">Pick from Drive</button>
+      <div class="hint">Only this account posts from this folder, and nothing is posted twice. A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile. A link works for folders other Google accounts have shared with you.</div>
+    </div>
+    <div class="card"><h3>Posting</h3>
+      <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
+      <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
+      <span class="lbl">Which file goes next</span>
+      ${seg("order", a.order || "random", [["random","Random"],["name","By name"],["date","Oldest first"]])}
+      <div class="hint">Random picks files from the folder in a mixed-up order. Choosing Random again reshuffles what's already queued.</div></div>
+    <div class="card"><h3>Captions</h3>
+      ${seg("capstyle", a.captionStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
+      <div class="field"><label for="amycap">Your own captions, one per line</label><textarea id="amycap" placeholder="each line can become a caption">${esc(a.myCaptions||"")}</textarea></div>
+      <div class="field"><label for="adcap">Direction for Claude</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
+      <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
+      <button class="btn" type="button" data-recapall="${id}">Redo this account's auto captions</button></div>
+    <div class="card"><h3>Comments</h3>
+      <div class="field"><label for="adcom">Direction for Claude</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div></div>
+    <div class="card"><h3>Story text</h3>
+      ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
+      <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
+      <div class="field"><label for="adstory">Direction for Claude</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
+    <div class="card"><h3>Rewrite with Claude</h3>
+      <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Rewrite this account</button>
+      <div class="seg"><button type="button" data-rewrite="caption" data-acct="${id}">Captions</button><button type="button" data-rewrite="comments" data-acct="${id}">Comments</button><button type="button" data-rewrite="story" data-acct="${id}">Stories</button></div>
+      <div class="hint">Replaces this account's auto captions, comments and story text, including on posts already up. Captions you typed yourself are kept.</div></div>
+    <a class="btn" href="#/acct/${id}">Open profile</a>
+  </div>`;
+  $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
+  $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
+  $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
+  for (const [el, field] of [["adcap","capDirection"],["adcom","comDirection"],["adstory","storyDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Direction saved. Tap Rewrite to apply it to what's already written."); });
+  $("#amycap").addEventListener("change", async e => { a.myCaptions = e.target.value; await saveAccounts(); await redoCaptions(a); await autoCaptions(); toast("Captions saved and applied"); });
+  $("#amystory").addEventListener("change", async e => { a.myStoryTexts = e.target.value; await saveAccounts(); for (const p of S.posts.filter(p => isStory(p) && p.acct === a.id && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x")), a); await savePost(p); } toast("Story text saved"); });
+}
+async function pickFolder(a){
+  const token = tokenOK();
+  if (!token){ toast("Sign in to Google first"); sync(false); return; }
+  let list = [];
+  try { list = (await gapi(`files?q=${encodeURIComponent(`mimeType='${FOLDER}' and trashed=false`)}&orderBy=modifiedTime desc&pageSize=100&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, token)).files || []; }
+  catch(e){ toast(e.message === "signin" ? "Sign in to Google first" : "Couldn't list your folders"); if (e.message === "signin") sync(false); return; }
+  const takenBy = id => S.accounts.find(x => x !== a && x.folderId === id);
+  sheet(`<h3>Pick @${esc(handleOf(a))}'s folder</h3>
+    ${list.length ? list.map(f => { const t = takenBy(f.id); return `<button type="button" class="opt" data-fid="${esc(f.id)}" data-fname="${esc(f.name)}">${esc(f.name)}${t ? ` <span class="muted small">(used by @${esc(handleOf(t))})</span>` : ""}${a.folderId === f.id ? " ✓" : ""}</button>`; }).join("") : `<div class="hint">No folders found in your Drive.</div>`}`, async el => {
+      const b = el.closest("[data-fid]"); if (!b) return;
+      closeSheet();
+      Object.assign(a, { folderId: b.dataset.fid, folderName: b.dataset.fname, folderLink: true });
+      await saveAccounts(); toast(`@${handleOf(a)} now posts from ${b.dataset.fname}. Reading it now.`); render(); sync(false, true);
+    });
 }
 
 /* ================= carousel, autoplay, gestures ================= */
@@ -1668,7 +1719,7 @@ document.addEventListener("click", async e => {
   }
   if (d.rewrite){
     if (!S.secret.key){ toast("Add your Anthropic API key first"); return; }
-    for (const p of S.posts){
+    for (const p of S.posts.filter(p => !d.acct || p.acct === d.acct)){
       if ((d.rewrite === "all" || d.rewrite === "caption") && !isStory(p) && p.captionAuto) p.captionWritten = false;
       if ((d.rewrite === "all" || d.rewrite === "comments") && !isStory(p)) p.commentsWritten = false;
       if ((d.rewrite === "all" || d.rewrite === "story") && isStory(p)) p.storyWritten = false;
@@ -1688,10 +1739,11 @@ document.addEventListener("click", async e => {
   if (d.postnow){ const p = S.posts.find(x=>x.id===d.postnow); p.publishAt = now(); await savePost(p); toast("Posted"); render(); return; }
   if (d.follow !== undefined){ const i = +d.follow; followMap()[i] = !isFollowing(i); await saveMisc(); render(); return; }
   if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
-  if (d.capstyle){ S.settings.captionStyle = d.capstyle; await saveSettings(); genCache.clear(); await redoCaptions(); await autoCaptions(); render(); return; }
-  if (d.storystyle){ S.settings.storyStyle = d.storystyle; await saveSettings(); render(); return; }
-  if ("recapall" in d){ await redoCaptions(); toast("Captions redone"); render(); return; }
-  if (d.order){ S.settings.order = d.order; await saveSettings(); render(); return; }
+  if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
+  if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
+  if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
+  if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
+  if (d.order){ const a = accountById(d.acct) || A(); a.order = d.order; await saveAccounts(); if (d.order === "random"){ await shuffleQueue(a); toast("Queue shuffled"); } render(); return; }
   if (d.plevel){ A().level = d.plevel; await saveAccounts(); genCache.clear(); render(); return; }
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
   if (d.hidec){ const p = S.posts.find(x=>x.id===d.p); if (d.hidec.startsWith("g")) p.hidden = [...(p.hidden||[]), d.hidec]; else p.myComments = (p.myComments||[]).filter(c=>c.id!==d.hidec); await savePost(p); render(); return; }
@@ -1725,21 +1777,16 @@ document.addEventListener("click", async e => {
     const P = A();
     P.name = $("#pn").value.trim(); P.handle = $("#ph").value.trim().replace(/^@/,"").replace(/\s+/g,"").toLowerCase();
     P.bio = $("#pb").value; P.link = $("#pl").value.trim();
-    const fn = $("#pfolder").value.trim(); if (fn !== P.folderName){ P.folderName = fn; P.folderId = ""; }
     P.growth = Math.max(0, +$("#pg").value || 0); P.following = Math.max(0, +$("#pfo").value || 0); P.verified = $("#pv").checked;
     const want = Math.max(0, +$("#pf").value || 0);
     P.followers = Math.round(P.followers + want - followersNow(P));
     await saveAccounts(); toast("Profile saved"); history.back();
-    if (fn) sync(true);
     return;
   }
   if ("delacc" in d){
     if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again to remove this account"; return; }
     const gone = A();
-    for (const p of S.posts.filter(p => p.acct === gone.id)){
-      if (isStory(p) && p.source === "reshare"){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
-      p.acct = null; p.publishAt = 0; await savePost(p);
-    }
+    for (const p of S.posts.filter(p => p.acct === gone.id)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); }
     S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
@@ -1781,6 +1828,21 @@ window.addEventListener("hashchange", () => { const r = route(); if ($("#full").
     for (const p of S.posts) if (!p.acct && p.publishAt){ p.acct = a.id; await savePost(p); }
   }
   S.current = (await DB.get("kv","current")) || S.accounts[0].id;
+  {
+    // older versions kept captions, story text and one shared "main" folder in settings
+    const st = S.settings, carry = {};
+    for (const k of PER_ACCOUNT) if (st[k] !== undefined && st[k] !== "") carry[k] = st[k];
+    S.accounts = S.accounts.map(a => ({ ...DEFAULT_ACCOUNT, ...carry, ...a }));
+    if (!st.perAccount){
+      const main = (st.folderName || "").trim();
+      if (main && !S.accounts.some(a => (a.folderName||"").trim().toLowerCase() === main.toLowerCase())){
+        const free = S.accounts.find(a => !hasFolder(a));
+        if (free) Object.assign(free, { folderName: main, folderId: st.folderId || "", folderLink: false });
+      }
+      for (const a of S.accounts){ a.order = "random"; await shuffleQueue(a); }
+      st.folderName = ""; st.folderId = ""; st.perAccount = 1; await saveSettings();
+    }
+  }
   await saveAccounts();
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
