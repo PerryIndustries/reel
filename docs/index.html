@@ -383,6 +383,8 @@ function videoThumb(key){
   const job = thumbChain.then(async () => {
     const tk = key + "_th";
     if (await DB.get("media", tk)) return tk;
+    // decoding video is heavy, so wait for a pause in scrolling
+    while (Date.now() - lastInteract < 1500) await new Promise(r => setTimeout(r, 500));
     const blob = await DB.get("media", key); if (!blob) return "";
     const url = URL.createObjectURL(blob);
     try {
@@ -894,7 +896,6 @@ async function writerRun(){
         const j = jobs[next++];
         try { await writeOne(j); } catch(e){ failure = failure || e; return; }
         done++; setWriter(`Writing ${done} of ${jobs.length}…`);
-        if (done % 4 === 0) safeRender();
       }
     };
     if (jobs.length) setWriter(`Writing 0 of ${jobs.length}…`);
@@ -912,7 +913,13 @@ async function writerRun(){
     else setWriter("Writing stopped: " + (e && e.message ? e.message.slice(0, 160) : "unknown error"));
   } finally { writing = false; }
 }
-function safeRender(){ if (!$("#layer").innerHTML && !$("#full").innerHTML && !["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) render(); }
+let lastInteract = 0, renderLater = 0;
+for (const ev of ["scroll","touchstart","touchmove","wheel"]) window.addEventListener(ev, () => { lastInteract = Date.now(); }, { passive:true });
+function safeRender(){
+  const wait = 3000 - (Date.now() - lastInteract);
+  if (wait > 0){ clearTimeout(renderLater); renderLater = setTimeout(safeRender, wait + 50); return; }
+  if (!$("#layer").innerHTML && !$("#full").innerHTML && !["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) render();
+}
 
 /* ================= Google Drive ================= */
 const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
@@ -1866,9 +1873,6 @@ window.addEventListener("hashchange", () => { const r = route(); if ($("#full").
 
 /* no zooming: pinch and double-tap stay with the app */
 for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEventListener(ev, e => e.preventDefault(), { passive:false });
-document.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); }, { passive:false });
-let lastTouchEnd = 0;
-document.addEventListener("touchend", e => { const t = Date.now(); if (t - lastTouchEnd < 300 && !e.target.closest(".carousel, input, textarea")) e.preventDefault(); lastTouchEnd = t; }, { passive:false });
 
 /* ================= boot ================= */
 (async function boot(){
@@ -1920,7 +1924,7 @@ document.addEventListener("touchend", e => { const t = Date.now(); if (t - lastT
   setInterval(() => autoStories(), 30*60e3);
   setInterval(writerRun, 4*60e3);
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
-  setInterval(() => { const r = route().name; if (["home","me","activity"].includes(r) && !$("#layer").innerHTML && !$("#full").innerHTML && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") render(); }, 60e3);
+  setInterval(() => { if (["home","me","activity","all"].includes(route().name)) safeRender(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
 })();
 </script>
