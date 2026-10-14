@@ -278,7 +278,7 @@ const DB = {
 };
 
 /* ================= state ================= */
-const DEFAULT_SETTINGS = { clientId:"", folderName:"", folderId:"", interval:180, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
+const DEFAULT_SETTINGS = { clientId:"", folderName:"", folderId:"", interval:720, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
 const DEFAULT_PROFILE = { name:"", handle:"", bio:"", link:"", avatar:null, followers:2400, following:312, growth:35, verified:false, startedAt:0 };
 const S = { settings:{...DEFAULT_SETTINGS}, profile:{...DEFAULT_PROFILE}, posts:[], follows:{}, seenAt:0, saved:{} };
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
@@ -401,12 +401,22 @@ function followingCount(){ let n = S.profile.following; for (const [i,v] of Obje
 const live = () => S.posts.filter(p => p.publishAt && p.publishAt <= now()).sort((a,b) => b.publishAt - a.publishAt);
 const queued = () => S.posts.filter(p => p.publishAt && p.publishAt > now()).sort((a,b) => a.publishAt - b.publishAt);
 const waiting = () => S.posts.filter(p => !p.publishAt).sort((a,b) => (a.order??0) - (b.order??0));
+// Next free time for the bot: the post gap with some jitter, never between midnight and 9 AM.
+function humanize(t){
+  const d = new Date(t), h = d.getHours();
+  if (h < 9){ d.setHours(9, 0, 0, 0); return d.getTime() + Math.floor(rng(hashStr("q"+t))()*150)*60e3; }
+  return t;
+}
 function nextSlot(){
-  const step = Math.max(1, +S.settings.interval || 180) * 60e3;
+  const step = Math.max(15, +S.settings.interval || 720) * 60e3;
   const q = queued(); const last = q.length ? q[q.length-1].publishAt : 0;
   const lastLive = live()[0]?.publishAt || 0;
-  return Math.max(now() + 60e3, (last || lastLive) + step);
+  const from = last || lastLive;
+  const jitter = (rng(hashStr("j"+from+S.settings.seed))() - .5) * .5 * step;
+  return humanize(Math.max(now() + 5*60e3, from + step + jitter));
 }
+const perDay = () => Math.round(1440 / (+S.settings.interval || 720) * 10) / 10;
+function runway(){ const Q = queued(); return Q.length ? (Q[Q.length-1].publishAt - now()) / D : 0; }
 async function schedule(posts, mode){
   if (!posts.length) return;
   const step = Math.max(1, +S.settings.interval || 180) * 60e3;
@@ -523,7 +533,7 @@ async function sync(auto){
     let done = 0;
     const tick = label => setSync(label, totalFiles ? done/totalFiles : 1);
     for (const e of entries){
-      if (e.kind === "avatar"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); const key = "d_"+e.f.id; await DB.put("media", blob, key); urls.delete(key); S.profile.avatar = key; S.profile.avatarDrive = e.f.id; await saveProfile(); done++; }
+      if (e.kind === "avatar"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); const key = "d_"+e.f.id; await DB.put("media", blob, key); urls.delete(key); S.profile.avatar = key; S.profile.avatarAuto = false; S.profile.avatarDrive = e.f.id; await saveProfile(); done++; }
       if (e.kind === "bio"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); S.profile.bio = (await blob.text()).trim(); S.profile.bioDrive = e.f.modifiedTime; await saveProfile(); done++; }
     }
     let order = Math.max(0, ...S.posts.map(p => p.order||0));
@@ -544,7 +554,7 @@ async function sync(auto){
     setSync("", 1);
     syncing = false;
     try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
-    await autoSchedule();
+    await autoRun();
     if (!auto) toast(fresh.length ? `The bot picked up ${fresh.length} new ${fresh.length===1?"file":"files"}` : entries.length ? "Profile updated from Drive" : "No new files in the folder");
     render();
   } catch(err){
@@ -558,6 +568,33 @@ function setSync(label, frac){
   const s = $("#syncStatus"), b = $("#syncBar");
   if (s) s.textContent = label; if (b) b.style.width = Math.round(frac*100)+"%";
 }
+async function respace(){
+  const Q = queued(); for (const p of Q){ p.publishAt = 0; await savePost(p); }
+  for (const p of Q){ p.publishAt = nextSlot(); await savePost(p); }
+}
+// No profile picture yet: the bot picks one of your photos.
+async function ensureAvatar(force){
+  if (S.profile.avatar && !force) return;
+  const imgs = allImages().filter(k => k !== S.profile.avatar);
+  if (!imgs.length) return;
+  S.profile.avatar = imgs[Math.floor(Math.random()*imgs.length)]; S.profile.avatarAuto = true; await saveProfile();
+}
+const allImages = () => [...new Set(S.posts.flatMap(p => p.files.filter(f => isImage(f.mime)).map(f => f.key)))];
+function avatarChooser(){
+  const imgs = allImages();
+  sheet(`<h3>Choose a profile photo</h3>
+    ${imgs.length ? `<div class="grid" style="margin:8px 0">${imgs.map(k => `<button type="button" class="tile" data-av="${esc(k)}" style="aspect-ratio:1"><img data-media="${esc(k)}" alt=""></button>`).join("")}</div>` : `<p class="hint">No photos yet. They show up here once the bot has read your Drive folder.</p>`}
+    <button class="opt" data-av="__bot">Let the bot pick another</button>
+    <button class="opt" data-av="__phone">Choose from your phone</button>`, async el => {
+      const b = el.closest("[data-av]"); if (!b) return;
+      const k = b.dataset.av; closeSheet();
+      if (k === "__phone"){ $("#avPicker").click(); return; }
+      if (k === "__bot") await ensureAvatar(true);
+      else { S.profile.avatar = k; S.profile.avatarAuto = false; await saveProfile(); }
+      toast("Profile photo updated"); render();
+    });
+  hydrate($("#layer"));
+}
 // First run: a few posts go up as older posts so the profile isn't empty. After that, everything new joins the bot's queue.
 async function autoSchedule(){
   const W = waiting(); if (!W.length) return;
@@ -566,6 +603,7 @@ async function autoSchedule(){
   if (n) await schedule(W.slice(0, n), "backdate");
   await schedule(W.slice(n), "queue");
 }
+async function autoRun(){ await autoSchedule(); await ensureAvatar(); }
 function askSchedule(posts){
   const n = posts.length;
   const empty = live().length === 0;
@@ -582,7 +620,7 @@ function askSchedule(posts){
       render();
     });
 }
-const intervalLabel = () => { const m = +S.settings.interval||180; return m < 60 ? m+" min" : m % 60 ? (m/60).toFixed(1)+" hours" : (m/60)+(m===60?" hour":" hours"); };
+const intervalLabel = () => { const m = +S.settings.interval||720; return m < 60 ? m+" min" : m % 60 ? (m/60).toFixed(1)+" hours" : (m/60)+(m===60?" hour":" hours"); };
 
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
@@ -682,8 +720,9 @@ function vMe(v, r){
   } else {
     body = `<div class="pad">
       <div class="card" style="margin-top:14px"><h3>The bot</h3>
-        <div class="hint">New files in your Drive folder join this queue by themselves. The bot posts one every ${esc(intervalLabel())}. ${Q.length ? "Next one goes up "+esc(until(Q[0].publishAt))+"." : "Nothing queued right now."}</div>
-        <div class="seg">${[[60,"1h"],[180,"3h"],[360,"6h"],[720,"12h"],[1440,"1 day"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+S.settings.interval===m}">${l}</button>`).join("")}</div>
+        <div class="hint">New files in your Drive folder join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. There's enough for about <b>${Math.max(1, Math.round(runway()))} more ${Math.round(runway())===1?"day":"days"}</b>${runway() < 3 ? ". Add more photos to the folder soon." : "."}` : "The queue is empty, so the bot has nothing to post. Add photos to your Drive folder."}</div>
+        <span class="lbl">Posts per day</span>
+        <div class="seg">${[[2880,"½"],[1440,"1"],[720,"2"],[480,"3"],[288,"5"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+S.settings.interval===m}">${l}</button>`).join("")}</div>
         ${Q.length>1?`<button class="btn" type="button" data-respace>Re-space the queue</button>`:""}
       </div>
       ${W.length ? `<div class="sect">Not scheduled (${W.length})</div><div class="hint">New files from Drive wait here until you pick how to post them.</div>
@@ -842,7 +881,7 @@ function vEdit(v){
   const P = S.profile;
   v.innerHTML = `<div class="pad form">
     <div style="display:flex;align-items:center;gap:14px">${myAv(86)}<button class="btn" type="button" data-avpick style="width:auto">Change photo</button></div>
-    <div class="hint">Or put a file named avatar.jpg in your Drive folder.</div>
+    <div class="hint">${S.profile.avatarAuto ? "The bot picked this one from your photos. " : ""}A file named avatar.jpg in your Drive folder always wins.</div>
     <div class="field"><label for="pn">Name</label><input type="text" id="pn" value="${esc(P.name)}"></div>
     <div class="field"><label for="ph">Username</label><input type="text" id="ph" value="${esc(P.handle)}" autocapitalize="off" autocorrect="off"></div>
     <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
@@ -869,7 +908,8 @@ function vSettings(v){
       <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
     </div>
     <div class="card"><h3>The bot</h3>
-      <div class="field"><label for="sint">Hours between posts</label><input type="number" id="sint" min="0.25" step="0.25" inputmode="decimal" value="${esc((+st.interval||180)/60)}"></div>
+      <div class="field"><label for="sint">Posts per day</label><input type="number" id="sint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay())}"></div>
+      <div class="hint">Times vary a little each day, and nothing goes up between midnight and 9 AM.</div>
       <div class="field"><label for="sstart">Already up on the first run</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
       <div class="hint">The first time it reads your folder, this many files go up as older posts so your profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Order new files</h3>
@@ -884,7 +924,7 @@ function vSettings(v){
   </div>`;
   const save = async () => { st.clientId = $("#sclient").value.trim(); const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
   $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
-  $("#sint").addEventListener("change", async e => { const h = Math.max(.25, +e.target.value || 3); S.settings.interval = Math.round(h*60); await saveSettings(); toast("The bot posts every "+intervalLabel()); });
+  $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); S.settings.interval = Math.round(1440/n); await saveSettings(); await respace(); toast(`The bot posts about ${perDay()} a day`); });
   $("#sstart").addEventListener("change", async e => { S.settings.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   v.querySelector("[data-sync]").addEventListener("click", save, { capture: true });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.length} posts saved.`; });
@@ -960,8 +1000,8 @@ document.addEventListener("click", async e => {
   if (d.postmenu){ postMenu(d.postmenu); return; }
   if (d.postnow){ const p = S.posts.find(x=>x.id===d.postnow); p.publishAt = now(); await savePost(p); toast("Posted"); render(); return; }
   if (d.follow !== undefined){ const i = +d.follow; S.follows[i] = !isFollowing(i); await saveMisc(); render(); return; }
-  if (d.interval){ S.settings.interval = +d.interval; await saveSettings(); toast("The bot posts every "+intervalLabel()); render(); return; }
-  if ("respace" in d){ const step = (+S.settings.interval||180)*60e3; let at = now(); for (const p of queued()){ at += step; p.publishAt = at; await savePost(p); } toast("Queue re-spaced"); render(); return; }
+  if (d.interval){ S.settings.interval = +d.interval; await saveSettings(); await respace(); toast(perDay() >= 1 ? `The bot posts about ${perDay()} a day` : "The bot posts every 2 days"); render(); return; }
+  if ("respace" in d){ await respace(); toast("Queue re-spaced"); render(); return; }
   if ("askwait" in d){ askSchedule(waiting()); return; }
   if (d.order){ S.settings.order = d.order; await saveSettings(); render(); return; }
   if (d.level){ S.settings.level = d.level; await saveSettings(); genCache.clear(); render(); return; }
@@ -970,7 +1010,7 @@ document.addEventListener("click", async e => {
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
   if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
   if ("pick" in d){ $("#picker").click(); return; }
-  if ("avpick" in d){ $("#avPicker").click(); return; }
+  if ("avpick" in d){ avatarChooser(); return; }
   if ("publish" in d){
     if (!draft.files.length){ toast("Choose at least one photo or video"); return; }
     let at = now();
@@ -1018,7 +1058,7 @@ $("#picker").addEventListener("change", async e => {
 });
 $("#avPicker").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  const key = uid("av_"); await DB.put("media", f, key); S.profile.avatar = key; await saveProfile(); render();
+  const key = uid("av_"); await DB.put("media", f, key); S.profile.avatar = key; S.profile.avatarAuto = false; await saveProfile(); render();
 });
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape") closeSheet(); });
 
@@ -1033,7 +1073,7 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id
   S.posts = await DB.all("posts");
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   const back = takeOAuthReturn();
-  await autoSchedule();
+  await autoRun();
   render();
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
   if (back || now() - last > 20*60e3) sync(true);
