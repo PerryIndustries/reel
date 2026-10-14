@@ -232,6 +232,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .close svg{width:28px;height:28px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
 .spec{border-bottom:8px solid var(--line)}
+.caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -357,13 +358,13 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
@@ -718,7 +719,7 @@ async function autoStories(){
       const t = humanize(last + step*(.7 + r()*.6));
       let p = waitingOwn.shift();
       if (p){ p.acct = a.id; p.publishAt = t; p.storyText = p.storyText || storyText(hashStr(p.id), a); }
-      else if (imgs.length){ const f = imgs[Math.floor(r()*imgs.length)]; p = { id: uid("s_"), kind:"story", source:"reshare", acct:a.id, files:[f], publishAt:t, seed:hashStr("s"+t+a.id), storyText: storyText(hashStr("tx"+t+a.id), a) }; }
+      else if (imgs.length){ const shown = new Set(postsOf(a.id, "story").map(x => x.files[0] && x.files[0].key)); const pool = imgs.filter(f => !shown.has(f.key)); const from = pool.length ? pool : imgs; const f = from[Math.floor(r()*from.length)]; p = { id: uid("s_"), kind:"story", source:"reshare", acct:a.id, files:[f], publishAt:t, seed:hashStr("s"+t+a.id), storyText: storyText(hashStr("tx"+t+a.id), a) }; }
       else break;
       await savePost(p); last = t;
     }
@@ -1128,11 +1129,15 @@ function setSync(label, frac){
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
 function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b] = h.split("/"); return { name: name || "home", a, b }; }
-const scrollMem = {}; let curHash = location.hash, wentBack = false;
-window.addEventListener("popstate", () => { wentBack = true; });
+// Each history entry gets a number, so going back can be told apart from opening a new page.
+const scrollMem = {}; let curHash = location.hash, navN = (history.state && history.state.n) || 0;
+if (!history.state || typeof history.state.n !== "number") history.replaceState({ n: navN }, "");
 window.addEventListener("scroll", () => { scrollMem[curHash] = window.scrollY; }, { passive:true });
 window.addEventListener("hashchange", () => {
-  const back = wentBack; wentBack = false; curHash = location.hash;
+  const st = history.state; let back = false;
+  if (st && typeof st.n === "number"){ back = st.n < navN; navN = st.n; } else { navN++; history.replaceState({ n: navN }, ""); }
+  curHash = location.hash;
+  if (!back) homeOrder = null;
   if (!back) postScrolled = "";
   render();
   if (back && scrollMem[curHash]){ const y = scrollMem[curHash]; window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 60); }
@@ -1172,7 +1177,7 @@ function render(){
   const views = { aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
-  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => wireAutoplay(v));
+  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); });
 }
 
 /* ================= views ================= */
@@ -1187,8 +1192,8 @@ function postCard(p){
   const hasStory = activeStories(a.id).length;
   return `<article class="post" data-post="${esc(p.id)}">
     <div class="phead pad">
-      <button type="button" class="ring ${hasStory ? (storyUnseen(a.id) ? "" : "seen") : "none"}" ${hasStory?`data-story="${esc(a.id)}"`:`data-href="#/me"`}>${myAv(32, a)}</button>
-      <div class="who"><b>${esc(handleOf(a))}</b>${checkMark(a.verified)}${p.location?`<div class="small">${esc(p.location)}</div>`:""}</div>
+      <button type="button" class="ring ${hasStory ? (storyUnseen(a.id) ? "" : "seen") : "none"}" ${hasStory?`data-story="${esc(a.id)}"`:`data-href="#/acct/${esc(a.id)}"`}>${myAv(32, a)}</button>
+      <div class="who"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a>${checkMark(a.verified)}${p.location?`<div class="small">${esc(p.location)}</div>`:""}</div>
       <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Post options">${I.dots}</button>
     </div>
     <div class="carousel" data-dbl="${esc(p.id)}">
@@ -1205,10 +1210,10 @@ function postCard(p){
         <button type="button" data-save="${esc(p.id)}" aria-label="Save">${S.saved[p.id]?I.saveOn:I.save}</button>
       </div>
       ${vid ? `<div class="likes num">${full(e.views)} views</div>` : ""}
-      <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b>${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
-      ${p.caption?`<div class="caption clamp"><b>${esc(handleOf(a))}</b> ${esc(p.caption)}</div>`:""}
+      <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b data-href="#/u/${liker.i}">${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
+      ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
-      ${vc.slice(-2).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><b>${esc(f ? f.handle : handleOf(a))}</b> ${esc(c.text)}</div>`; }).join("")}
+      ${vc.slice(-2).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
       <div class="when">${esc(ago(p.publishAt, true))}</div>
     </div>
   </article>`;
@@ -1219,9 +1224,15 @@ function storyTray(){
   if (!items.length) return "";
   return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
+let homeOrder = null;
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button>`);
-  const L = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
+  const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
+  if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id])].map(p => p.id), fresh: fresh.length }; }
+  const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
+  const added = all.filter(p => !pos.has(p.id));
+  const L = [...added, ...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean)];
+  const splitAt = added.length + homeOrder.fresh;
   const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
   if (!L.length){
     const setup = !hasSetup();
@@ -1230,7 +1241,7 @@ function vHome(v){
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  v.innerHTML = banner + storyTray() + L.map(postCard).join("");
+  v.innerHTML = banner + storyTray() + L.map((p, i) => (i === splitAt && splitAt > 0 && splitAt < L.length ? `<div class="caught pad"><b>You're all caught up</b><div class="hint">Posts you've already seen</div></div>` : "") + postCard(p)).join("");
 }
 
 function profileHeader(o){
@@ -1448,7 +1459,7 @@ async function openReels(list, startId){
         <button type="button" data-share>${I.share}</button>
         <button type="button" data-rmute>${I.muted}</button>
       </div>
-      <div class="info"><div class="u">${myAv(32, a)}<span>${esc(handleOf(a))}</span>${checkMark(a.verified)}</div><div class="clamp">${esc(p.caption||"")}</div><div class="small" style="opacity:.85;margin-top:4px">${full(e.views)} views · ${esc(ago(p.publishAt))}</div></div>
+      <div class="info"><a class="u" href="#/acct/${esc(a.id)}" data-closefull>${myAv(32, a)}<span>${esc(handleOf(a))}</span>${checkMark(a.verified)}</a><div class="clamp">${esc(p.caption||"")}</div><div class="small" style="opacity:.85;margin-top:4px">${full(e.views)} views · ${esc(ago(p.publishAt))}</div></div>
     </section>`; }).join("")}</div>`;
   const rv = $("#rv");
   rv.scrollTop = start * rv.clientHeight;
@@ -1487,7 +1498,7 @@ function openStories(aid){
     $("#full").innerHTML = `<div class="full sv" id="sv">
       <div class="media">${isVideo(f.mime) ? `<video data-media="${esc(f.key)}" playsinline autoplay ${reelsMuted?"muted":""}></video>` : `<img data-media="${esc(f.key)}" alt="">`}</div><div class="shade"></div>
       <div class="bars">${list.map((_,k) => `<div class="bar"><i style="width:${k<i?100:0}%"></i></div>`).join("")}</div>
-      <div class="hd">${myAv(32, a)}<b>${esc(handleOf(a))}</b><span style="opacity:.75">${esc(ago(p.publishAt))}</span><span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
+      <div class="hd"><button type="button" data-sprof="${esc(a.id)}" style="display:flex;align-items:center;gap:8px;color:inherit">${myAv(32, a)}<b>${esc(handleOf(a))}</b></button><span style="opacity:.75">${esc(ago(p.publishAt))}</span><span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
       ${p.storyText ? `<div class="txt"><span>${esc(p.storyText)}</span></div>` : ""}
       <div class="taps"><button type="button" data-sprev aria-label="Previous"></button><button type="button" data-snext aria-label="Next"></button></div>
       <div class="ft">${`<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
@@ -1506,6 +1517,7 @@ function openStories(aid){
   $("#full").onclick = async e => {
     const t = e.target.closest("button"); if (!t) return;
     if ("sclose" in t.dataset){ closeFull(); render(); return; }
+    if (t.dataset.sprof){ closeFull(); go("#/acct/" + t.dataset.sprof); return; }
     if ("snext" in t.dataset) return next();
     if ("sprev" in t.dataset) return prev();
     if (t.dataset.sviews){ const id = t.dataset.sviews; closeFull(); go("#/list/views/"+id); return; }
@@ -1699,6 +1711,18 @@ function wireCarousels(root){
   }
 }
 let feedMuted = true, autoIO = null;
+// A post counts as seen once it has been mostly on screen for a second.
+let seenIO = null, seenSave = 0;
+function wireSeen(root){
+  if (seenIO) seenIO.disconnect();
+  const timers = new Map();
+  seenIO = new IntersectionObserver(es => es.forEach(en => {
+    const id = en.target.dataset.post; if (!id || S.postSeen[id]) return;
+    if (en.isIntersecting) timers.set(id, setTimeout(() => { S.postSeen[id] = now(); clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500); }, 1000));
+    else { clearTimeout(timers.get(id)); timers.delete(id); }
+  }), { threshold: .5 });
+  root.querySelectorAll("article.post[data-post]").forEach(el => seenIO.observe(el));
+}
 function wireAutoplay(root){
   if (autoIO) autoIO.disconnect();
   autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
@@ -1753,7 +1777,7 @@ document.addEventListener("click", async e => {
   const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim") || t.closest("#full")) return;
   const d = t.dataset;
   if (d.story){ openStories(d.story); return; }
-  if (d.href){ go(d.href); return; }
+  if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab){ go(d.tab === "home" ? "#/" : d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
   if ("testkey" in d){
@@ -1911,7 +1935,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   const back = takeOAuthReturn();
   await autoRun();
@@ -1923,6 +1947,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   setInterval(() => sync(true), 30*60e3);
   setInterval(() => autoStories(), 30*60e3);
   setInterval(writerRun, 4*60e3);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") homeOrder = null; });
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
   setInterval(() => { if (["home","me","activity","all"].includes(route().name)) safeRender(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
