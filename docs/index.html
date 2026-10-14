@@ -279,7 +279,7 @@ const DB = {
 
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
-const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", interval:720, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
+const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", interval:720, starter:9, captionStyle:"thirst", myCaptions:"", order:"name", level:"normal", seed:0, ignored:[] };
 const DEFAULT_PROFILE = { name:"", handle:"", bio:"", link:"", avatar:null, followers:2400, following:312, growth:35, verified:false, startedAt:0 };
 const S = { settings:{...DEFAULT_SETTINGS}, profile:{...DEFAULT_PROFILE}, posts:[], follows:{}, seenAt:0, saved:{} };
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
@@ -315,6 +315,33 @@ const LAST = ["Reyes","Carter","Nguyen","Brooks","Kim","Santos","Bennett","Park"
 const WORDS = ["lens","daily","films","vibes","studio","raw","jpg","archive","szn","club","fit","eats","travels","world","motion","tone","goes","ok","irl","hq"];
 const BIOS = ["coffee first ☕","just here for the vibes","📍 LA","photos + bad jokes","living slowly","catch me outside","gym · food · repeat","sunsets collector 🌅","dog parent 🐶","new music fridays","travel when I can ✈️","film camera era 📷","ok but where's the food","always on the move","main character energy","designer by day","night owl 🌙","plant mom 🌿","say less","here for the comments",""];
 const COMMENTS = ["this is so good 🔥","obsessed with this","okay this one 😮‍💨","need this energy today","🔥🔥🔥","the lighting here 😍","W post","insane shot","who took this?? 📸","lowkey iconic","can't stop looking at this","vibes are immaculate","the fit 🔥","goals fr","so clean","you're glowing ✨","this is a whole mood","where is this??","ok you ate this","😍😍","looking great!!","main character moment","need the details on this","love this so much","stunning","you never miss","best one yet","this made my day","the colors 🤌","framing this","yesss","❤️❤️❤️","no because this is perfect","the confidence 👏","what camera do you use?","living your best life","been waiting for this post","straight to my saved","I see you 👀","elite","so proud of you","literally perfect","this is art","haha love it","okay I'm jealous","bring me next time","the way this turned out 😭","10/10","post more like this","how are you this photogenic"];
+const THIRST = [
+"caught you looking 👀","you're welcome","thought you could use a distraction","not my fault you're staring","dangerous in the best way",
+"your new favorite view","don't fall in love","too late, you already looked twice","behave. or don't 😈","come closer",
+"i'll let you think about this one","main character, side effects included","woke up dangerous","the audacity of this angle","you can look. touching is negotiable",
+"mind if i ruin your focus for a sec","proof i'm a menace","careful, i bite 😏","ask me what i'm doing later","accidentally hot again",
+"felt cute, might ruin your day","your screen is about to get warm","i know what you're thinking. same.","this is your sign to text me","not a thirst trap. ok it is.",
+"thirst trap? i prefer public service","hydrate. you'll need it 💦","warning: may cause staring","heart rate check ❤️‍🔥","bet you zoomed in",
+"zoom in, i dare you","rate the view 1-10, wrong answers only","pov: you lost focus","dm me your excuses","one more scroll and you're mine",
+"they said post less. i said no","serving looks, no refunds","sorry about your timeline","making it hard to concentrate since forever","keep staring, it's free",
+"the reason you're still awake","distract me","come find out","i clean up nice. i mess up nicer 😈","i look innocent, don't i",
+"not a snack. the whole meal 🍽️","warming up the feed","spicy on purpose 🌶️","if you're reading this, you looked too long","leave a 🔥 if you're down bad",
+"call me trouble, everyone else does","temptation looks good on me","good lighting, bad intentions","bad intentions, great angles","sweet face, sinful thoughts",
+"currently accepting compliments and bad decisions","risky behavior 📸","confidence is the best outfit. the rest is optional","less talking, more looking","your crush could never",
+"your ex is typing…","sent this to the group chat and they gasped","brb, setting the internet on fire","oops. did i do that?","just a little something for your 2am scroll",
+"late night content 🌙","saving this one for the ones who stayed up","it's giving dangerous","handle with care","not for the faint of heart",
+"tell me i'm your type without telling me","low effort, high impact","in my thirst trap era and the people are thirsty","posted this for science. results pending in my DMs","plot twist: i knew you'd like it",
+"you looked. i saw.","careful what you wish for 😏","say less, look more","bedroom eyes, morning light","you up?",
+"what's your excuse for staring","just me, being a problem","your favorite distraction, back again","lights low, standards high","made this one a little too hot, my bad",
+"you weren't supposed to see this. kidding, you were","dress code: optional","a little bit of trouble never hurt anyone","stop scrolling, start sweating","i don't do subtle",
+"ruining your productivity one post at a time","good morning to everyone except whoever has to look at this and stay calm","this angle should come with a warning label","i'll be in your thoughts tonight","not sorry 💋",
+"ok who turned the heat up","rare footage of me behaving. jk","feeling dangerous, might delete later","admit it, you saved it","this post is a test. you failed 😏"
+];
+const THIRST_COMMENTS = ["who allowed this","down bad rn","the audacity 😳","why post this at 2am 😭","CALM DOWN","respectfully… wow","not me zooming in","the internet isn't ready",
+"i need a minute","stop it right now 😩","called in sick to look at this","saving this for research","ok i'm blushing","this should be illegal","my screen is fogging up","help 🫠",
+"ugh fine, followed","delete this before i fall in love","threat 😮‍💨","be serious rn","the caption 💀","you did this on purpose","hydrating rn 💦","sending this to my therapist",
+"i'm screaming","the way i gasped","sinful","no one is safe","dangerous behavior","i'm not okay","sir/ma'am/whoever, please","this is a crime scene 🚨","okay but WHO took this",
+"have mercy 😭","my type exactly","i'd risk it all","fire department on the way 🚒","feeling unwell after this","the thirst is real","rent free in my head now"];
 const POOL = 240;
 const acctCache = new Map();
 function acct(i){
@@ -366,7 +393,7 @@ function engage(p){
 }
 const genCache = new Map();
 function genComments(p){
-  const key = p.id+"|"+(p.commentsTarget??"")+"|"+(p.likesTarget??"")+"|"+S.settings.level+"|"+S.settings.seed;
+  const key = p.id+"|"+(p.commentsTarget??"")+"|"+(p.likesTarget??"")+"|"+S.settings.level+"|"+S.settings.seed+"|"+S.settings.captionStyle;
   if (genCache.has(key)) return genCache.get(key);
   const r = rng(p.seed ^ 0x9e3779b9);
   const lv = LEVEL[S.settings.level] || 1;
@@ -379,7 +406,8 @@ function genComments(p){
   for (let k=0;k<n;k++){
     let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = -7*H*Math.log(1 - r()*.97) + r()*120e3;
-    out.push({ id:"g"+k, acct:ai, text: pick(COMMENTS,r), at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
+    const thirsty = S.settings.captionStyle === "thirst" && r() < .7;
+    out.push({ id:"g"+k, acct:ai, text: pick(thirsty ? THIRST_COMMENTS : COMMENTS, r), at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
   genCache.set(key, out); return out;
 }
@@ -604,7 +632,25 @@ async function autoSchedule(){
   if (n) await schedule(W.slice(0, n), "backdate");
   await schedule(W.slice(n), "queue");
 }
-async function autoRun(){ await autoSchedule(); await ensureAvatar(); }
+function captionPool(){
+  const mine = (S.settings.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
+  return [...mine, ...mine, ...(S.settings.captionStyle === "thirst" ? THIRST : [])];
+}
+function genCaption(p, attempt){
+  const pool = captionPool(); if (!pool.length) return "";
+  const used = new Set(S.posts.map(x => x.caption));
+  const fresh = pool.filter(c => !used.has(c));
+  const r = rng((p.seed ^ hashStr("cap"+(attempt||0))) >>> 0);
+  return pick(fresh.length ? fresh : pool, r);
+}
+async function autoCaptions(){
+  for (const p of S.posts){
+    if (p.caption || p.captionManual) continue;
+    const c = genCaption(p); if (!c) return;
+    p.caption = c; p.captionAuto = true; await savePost(p);
+  }
+}
+async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatar(); }
 function askSchedule(posts){
   const n = posts.length;
   const empty = live().length === 0;
@@ -913,6 +959,11 @@ function vSettings(v){
       <div class="hint">Times vary a little each day, and nothing goes up between midnight and 9 AM.</div>
       <div class="field"><label for="sstart">Already up on the first run</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
       <div class="hint">The first time it reads your folder, this many files go up as older posts so your profile isn't empty. The rest are posted one at a time.</div></div>
+    <div class="card"><h3>Captions</h3>
+      <div class="seg" id="scap">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-capstyle="${k}" aria-pressed="${(st.captionStyle||"off")===k}">${l}</button>`).join("")}</div>
+      <div class="field"><label for="smycap">Your own captions, one per line</label><textarea id="smycap" placeholder="these get mixed in, and used twice as often">${esc(st.myCaptions||"")}</textarea></div>
+      <div class="hint">Every post without a caption gets one automatically, and the bot avoids repeats. A .txt caption in Drive always wins. To swap one, tap ⋯ on the post, then New caption.</div>
+      <button class="btn" type="button" data-recapall>Redo all auto captions</button></div>
     <div class="card"><h3>Order new files</h3>
       <div class="seg" id="sorder">${[["name","By name"],["date","Oldest first"],["random","Shuffle"]].map(([k,l])=>`<button type="button" data-order="${k}" aria-pressed="${st.order===k}">${l}</button>`).join("")}</div></div>
     <div class="card"><h3>How popular you are</h3>
@@ -925,6 +976,7 @@ function vSettings(v){
   </div>`;
   const save = async () => { st.clientId = $("#sclient").value.trim(); const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
   $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
+  $("#smycap").addEventListener("change", async e => { S.settings.myCaptions = e.target.value; await saveSettings(); await autoCaptions(); toast("Captions saved"); });
   $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); S.settings.interval = Math.round(1440/n); await saveSettings(); await respace(); toast(`The bot posts about ${perDay()} a day`); });
   $("#sstart").addEventListener("change", async e => { S.settings.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   v.querySelector("[data-sync]").addEventListener("click", save, { capture: true });
@@ -967,6 +1019,7 @@ function postMenu(id){
   sheet(`${p.publishAt && p.publishAt <= now() ? "" : `<button class="opt" data-o="now">Post now</button>`}
     <button class="opt" data-o="edit">Edit caption, likes, comments, date</button>
     ${p.publishAt && p.publishAt <= now() ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
+    <button class="opt" data-o="recap">New caption</button>
     <button class="opt" data-o="copy">Copy caption</button>
     <button class="opt red" data-o="del">Delete</button>`, async el => {
       const b = el.closest("[data-o]"); if (!b) return;
@@ -976,6 +1029,7 @@ function postMenu(id){
       if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
       if (o === "edit") go("#/editpost/"+p.id);
       if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
+      if (o === "recap"){ p.capTry = (p.capTry||0) + 1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; p.captionAuto = true; p.captionManual = false; await savePost(p); toast("New caption"); } else toast("Turn on captions in settings first"); render(); }
       if (o === "copy"){ try { await navigator.clipboard.writeText(p.caption||""); toast("Copied"); } catch(_){ toast("Couldn't copy"); } }
     });
 }
@@ -1004,6 +1058,8 @@ document.addEventListener("click", async e => {
   if (d.interval){ S.settings.interval = +d.interval; await saveSettings(); await respace(); toast(perDay() >= 1 ? `The bot posts about ${perDay()} a day` : "The bot posts every 2 days"); render(); return; }
   if ("respace" in d){ await respace(); toast("Queue re-spaced"); render(); return; }
   if ("askwait" in d){ askSchedule(waiting()); return; }
+  if (d.capstyle){ S.settings.captionStyle = d.capstyle; await saveSettings(); genCache.clear(); await autoCaptions(); render(); return; }
+  if ("recapall" in d){ for (const p of S.posts) if (p.captionAuto){ p.caption = ""; await savePost(p); } for (const p of S.posts) if (!p.caption && !p.captionManual && p.captionAuto !== undefined){ p.capTry = (p.capTry||0)+1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; await savePost(p); } } toast("Captions redone"); render(); return; }
   if (d.order){ S.settings.order = d.order; await saveSettings(); render(); return; }
   if (d.level){ S.settings.level = d.level; await saveSettings(); genCache.clear(); render(); return; }
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
@@ -1017,7 +1073,7 @@ document.addEventListener("click", async e => {
     let at = now();
     if (draft.mode === "queue") at = nextSlot();
     if (draft.mode === "at" || draft.mode === "back"){ at = new Date(draft.at).getTime(); if (!at){ toast("Pick a date and time"); return; } }
-    const p = { id: uid("p_"), source:"local", files: draft.files, caption: draft.caption.trim(), createdAt: now(), publishAt: at, seed: hashStr(uid("s")), order: 0, myComments: [], hidden: [] };
+    const p = { id: uid("p_"), source:"local", files: draft.files, caption: draft.caption.trim(), captionManual: !!draft.caption.trim(), createdAt: now(), publishAt: at, seed: hashStr(uid("s")), order: 0, myComments: [], hidden: [] };
     await savePost(p);
     if (at < (S.profile.startedAt || now())){ S.profile.startedAt = at - 3*D; await saveProfile(); }
     draft = { files: [], caption:"", mode:"now", at:"" };
@@ -1026,7 +1082,7 @@ document.addEventListener("click", async e => {
   }
   if (d.savepost){
     const p = S.posts.find(x=>x.id===d.savepost);
-    p.caption = $("#ecap").value.trim(); p.location = $("#eloc").value.trim();
+    const cap = $("#ecap").value.trim(); if (cap !== p.caption){ p.caption = cap; p.captionManual = true; p.captionAuto = false; } p.location = $("#eloc").value.trim();
     const w = new Date($("#ewhen").value).getTime(); if (w) p.publishAt = w;
     const l = $("#elikes").value, c = $("#ecom").value;
     p.likesTarget = l === "" ? undefined : Math.max(0, +l); p.commentsTarget = c === "" ? undefined : Math.max(0, +c);
