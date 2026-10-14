@@ -452,8 +452,8 @@ function acct(i){
   const a = { i, handle, name: gamerName(handle, r), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
   acctCache.set(i, a); return a;
 }
-// Every fake account gets a picture: pictures from a Drive folder named "pfps" when there are any,
-// casual-selfie faces (AI-generated adults who don't exist), and a share of blank defaults like real lurkers.
+// Every fake account gets a picture: pictures from a Drive folder named "pfps" when there are any, otherwise
+// anime characters (adult men only, reviewed), random photos with no people in them, and some blank defaults.
 let pfpIndex = null, pfpLoading = null;
 const pfpCache = new Map();
 function loadPfps(){
@@ -471,22 +471,23 @@ function pfpFor(a){
     const r0 = rng(hashStr("perm" + S.settings.seed));
     const shuffle = n => { const o = Array.from({length:n}, (_,k) => k); for (let k = n-1; k > 0; k--){ const j = Math.floor(r0()*(k+1)); [o[k], o[j]] = [o[j], o[k]]; } return o; };
     const mine = S.settings.customPfps || [];
-    pfpPerm = { s: shuffle(pfpIndex.selfies.length), a: shuffle((pfpIndex.anime || []).length), c: shuffle(mine.length) };
+    pfpPerm = { a: shuffle(pfpIndex.anime.length), p: shuffle(pfpIndex.photos.length), c: shuffle(mine.length) };
   }
   const mine = S.settings.customPfps || [];
   const k = rng(a.seed ^ 0x3c6ef372)();
   let uri;
   if (mine.length && k < .7){ pfpCache.set(a.i, "media:" + mine[pfpPerm.c[a.i % pfpPerm.c.length]]); return pfpCache.get(a.i); }
   const k2 = mine.length ? (k - .7) / .3 : k;
-  if (k2 < .3 || !pfpIndex.selfies.length) uri = BLANK_PFP;
-  else uri = "pfp/" + pfpIndex.selfies[pfpPerm.s[a.i % pfpPerm.s.length]];
+  if (k2 < .1) uri = BLANK_PFP;
+  else if (k2 < .65) uri = pfpIndex.anime[pfpPerm.a[a.i % pfpPerm.a.length]];
+  else uri = "pfp/" + pfpIndex.photos[pfpPerm.p[a.i % pfpPerm.p.length]];
   pfpCache.set(a.i, uri);
   return uri;
 }
 function acctAv(a, size){
   const pic = pfpFor(a);
   if (pic && pic.startsWith("media:")) return `<span class="av s${size}"><img data-media="${esc(pic.slice(6))}" alt=""></span>`;
-  if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy"></span>`;
+  if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy" ${pic.startsWith("http") ? 'style="object-position:50% 18%"' : ""}></span>`;
   loadPfps();
   return `<span class="av s${size}" style="background:#dbdbdb"></span>`;
 }

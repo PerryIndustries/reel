@@ -15,10 +15,11 @@ A private photo feed for your phone. A bot posts from a Google Drive folder on a
 `python tools/make_icons.py`
 
 ## Fake-account profile pictures
-- A Drive subfolder named `pfps` (inside any of your folders) supplies most commenters' pictures; pick whatever
-  vibe you want there. Those files are never posted.
-- Built in: `docs/pfp/s*.jpg`, casual-selfie versions of AI-generated faces (thispersondoesnotexist.com, people
-  who don't exist), made by `python tools/make_pfps.py selfies` from `tools/raw_faces/` (not committed). Every
-  face was reviewed by eye and anything that could pass for under 18 was removed, including its raw source.
-  Re-run `python tools/make_pfps.py index` after any change.
-- About 30% of the built-in picks are the blank default silhouette.
+- A Drive subfolder named `pfps` (inside any of your folders) supplies most commenters' pictures. Never posted.
+- Otherwise `docs/pfp/index.json` lists the built-ins:
+  - `anime`: AniList character image links (loaded on the phone, not stored here). Picked from the most-favourited
+    characters with gender "Male" and every listed age 18+, then reviewed by eye; anything that looked young or
+    could read as female was dropped.
+  - `photos`: `docs/pfp/r*.jpg`, free-license Lorem Picsum (Unsplash) photos, reviewed by eye so none has a person in it.
+  - About 10% of accounts get the blank default silhouette.
+- No photos of people are used.

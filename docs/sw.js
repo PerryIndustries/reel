@@ -1,5 +1,5 @@
 // Offline support for the app shell. Your photos live in the app's own storage, not here.
-const CACHE = "reel-v10";
+const CACHE = "reel-v11";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -18,7 +18,7 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
   // Pinned library versions from the CDN never change, so keep a copy for offline use.
-  if (new URL(req.url).origin === "https://cdn.jsdelivr.net"){
+  if (["https://cdn.jsdelivr.net", "https://s4.anilist.co"].includes(new URL(req.url).origin)){
     e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })));
     return;
   }
