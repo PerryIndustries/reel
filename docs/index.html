@@ -26,7 +26,9 @@
   --bg:#000000; --fg:#f4f4f6; --muted:#a0a0ab; --line:#26262b; --soft:#141417;
   --accent:#ff7350; --accent-fg:#160803; --heart:#ff3b55; --link:#7c9cff; color-scheme:dark}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;height:100%}
+html,body{margin:0}
+html{height:100%}
+body{min-height:100%}
 body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--font);overscroll-behavior-y:none}
 [hidden]{display:none!important}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
@@ -228,6 +230,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff}
 .rv .close svg{width:28px;height:28px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
+.spec{border-bottom:8px solid var(--line)}
 </style>
 </head>
 <body>
@@ -358,7 +361,44 @@ async function mediaURL(key){
   if (!blob) return "";
   const u = URL.createObjectURL(blob); urls.set(key, u); return u;
 }
+// iPhone shows a black box for a video that hasn't played, so every video gets a still frame.
+let thumbChain = Promise.resolve();
+const thumbJobs = new Map();
+function videoThumb(key){
+  if (thumbJobs.has(key)) return thumbJobs.get(key);
+  const job = thumbChain.then(async () => {
+    const tk = key + "_th";
+    if (await DB.get("media", tk)) return tk;
+    const blob = await DB.get("media", key); if (!blob) return "";
+    const url = URL.createObjectURL(blob);
+    try {
+      const el = document.createElement("video"); el.muted = true; el.playsInline = true; el.setAttribute("playsinline", ""); el.preload = "auto"; el.src = url;
+      await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = rej; setTimeout(rej, 15000); el.play().catch(() => {}); });
+      el.pause();
+      el.currentTime = Math.min(1, (el.duration || 3) / 3);
+      await new Promise(res => { el.onseeked = res; setTimeout(res, 3000); });
+      const w = el.videoWidth, h = el.videoHeight; if (!w || !h) return "";
+      const k = Math.min(1, 720 / Math.max(w, h));
+      const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+      c.getContext("2d").drawImage(el, 0, 0, c.width, c.height);
+      const out = await new Promise(res => c.toBlob(res, "image/jpeg", .82)); if (!out) return "";
+      await DB.put("media", out, tk); return tk;
+    } catch(e){ return ""; } finally { URL.revokeObjectURL(url); }
+  });
+  thumbChain = job.catch(() => {});
+  thumbJobs.set(key, job); job.then(tk => { if (!tk) thumbJobs.delete(key); });
+  return job;
+}
 async function hydrate(root){
+  for (const el of root.querySelectorAll("video[data-media]:not([data-th])")){
+    el.dataset.th = "1";
+    videoThumb(el.dataset.media).then(async tk => {
+      if (!tk || !el.isConnected) return;
+      const tu = await mediaURL(tk);
+      if (el.dataset.poster){ const img = document.createElement("img"); img.src = tu; img.alt = ""; if (el.className) img.className = el.className; el.replaceWith(img); }
+      else el.poster = tu;
+    });
+  }
   for (const el of root.querySelectorAll("[data-media]")){
     if (el.getAttribute("src")) continue;
     const u = await mediaURL(el.dataset.media);
@@ -502,7 +542,7 @@ function tileArt(a, k){
   return `background:radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h3} 80% 70% / .9), transparent ${30+Math.floor(r()*30)}%),radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h1} 70% 55%), transparent 70%),linear-gradient(${Math.floor(r()*360)}deg,hsl(${h1} 55% 35%),hsl(${h2} 60% 55%))`;
 }
 const checkMark = v => v ? `<span class="check">${I.check}</span>` : "";
-const handleOf = a => (a && a.handle) || "you";
+const handleOf = a => (a && a.handle) || "unnamed" + (a ? S.accounts.indexOf(a) + 1 : "");
 
 /* ================= fake world: growth + engagement ================= */
 const LEVEL = { low:.45, normal:1, high:2.2, viral:5 };
@@ -579,7 +619,7 @@ function likerSample(p, n){
 const followMap = () => (S.follows[A().id] ||= {});
 function baseFollowing(i){ return rng(hashStr("fol"+i+A().seed))() < .35; }
 function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
-function followsYou(i){ return rng(hashStr("fy"+i+A().seed))() < .8; }
+function followsYou(i, o){ return rng(hashStr("fy"+i+(o || A()).seed))() < .8; }
 function followingCount(){ let n = A().following; for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n; }
 
 /* ================= posts + bot ================= */
@@ -1029,14 +1069,40 @@ function setSync(label, frac){
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
 function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b] = h.split("/"); return { name: name || "home", a, b }; }
-window.addEventListener("hashchange", () => { render(); window.scrollTo(0,0); });
+const scrollMem = {}; let curHash = location.hash, wentBack = false;
+window.addEventListener("popstate", () => { wentBack = true; });
+window.addEventListener("scroll", () => { scrollMem[curHash] = window.scrollY; }, { passive:true });
+window.addEventListener("hashchange", () => {
+  const back = wentBack; wentBack = false; curHash = location.hash;
+  if (!back) postScrolled = "";
+  render();
+  if (back && scrollMem[curHash]){ const y = scrollMem[curHash]; window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 60); }
+  else if (route().name !== "p" || postScrolled !== location.hash) window.scrollTo(0,0);
+});
+// Swipe sideways on any page you opened (a post, comments, a profile, a list) to go back.
+let swipe = null;
+document.addEventListener("touchstart", e => {
+  if (e.touches.length !== 1){ swipe = null; return; }
+  const t = e.touches[0];
+  swipe = { x:t.clientX, y:t.clientY, at:Date.now(), inner: !!e.target.closest(".slides, input, textarea, .seg") };
+}, { passive:true });
+document.addEventListener("touchend", e => {
+  const s = swipe; swipe = null; if (!s) return;
+  const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+  if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * .6 || Date.now() - s.at > 800) return;
+  if (s.inner && s.x > 30) return;
+  if ($("#layer").innerHTML || $("#full").innerHTML) return;
+  if (["home","reels","activity","me","all"].includes(route().name)) return;
+  const vw = $("#view"); vw.style.transition = "transform .18s ease-out, opacity .18s"; vw.style.transform = `translateX(${dx > 0 ? 40 : -40}%)`; vw.style.opacity = "0";
+  setTimeout(() => { vw.style.transition = ""; vw.style.transform = ""; vw.style.opacity = ""; if (history.length > 1) history.back(); else go("#/"); }, 170);
+}, { passive:true });
 function setTop(html){ $("#top").innerHTML = html; }
 const backBtn = `<button class="iconbtn" type="button" data-back aria-label="Back">${I.back}</button>`;
 
 function render(){
   const r = route();
   for (const b of document.querySelectorAll(".tabbar [data-tab]")){
-    const t = b.dataset.tab; const on = t === r.name;
+    const t = b.dataset.tab; const on = t === r.name || (t === "me" && r.name === "all");
     b.classList.toggle("on", on);
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
     if (t === "reels") b.innerHTML = on ? I.reelsOn : I.reels;
@@ -1044,7 +1110,7 @@ function render(){
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
-  const views = { home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  const views = { all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => wireAutoplay(v));
@@ -1092,12 +1158,11 @@ const storyUnseen = aid => activeStories(aid).some(p => !S.storySeen[p.id]);
 function storyTray(){
   const items = S.accounts.filter(a => activeStories(a.id).length).sort((x,y) => (storyUnseen(y.id)?1:0) - (storyUnseen(x.id)?1:0) || (x.id === S.current ? -1 : 1));
   if (!items.length) return "";
-  return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${a.id === S.current ? "Your story" : esc(handleOf(a))}</span></button>`).join("")}</div>`;
+  return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
 function vHome(v){
-  const multi = S.accounts.length > 1;
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button>`);
-  const L = live();
+  const L = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
   if (!L.length){
     const setup = !hasSetup();
@@ -1106,7 +1171,7 @@ function vHome(v){
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  v.innerHTML = banner + storyTray() + (multi ? `<div class="pad hint" style="padding-top:8px">Showing @${esc(handleOf(A()))}. Switch accounts on your profile.</div>` : "") + L.map(postCard).join("");
+  v.innerHTML = banner + storyTray() + L.map(postCard).join("");
 }
 
 function profileHeader(o){
@@ -1126,12 +1191,12 @@ function profileHeader(o){
 function tileFor(p, reel){
   const f = p.files[0];
   const views = reel ? `<span class="views">${I.playLine}${fmt(engage(p).views)}</span>` : "";
-  return `<a class="tile ${reel?"tall":""}" href="${reel ? "#/reels/"+esc(p.id) : "#/p/"+esc(p.id)}">${mediaTag(f,"",{poster:true})}${!reel && p.files.length>1?`<span class="ic">${I.multi}</span>`:!reel && isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}${views}</a>`;
+  return `<a class="tile ${reel?"tall":""}" href="${reel ? "#/reels/"+esc(p.id) : "#/p/"+esc(p.id)+"/more"}">${mediaTag(f,"",{poster:true})}${!reel && p.files.length>1?`<span class="ic">${I.multi}</span>`:!reel && isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}${views}</a>`;
 }
 function vMe(v, r){
   const a = A();
   const tab = r.a === "queue" ? "queue" : r.a === "reels" ? "reels" : "grid";
-  setTop(`<h1><button type="button" data-switch>${esc(handleOf(a))}${checkMark(a.verified)} ${I.down}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  setTop(`${S.accounts.length > 1 ? `<a class="iconbtn" href="#/all" aria-label="All accounts">${I.back}</a>` : ""}<h1><button type="button" data-switch>${esc(handleOf(a))}${checkMark(a.verified)} ${I.down}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
   const L = live(), Q = queued(), R = liveReels();
   let body;
   if (tab === "grid"){
@@ -1160,6 +1225,25 @@ function vMe(v, r){
   }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/reels" class="${tab==="reels"?"on":""}" aria-label="Reels">${I.reels}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${Q.length?`<span class="small">${Q.length}</span>`:""}</button></div>` + body;
   if (!a.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set this account's name and username</a></div>`);
 }
+function vAll(v){
+  setTop(`<h1>All accounts</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  v.innerHTML = S.accounts.map(a => {
+    const L = live(a.id), Q = queued(a.id);
+    const hasStory = activeStories(a.id).length;
+    return `<section class="spec">` + profileHeader({
+      av: hasStory ? `<button type="button" class="ring ${storyUnseen(a.id)?"":"seen"}" data-story="${esc(a.id)}">${myAv(86, a)}</button>` : `<span class="ring none">${myAv(86, a)}</span>`,
+      posts: L.length, followers: followersNow(a), following: a.id === S.current ? followingCount() : a.following,
+      followersHref:`#/acct/${esc(a.id)}/followers`, followingHref:`#/acct/${esc(a.id)}/following`,
+      name: `@${handleOf(a)}${a.name ? " · " + a.name : ""}`, bio: a.bio, link: a.link,
+      extra: `<div class="hint" style="margin-top:6px">${Q.length ? `Next post ${esc(until(Q[0].publishAt))} · ${Q.length} queued` : "Nothing queued"}</div>`,
+      buttons: `<a class="btn" href="#/acct/${esc(a.id)}">Open profile</a>`
+    }) + (L.length ? `<div class="grid">${L.slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
+  }).join("");
+}
+async function vAcct(v, r){
+  if (accountById(r.a) && S.current !== r.a){ S.current = r.a; await saveAccounts(); }
+  location.replace(r.b ? "#/list/" + r.b + "/me" : "#/me");
+}
 function qRow(p){
   const f = p.files[0];
   return `<div class="qrow"><div class="th">${mediaTag(f,"",{poster:true})}</div>
@@ -1168,7 +1252,7 @@ function qRow(p){
     <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button></div>`;
 }
 function accountSwitcher(){
-  sheet(`<h3>Your accounts</h3>
+  sheet(`<h3>Accounts</h3>
     ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
     ${S.accounts.length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
       const b = el.closest("[data-acc]"); if (!b) return;
@@ -1190,17 +1274,25 @@ function vUser(v, r){
     av: acctAv(a, 86), posts: a.posts, followers: a.followers + (fol?1:0), following: a.following,
     followersHref:`#/list/followers/${a.i}`, followingHref:`#/list/following/${a.i}`,
     name: a.name, bio: a.bio,
-    extra: followsYou(a.i) ? `<div class="hint" style="margin-top:6px">Follows you</div>` : "",
+    extra: (() => { const fy = S.accounts.filter(o => followsYou(a.i, o)); return fy.length ? `<div class="hint" style="margin-top:6px">Follows ${fy.map(o => "@"+esc(handleOf(o))).join(", ")}</div>` : ""; })(),
     buttons: `<button class="btn ${fol?"":"blue"}" type="button" data-follow="${a.i}">${fol?"Following":"Follow"}</button><button class="btn" type="button" data-msg>Message</button>`
   }) + `<div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on" aria-label="Posts">${I.grid}</button></div>
     <div class="grid">${Array.from({length:a.tiles},(_,k)=>`<div class="tile" style="${tileArt(a,k)}"></div>`).join("")}</div>`;
 }
 
+let postScrolled = "";
 function vPost(v, r){
   const p = S.posts.find(x => x.id === r.a);
-  setTop(`${backBtn}<h1>Post</h1>`);
-  v.innerHTML = p ? postCard(p) : `<div class="empty"><h2>Post not found</h2></div>`;
-  const c = v.querySelector(".caption.clamp"); if (c) c.classList.remove("clamp");
+  const owner = p && (accountById(p.acct) || A());
+  const list = p && r.b === "more" && p.publishAt <= now() ? live(owner.id) : p ? [p] : [];
+  setTop(`${backBtn}<h1>${list.length > 1 ? `<span style="display:block;font-size:12px;font-weight:600;color:var(--muted)">${esc(handleOf(owner))}</span>Posts` : "Post"}</h1>`);
+  v.innerHTML = list.length ? list.map(postCard).join("") : `<div class="empty"><h2>Post not found</h2></div>`;
+  const card = p && v.querySelector(`[data-post="${CSS.escape(p.id)}"]`);
+  const c = card && card.querySelector(".caption.clamp"); if (c) c.classList.remove("clamp");
+  if (card && list.length > 1 && postScrolled !== location.hash){
+    postScrolled = location.hash;
+    setTimeout(() => window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - $("#top").offsetHeight), 0);
+  }
 }
 
 function vComments(v, r){
@@ -1248,32 +1340,33 @@ function vList(v, r){
     ${total > ids.length ? `<div class="hint" style="padding:12px 0">and ${full(total-ids.length)} more</div>` : ""}</div>`;
 }
 
-function events(){
-  const a = A(); const ev = [];
-  for (const p of live().slice(0, 15)){
+function events(a){
+  const ev = []; const who = `<b>${esc(handleOf(a))}</b>`;
+  for (const p of live(a.id).slice(0, 15)){
     const e = engage(p); const f = p.files[0];
-    for (const c of visibleComments(p).filter(c=>!c.mine).slice(-4)) ev.push({ at:c.at, acct:c.acct, html:`<b>${esc(acct(c.acct).handle)}</b> commented: ${esc(c.text)}`, p, f });
-    { const fb = Math.round(followBump(p, a) * curve(now() - p.publishAt, 5*H)); if (fb > 0){ const rr = rng(p.seed ^ 0x51ed27); const i = Math.floor(rr()*POOL); ev.push({ at: Math.min(now(), p.publishAt + (20 + rr()*90)*60e3), acct:i, html: fb > 1 ? `<b>${esc(acct(i).handle)}</b> and ${full(fb-1)} others started following you after your ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.` : `<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); } }
-    if (e.likes > 2){ const s = likerSample(p, 2); ev.push({ at: Math.min(now(), p.publishAt + 25*60e3), acct:s[0], html:`<b>${esc(acct(s[0]).handle)}</b>, <b>${esc(acct(s[1]).handle)}</b> and ${full(e.likes-2)} others liked your ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.`, p, f }); }
+    for (const c of visibleComments(p).filter(c=>!c.mine).slice(-4)) ev.push({ at:c.at, acct:c.acct, html:`<b>${esc(acct(c.acct).handle)}</b> commented on ${who}'s post: ${esc(c.text)}`, p, f });
+    { const fb = Math.round(followBump(p, a) * curve(now() - p.publishAt, 5*H)); if (fb > 0){ const rr = rng(p.seed ^ 0x51ed27); const i = Math.floor(rr()*POOL); ev.push({ at: Math.min(now(), p.publishAt + (20 + rr()*90)*60e3), acct:i, html: fb > 1 ? `<b>${esc(acct(i).handle)}</b> and ${full(fb-1)} others started following ${who} after their ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.` : `<b>${esc(acct(i).handle)}</b> started following ${who}.`, follow:i, own:a }); } }
+    if (e.likes > 2){ const s = likerSample(p, 2); ev.push({ at: Math.min(now(), p.publishAt + 25*60e3), acct:s[0], html:`<b>${esc(acct(s[0]).handle)}</b>, <b>${esc(acct(s[1]).handle)}</b> and ${full(e.likes-2)} others liked ${who}'s ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.`, p, f }); }
   }
-  for (const p of activeStories(a.id)){ const s = storyStats(p); if (s.likes > 1){ const l = likerSample(p, 1)[0]; ev.push({ at: Math.min(now(), p.publishAt + 15*60e3), acct:l, html:`<b>${esc(acct(l).handle)}</b> and ${full(s.likes-1)} others liked your story.`, p, f:p.files[0], story:true }); } }
+  for (const p of activeStories(a.id)){ const s = storyStats(p); if (s.likes > 1){ const l = likerSample(p, 1)[0]; ev.push({ at: Math.min(now(), p.publishAt + 15*60e3), acct:l, html:`<b>${esc(acct(l).handle)}</b> and ${full(s.likes-1)} others liked ${who}'s story.`, p, f:p.files[0], story:true }); } }
   const r = rng(hashStr("ev"+Math.floor(now()/D)+a.seed));
-  for (let d=0; d<10; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (a.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); }
-  return ev.filter(e => e.at <= now()).sort((x,y) => y.at - x.at).slice(0, 80);
+  for (let d=0; d<10; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (a.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following ${who}.`, follow:i, own:a }); }
+  return ev.filter(e => e.at <= now());
 }
-const unseen = () => live().length && events().some(e => e.at > (S.seenAt[A().id]||0));
+const allEvents = () => S.accounts.flatMap(events).sort((x,y) => y.at - x.at).slice(0, 120);
+const unseen = () => S.accounts.some(a => live(a.id).length) && allEvents().some(e => e.at > (S.seenAt.all||0));
 function vActivity(v){
   setTop(`<h1>Activity</h1>`);
-  const ev = events();
-  const seen = S.seenAt[A().id] || 0;
-  S.seenAt[A().id] = now(); saveMisc();
-  if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once you've posted.</p></div>`; return; }
+  const ev = allEvents();
+  const seen = S.seenAt.all || 0;
+  S.seenAt.all = now(); saveMisc();
+  if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once the bot has posted.</p></div>`; return; }
   const groups = [["New", e => e.at > seen], ["Today", e => now()-e.at < D], ["This week", e => now()-e.at < 7*D], ["Earlier", () => true]];
   const used = new Set(); let html = "";
   for (const [label, test] of groups){
     const g = ev.filter(e => !used.has(e) && test(e)); g.forEach(e => used.add(e));
     if (!g.length) continue;
-    html += `<div class="sect">${label}</div>` + g.map(e => `<div class="act"><a href="#/u/${e.acct}">${acctAv(acct(e.acct),44)}</a><div class="t">${e.html} <span class="muted">${esc(ago(e.at))}</span></div>${e.p ? `<${e.story?`button type="button" data-story="${esc(e.p.acct)}"`:`a href="#/p/${esc(e.p.id)}"`} class="thumb">${mediaTag(e.f,"",{poster:true})}</${e.story?"button":"a"}>` : `<button class="btn ${isFollowing(e.follow)?"":"blue"}" style="width:auto;padding:6px 12px" type="button" data-follow="${e.follow}">${isFollowing(e.follow)?"Following":"Follow back"}</button>`}</div>`).join("");
+    html += `<div class="sect">${label}</div>` + g.map(e => `<div class="act"><a href="#/u/${e.acct}">${acctAv(acct(e.acct),44)}</a><div class="t">${e.html} <span class="muted">${esc(ago(e.at))}</span></div>${e.p ? `<${e.story?`button type="button" data-story="${esc(e.p.acct)}"`:`a href="#/p/${esc(e.p.id)}"`} class="thumb">${mediaTag(e.f,"",{poster:true})}</${e.story?"button":"a"}>` : `<a class="thumb" href="#/acct/${esc(e.own.id)}" style="border-radius:50%;overflow:hidden">${myAv(44, e.own)}</a>`}</div>`).join("");
   }
   v.innerHTML = `<div class="pad">${html}</div>`;
 }
@@ -1565,7 +1658,7 @@ document.addEventListener("click", async e => {
   if (d.story){ openStories(d.story); return; }
   if (d.href){ go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
-  if (d.tab){ go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if (d.tab){ go(d.tab === "home" ? "#/" : d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
   if ("testkey" in d){
     const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
     S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
