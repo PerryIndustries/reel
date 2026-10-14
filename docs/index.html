@@ -452,8 +452,8 @@ function acct(i){
   const a = { i, handle, name: gamerName(handle, r), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
   acctCache.set(i, a); return a;
 }
-// Every fake account gets a picture like real profiles have: mostly realistic faces (AI-generated people
-// who don't exist, all adults), then photos of views, pets and things, and some with no picture at all.
+// Every fake account gets a picture: pictures from a Drive folder named "pfps" when there are any,
+// casual-selfie faces (AI-generated adults who don't exist), and a share of blank defaults like real lurkers.
 let pfpIndex = null, pfpLoading = null;
 const pfpCache = new Map();
 function loadPfps(){
@@ -470,18 +470,22 @@ function pfpFor(a){
     // one shuffled order per set of fake accounts, so neighbours never share a picture
     const r0 = rng(hashStr("perm" + S.settings.seed));
     const shuffle = n => { const o = Array.from({length:n}, (_,k) => k); for (let k = n-1; k > 0; k--){ const j = Math.floor(r0()*(k+1)); [o[k], o[j]] = [o[j], o[k]]; } return o; };
-    pfpPerm = { f: shuffle(pfpIndex.faces.length), p: shuffle(pfpIndex.photos.length) };
+    const mine = S.settings.customPfps || [];
+    pfpPerm = { s: shuffle(pfpIndex.selfies.length), a: shuffle((pfpIndex.anime || []).length), c: shuffle(mine.length) };
   }
+  const mine = S.settings.customPfps || [];
   const k = rng(a.seed ^ 0x3c6ef372)();
   let uri;
-  if (k < .09) uri = BLANK_PFP;
-  else if (k < .66) uri = "pfp/" + pfpIndex.faces[pfpPerm.f[a.i % pfpPerm.f.length]];
-  else uri = "pfp/" + pfpIndex.photos[pfpPerm.p[a.i % pfpPerm.p.length]];
+  if (mine.length && k < .7){ pfpCache.set(a.i, "media:" + mine[pfpPerm.c[a.i % pfpPerm.c.length]]); return pfpCache.get(a.i); }
+  const k2 = mine.length ? (k - .7) / .3 : k;
+  if (k2 < .3 || !pfpIndex.selfies.length) uri = BLANK_PFP;
+  else uri = "pfp/" + pfpIndex.selfies[pfpPerm.s[a.i % pfpPerm.s.length]];
   pfpCache.set(a.i, uri);
   return uri;
 }
 function acctAv(a, size){
   const pic = pfpFor(a);
+  if (pic && pic.startsWith("media:")) return `<span class="av s${size}"><img data-media="${esc(pic.slice(6))}" alt=""></span>`;
   if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy"></span>`;
   loadPfps();
   return `<span class="av s${size}" style="background:#dbdbdb"></span>`;
@@ -915,7 +919,7 @@ async function sync(auto, full){
     const known = new Set(S.posts.filter(p => !full || isUp(p)).map(p => p.driveKey).filter(Boolean));
     const seen = new Map();
     const ignored = new Set(S.settings.ignored || []);
-    const jobs = [];
+    const jobs = [], pfpJobs = [];
     for (const src of sources){
       if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await saveSettings(); await saveAccounts(); }
       setSync("Reading " + src.holder.folderName.trim() + "…", 0);
@@ -931,6 +935,10 @@ async function sync(auto, full){
       for (const f of kids){
         const b = base(f.name);
         if (["avatar","profile","bio"].includes(b)) continue;
+        if (f.mimeType === FOLDER && b === "pfps"){
+          for (const m of (await listChildren(f.id, token)).filter(x => isImage(x.mimeType))) pfpJobs.push(m);
+          continue;
+        }
         if (f.mimeType === FOLDER && b === "stories"){
           const inner = await listChildren(f.id, token);
           for (const m of inner.filter(isMedia)){ if (!seen.has(m.id)) seen.set(m.id, src.owner); if (!known.has(m.id) && !ignored.has(m.id)) jobs.push({ kind:"story", key:m.id, media:[m], owner: src.owner }); }
@@ -957,6 +965,14 @@ async function sync(auto, full){
       const wasOwner = p.shared === false ? p.acct : null;
       if (owner !== wasOwner){ p.acct = owner || null; p.shared = !owner; p.publishAt = 0; await savePost(p); moved++; }
     }
+    // pictures for the fake commenters
+    const pfpKeys = [];
+    for (const m of pfpJobs){
+      const key = "pf_" + m.id;
+      if (!(await DB.get("media", key))){ setSync("Downloading profile pictures…", 0); await DB.put("media", await gapi(`files/${m.id}?alt=media`, token, true), key); }
+      pfpKeys.push(key);
+    }
+    if (pfpKeys.join() !== (S.settings.customPfps || []).join()){ S.settings.customPfps = pfpKeys; pfpCache.clear(); pfpPerm = null; await saveSettings(); }
     const totalFiles = jobs.reduce((n,e) => n + (e.media ? e.media.length : 1), 0);
     let done = 0, fresh = 0;
     let order = Math.max(0, ...S.posts.map(p => p.order||0));
@@ -980,7 +996,7 @@ async function sync(auto, full){
     try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
     if (full){
       // tidy up downloads nothing uses any more
-      const used = new Set([...S.posts.flatMap(p => p.files.map(f => f.key)), ...S.accounts.map(a => a.avatar)]);
+      const used = new Set([...S.posts.flatMap(p => p.files.map(f => f.key)), ...S.accounts.map(a => a.avatar), ...(S.settings.customPfps || [])]);
       for (const k of await DB.keys("media")) if (String(k).startsWith("d_") && !used.has(k)){ await DB.del("media", k); urls.delete(k); }
       for (const a of S.accounts) if (a.avatarAuto && a.avatar && !used.has(a.avatar)) a.avatar = null;
     }
@@ -1404,7 +1420,7 @@ function vSettings(v){
   v.innerHTML = `<div class="pad form">
     <div class="card"><h3>Google Drive</h3>
       <div class="field"><label for="sfolder">Main folder name</label><input type="text" id="sfolder" value="${esc(st.folderName)}" placeholder="The exact name of your Drive folder" autocapitalize="off" autocorrect="off"></div>
-      <div class="hint">Files here are split between your accounts with no repeats. Each account can also have its own folder (Edit profile). A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile.</div>
+      <div class="hint">Files here are split between your accounts with no repeats. Each account can also have its own folder (Edit profile). A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; a subfolder named <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile.</div>
       <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks your folders every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
       <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
       <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
