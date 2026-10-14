@@ -829,30 +829,46 @@ async function frameB64(f){
 }
 const VOICE = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. The voice is a flirty, confident thirst trap: teasing, suggestive, playful, a little cocky. Innuendo is fine; keep it non-explicit, with no graphic sexual description.";
 const direction = d => d && d.trim() ? `\n\nThe owner's direction, which takes priority over the default style:\n${d.trim()}` : "";
+const CAPTION_RULES = "One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them.";
+const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.";
+const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
+const cleanLine = t => String(t || "").replace(/^["'“]+|["'”]+$/g, "").trim();
+// One request per post: the caption and the comments come back together when both are needed.
 async function writeOne(j){
-  const p = j.p, a = accountById(p.acct) || A();
+  const p = j.p, a = acctOf(p);
   const img = await frameB64(p.files[0]);
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
-  if (j.kind === "caption"){
-    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
-    const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them. Reply with the caption only, no quotes.${direction(a.capDirection)}${recent ? `\n\nRecent captions on this account, which you must not repeat or closely echo:\n${recent}` : ""}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
-    if (out) p.caption = out.replace(/^["'“]+|["'”]+$/g, "").trim();
-    p.captionWritten = true;
-  } else if (j.kind === "comments"){
-    const n = Math.max(8, Math.min(30, totals(p).totalC));
-    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.${direction(a.comDirection)}`,
-      withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: { type: "array", items: { type: "string" } } }, required: ["comments"], additionalProperties: false });
-    if (out && Array.isArray(out.comments)) p.aiComments = out.comments.map(c => String(c).trim()).filter(Boolean).slice(0, 60);
-    p.commentsWritten = true; genCache.clear();
-  } else {
+  const n = Math.max(8, Math.min(30, totals(p).totalC));
+  const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
+  if (j.kind === "story"){
     const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${direction(a.storyDirection || a.capDirection)}`, withImg("Write the story text."));
-    if (out) p.storyText = out.replace(/^["'“]+|["'”]+$/g, "").trim();
+    if (out) p.storyText = cleanLine(out);
     p.storyWritten = true;
+  } else if (j.cap){
+    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
+    const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
+    if (j.com){
+      const out = await ask(`${VOICE}\n\nWrite this post's caption and the comments different followers leave on it.\nCaption: ${CAPTION_RULES}${direction(a.capDirection)}\n\nComments: ${COMMENT_RULES} They react to the caption you wrote.${direction(a.comDirection)}${avoid}`,
+        withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
+      if (out && out.caption) p.caption = cleanLine(out.caption);
+      p.captionWritten = true;
+      if (out) setComments(out.comments); else p.commentsWritten = true;
+    } else {
+      const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. ${CAPTION_RULES} Reply with the caption only, no quotes.${direction(a.capDirection)}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
+      if (out) p.caption = cleanLine(out);
+      p.captionWritten = true;
+    }
+  } else {
+    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. ${COMMENT_RULES}${direction(a.comDirection)}`,
+      withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
+    if (out) setComments(out.comments); else p.commentsWritten = true;
   }
   await savePost(p);
 }
 let writing = false;
+const WRITERS = 4;
 function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; }
+// Writes everything that's waiting, a few at a time, live and next-up posts first.
 async function writerRun(){
   if (writing || !S.secret.key) return;
   writing = true;
@@ -860,16 +876,25 @@ async function writerRun(){
     const jobs = [];
     for (const p of S.posts){
       if (isStory(p)){ if (!p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
-      if (p.captionAuto && !p.captionWritten) jobs.push({ p, kind: "caption" });
-      if (!p.commentsWritten) jobs.push({ p, kind: "comments" });
+      const cap = !!(p.captionAuto && !p.captionWritten), com = !p.commentsWritten;
+      if (cap || com) jobs.push({ p, kind: "post", cap, com });
     }
-    // live and soon-to-post first; captions before comments so comments can react to them
     const when = p => Math.abs((p.publishAt || now() + 30*D) - now());
-    jobs.sort((x, y) => when(x.p) - when(y.p) || (x.kind === "caption" ? -1 : 1));
-    const batch = jobs.slice(0, 15);
-    for (let i = 0; i < batch.length; i++){ setWriter(`Writing ${i+1} of ${jobs.length}…`); await writeOne(batch[i]); }
-    setWriter(jobs.length > batch.length ? `${jobs.length - batch.length} still to write. It carries on in a few minutes while the app is open.` : batch.length ? "Everything is written." : "");
-    if (batch.length) safeRender();
+    jobs.sort((x, y) => when(x.p) - when(y.p));
+    let next = 0, done = 0, failure = null;
+    const worker = async () => {
+      while (!failure && next < jobs.length){
+        const j = jobs[next++];
+        try { await writeOne(j); } catch(e){ failure = failure || e; return; }
+        done++; setWriter(`Writing ${done} of ${jobs.length}…`);
+        if (done % 4 === 0) safeRender();
+      }
+    };
+    if (jobs.length) setWriter(`Writing 0 of ${jobs.length}…`);
+    await Promise.all(Array.from({ length: Math.min(WRITERS, jobs.length) }, worker));
+    if (failure) throw failure;
+    setWriter(jobs.length ? "Everything is written." : "");
+    if (jobs.length) safeRender();
   } catch(e){
     const E = sdk && sdk.default;
     if (E && e instanceof E.AuthenticationError) setWriter("That API key didn't work. Check it and paste it again.");
