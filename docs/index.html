@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
@@ -33,7 +33,8 @@ body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--font);overscroll-b
 [hidden]{display:none!important}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 a{color:inherit;text-decoration:none}
-input,textarea,select{font:inherit;color:var(--fg);background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+html{touch-action:manipulation;-webkit-text-size-adjust:100%}
+input,textarea,select{font:inherit;font-size:16px;color:var(--fg);background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
 textarea{min-height:90px;resize:vertical}
 button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .muted{color:var(--muted)}
@@ -494,15 +495,18 @@ function gamerName(handle, r){
 
 /* ================= fake world: accounts ================= */
 const acctCache = new Map(), usedHandles = new Set();
+const nameBump = i => (S.settings.nameBump || {})[i] || 0;
+const pfpBump = i => (S.settings.pfpBump || {})[i] || 0;
 function acct(i){
   if (acctCache.has(i)) return acctCache.get(i);
   const r = rng(hashStr("acct"+i+"|"+S.settings.seed));
-  let handle = gamerHandle(r);
-  if (usedHandles.has(handle)) handle += Math.floor(r()*90 + 10);
+  const rn = rng(hashStr("acct"+i+"|"+(S.settings.nameSeed || S.settings.seed)+(nameBump(i) ? "|"+nameBump(i) : "")));
+  let handle = gamerHandle(rn);
+  if (usedHandles.has(handle)) handle += Math.floor(rn()*90 + 10);
   usedHandles.add(handle);
   const big = r() < .06;
   const followers = Math.round(big ? 20000 + r()*900000 : Math.exp(4 + r()*4.5));
-  const a = { i, handle, name: gamerName(handle, r), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
+  const a = { i, handle, name: gamerName(handle, rn), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
   acctCache.set(i, a); return a;
 }
 // Every fake account gets a picture: pictures from a Drive folder named "pfps" when there are any, otherwise
@@ -521,19 +525,20 @@ function pfpFor(a){
   if (!pfpIndex) return "";
   if (!pfpPerm){
     // one shuffled order per set of fake accounts, so neighbours never share a picture
-    const r0 = rng(hashStr("perm" + S.settings.seed));
+    const r0 = rng(hashStr("perm" + (S.settings.pfpSeed || S.settings.seed)));
     const shuffle = n => { const o = Array.from({length:n}, (_,k) => k); for (let k = n-1; k > 0; k--){ const j = Math.floor(r0()*(k+1)); [o[k], o[j]] = [o[j], o[k]]; } return o; };
     const mine = S.settings.customPfps || [];
     pfpPerm = { a: shuffle(pfpIndex.anime.length), p: shuffle(pfpIndex.photos.length), c: shuffle(mine.length) };
   }
   const mine = S.settings.customPfps || [];
-  const k = rng(a.seed ^ 0x3c6ef372)();
+  const k = rng((a.seed ^ 0x3c6ef372 ^ hashStr(String(S.settings.pfpSeed || 0) + "|" + pfpBump(a.i))) >>> 0)();
+  const slot = a.i + pfpBump(a.i) * 61;
   let uri;
-  if (mine.length && k < .7){ pfpCache.set(a.i, "media:" + mine[pfpPerm.c[a.i % pfpPerm.c.length]]); return pfpCache.get(a.i); }
+  if (mine.length && k < .7){ pfpCache.set(a.i, "media:" + mine[pfpPerm.c[slot % pfpPerm.c.length]]); return pfpCache.get(a.i); }
   const k2 = mine.length ? (k - .7) / .3 : k;
   if (k2 < .1) uri = BLANK_PFP;
-  else if (k2 < .65) uri = pfpIndex.anime[pfpPerm.a[a.i % pfpPerm.a.length]];
-  else uri = "pfp/" + pfpIndex.photos[pfpPerm.p[a.i % pfpPerm.p.length]];
+  else if (k2 < .65) uri = pfpIndex.anime[pfpPerm.a[slot % pfpPerm.a.length]];
+  else uri = "pfp/" + pfpIndex.photos[pfpPerm.p[slot % pfpPerm.p.length]];
   pfpCache.set(a.i, uri);
   return uri;
 }
@@ -1315,7 +1320,7 @@ function accountSwitcher(){
 
 function vUser(v, r){
   const a = acct(+r.a); const fol = isFollowing(a.i);
-  setTop(`${backBtn}<h1>${esc(a.handle)}${checkMark(a.verified)}</h1>`);
+  setTop(`${backBtn}<h1>${esc(a.handle)}${checkMark(a.verified)}</h1><button class="iconbtn" type="button" data-umenu="${a.i}" aria-label="Options">${I.dots}</button>`);
   v.innerHTML = profileHeader({
     av: acctAv(a, 86), posts: a.posts, followers: a.followers + (fol?1:0), following: a.following,
     followersHref:`#/list/followers/${a.i}`, followingHref:`#/list/following/${a.i}`,
@@ -1548,6 +1553,7 @@ function vEdit(v){
     <div class="hint">${P.avatarAuto ? "The bot picked this one from your photos. " : ""}avatar.jpg in this account's Drive folder always wins.</div>
     <div class="field"><label for="pn">Name</label><input type="text" id="pn" value="${esc(P.name)}"></div>
     <div class="field"><label for="ph">Username</label><input type="text" id="ph" value="${esc(P.handle)}" autocapitalize="off" autocorrect="off"></div>
+    <button class="btn" type="button" data-randhandle>Random username</button>
     <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
     <div class="field"><label for="pl">Link</label><input type="text" id="pl" value="${esc(P.link)}" autocapitalize="off"></div>
     <a class="btn" href="#/aset/${esc(P.id)}">Drive folder, captions and comments</a>
@@ -1592,7 +1598,10 @@ function vSettings(v){
       <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div>
       <a class="btn" href="#/new">Add photos from this phone instead</a>
-      <button class="btn" type="button" data-newworld>Shuffle the fake accounts</button>
+      <button class="btn" type="button" data-newnames>New names for the fake accounts</button>
+      <button class="btn" type="button" data-newpfps>New pictures for the fake accounts</button>
+      <button class="btn" type="button" data-newworld>Start over with new fake accounts</button>
+      <div class="hint">New names and new pictures keep everything else. Starting over also resets who you follow.</div>
       <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
@@ -1821,7 +1830,21 @@ document.addEventListener("click", async e => {
     S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
-  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); usedHandles.clear(); pfpCache.clear(); pfpPerm = null; genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
+  if ("newnames" in d){ S.settings.nameSeed = Math.floor(Math.random()*1e9); S.settings.nameBump = {}; acctCache.clear(); usedHandles.clear(); await saveSettings(); toast("New names for everyone"); render(); return; }
+  if ("newpfps" in d){ S.settings.pfpSeed = Math.floor(Math.random()*1e9); S.settings.pfpBump = {}; pfpCache.clear(); pfpPerm = null; await saveSettings(); toast("New pictures for everyone"); render(); return; }
+  if ("randhandle" in d){ const h = $("#ph"); if (h){ let x; do { x = gamerHandle(rng(Math.floor(Math.random()*1e9))); } while (S.accounts.some(o => o.handle === x)); h.value = x; } return; }
+  if (d.umenu !== undefined){
+    const i = +d.umenu;
+    sheet(`<h3>@${esc(acct(i).handle)}</h3><button class="opt" data-u="name">New name</button><button class="opt" data-u="pfp">New picture</button>`, async el => {
+      const b = el.closest("[data-u]"); if (!b) return;
+      closeSheet();
+      if (b.dataset.u === "name"){ usedHandles.delete(acct(i).handle); S.settings.nameBump = { ...(S.settings.nameBump || {}), [i]: nameBump(i) + 1 }; acctCache.delete(i); }
+      else { S.settings.pfpBump = { ...(S.settings.pfpBump || {}), [i]: pfpBump(i) + 1 }; pfpCache.delete(i); }
+      await saveSettings(); render();
+    });
+    return;
+  }
+  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); S.settings.nameSeed = 0; S.settings.pfpSeed = 0; S.settings.nameBump = {}; S.settings.pfpBump = {}; acctCache.clear(); usedHandles.clear(); pfpCache.clear(); pfpPerm = null; genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
   if ("reset" in d){
     if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: this erases every post on this phone"; return; }
     await DB.clear("posts"); await DB.clear("media"); await DB.clear("kv"); try { localStorage.clear(); } catch(_){}
@@ -1840,6 +1863,12 @@ $("#avPicker").addEventListener("change", async e => {
 });
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape"){ closeSheet(); if ($("#full").innerHTML){ closeFull(); render(); } } });
 window.addEventListener("hashchange", () => { const r = route(); if ($("#full").innerHTML && !(r.name === "reels" && r.a)) closeFull(); });
+
+/* no zooming: pinch and double-tap stay with the app */
+for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEventListener(ev, e => e.preventDefault(), { passive:false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); }, { passive:false });
+let lastTouchEnd = 0;
+document.addEventListener("touchend", e => { const t = Date.now(); if (t - lastTouchEnd < 300 && !e.target.closest(".carousel, input, textarea")) e.preventDefault(); lastTouchEnd = t; }, { passive:false });
 
 /* ================= boot ================= */
 (async function boot(){
