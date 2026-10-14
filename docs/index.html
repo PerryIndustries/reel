@@ -332,6 +332,7 @@ const DB = {
   put: (st,v,k) => DB.tx(st,"readwrite",s=> k===undefined ? s.put(v) : s.put(v,k)),
   del: (st,k) => DB.tx(st,"readwrite",s=>s.delete(k)),
   all: st => DB.tx(st,"readonly",s=>s.getAll()),
+  keys: st => DB.tx(st,"readonly",s=>s.getAllKeys()),
   clear: st => DB.tx(st,"readwrite",s=>s.clear()),
 };
 
@@ -552,11 +553,15 @@ async function respace(a){
 }
 // Shared-folder files go to whichever account has the least waiting for it; an account's own folder only feeds that account.
 async function autoSchedule(){
-  const W = waitingAll(); if (!W.length || !S.accounts.length) return;
+  if (!S.accounts.length) return;
+  // the main folder only feeds accounts without a folder of their own (or everyone, if they all have one)
+  const takers = S.accounts.filter(a => !a.folderName.trim()).length ? S.accounts.filter(a => !a.folderName.trim()) : S.accounts;
+  for (const p of S.posts.filter(p => p.shared !== false && !isStory(p) && p.source === "drive" && p.publishAt > now() && !takers.some(a => a.id === p.acct))){ p.acct = null; p.publishAt = 0; await savePost(p); }
+  const W = waitingAll(); if (!W.length) return;
   const load = a => queued(a.id).length + W.filter(p => p.acct === a.id).length;
   for (const p of W){
     if (p.acct && accountById(p.acct)) continue;
-    const a = S.accounts.slice().sort((x,y) => load(x) - load(y))[0];
+    const a = takers.slice().sort((x,y) => load(x) - load(y))[0];
     p.acct = a.id; await savePost(p);
   }
   for (const a of S.accounts){
@@ -731,13 +736,14 @@ const isMedia = f => isImage(f.mimeType) || isVideo(f.mimeType);
 const hasSetup = () => !!(S.settings.folderName.trim() || S.accounts.some(a => a.folderName.trim()));
 
 let syncing = false;
-async function sync(auto){
+// full = "re-read everything": find every folder again by name and rebuild the queue from what's in them now.
+async function sync(auto, full){
   if (syncing) return;
   if (auto && (!S.settings.clientId.trim() || !hasSetup())) return;
   if (!hasSetup()){ toast("Type a Drive folder name first"); go("#/settings"); return; }
   const token = tokenOK();
   if (!token){
-    if (!auto) { signIn(false); return; }
+    if (!auto) { if (full) try { localStorage.setItem("reel-full-pending", "1"); } catch(e){} signIn(false); return; }
     let last = 0; try { last = +localStorage.getItem("reel-silent-at") || 0; } catch(e){}
     if (!needsGoogle() && now() - last > 10*60e3) signIn(true);
     return;
@@ -748,7 +754,10 @@ async function sync(auto){
     const sources = [];
     if (S.settings.folderName.trim()) sources.push({ owner: null, holder: S.settings });
     for (const a of S.accounts) if (a.folderName.trim()) sources.push({ owner: a.id, holder: a });
-    const known = new Set(S.posts.map(p => p.driveKey).filter(Boolean));
+    if (full){ S.settings.folderId = ""; for (const a of S.accounts) a.folderId = ""; }
+    const isUp = p => p.publishAt && p.publishAt <= now();
+    const known = new Set(S.posts.filter(p => !full || isUp(p)).map(p => p.driveKey).filter(Boolean));
+    const seen = new Map();
     const ignored = new Set(S.settings.ignored || []);
     const jobs = [];
     for (const src of sources){
@@ -768,9 +777,10 @@ async function sync(auto){
         if (["avatar","profile","bio"].includes(b)) continue;
         if (f.mimeType === FOLDER && b === "stories"){
           const inner = await listChildren(f.id, token);
-          for (const m of inner.filter(isMedia)) if (!known.has(m.id) && !ignored.has(m.id)) jobs.push({ kind:"story", key:m.id, media:[m], owner: src.owner });
+          for (const m of inner.filter(isMedia)){ if (!seen.has(m.id)) seen.set(m.id, src.owner); if (!known.has(m.id) && !ignored.has(m.id)) jobs.push({ kind:"story", key:m.id, media:[m], owner: src.owner }); }
           continue;
         }
+        if ((f.mimeType === FOLDER || isMedia(f)) && !seen.has(f.id)) seen.set(f.id, src.owner);
         if (known.has(f.id) || ignored.has(f.id)) continue;
         if (f.mimeType === FOLDER){
           const inner = await listChildren(f.id, token);
@@ -782,6 +792,14 @@ async function sync(auto){
       else if (S.settings.order === "random"){ const r = rng(hashStr("o"+now())); posts.sort(() => r() - .5); }
       else posts.sort((a,b) => natural.compare(a.name,b.name));
       jobs.push(...posts);
+    }
+    // Every folder was read, so the queue can now follow Drive: moved files change account, removed files leave the queue. Posted ones stay.
+    let moved = 0, dropped = 0;
+    for (const p of S.posts.filter(p => p.source === "drive" && p.driveKey && !isUp(p))){
+      if (full || !seen.has(p.driveKey)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); if (!seen.has(p.driveKey)) dropped++; continue; }
+      const owner = seen.get(p.driveKey);
+      const wasOwner = p.shared === false ? p.acct : null;
+      if (owner !== wasOwner){ p.acct = owner || null; p.shared = !owner; p.publishAt = 0; await savePost(p); moved++; }
     }
     const totalFiles = jobs.reduce((n,e) => n + (e.media ? e.media.length : 1), 0);
     let done = 0, fresh = 0;
@@ -804,8 +822,16 @@ async function sync(auto){
     setSync("", 1);
     syncing = false;
     try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
+    if (full){
+      // tidy up downloads nothing uses any more
+      const used = new Set([...S.posts.flatMap(p => p.files.map(f => f.key)), ...S.accounts.map(a => a.avatar)]);
+      for (const k of await DB.keys("media")) if (String(k).startsWith("d_") && !used.has(k)){ await DB.del("media", k); urls.delete(k); }
+      for (const a of S.accounts) if (a.avatarAuto && a.avatar && !used.has(a.avatar)) a.avatar = null;
+    }
+    await saveSettings(); await saveAccounts();
     await autoRun();
-    if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
+    if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}`); }
+    else if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : moved ? `${moved} moved ${moved===1?"file":"files"} switched account` : dropped ? `${dropped} removed ${dropped===1?"file":"files"} left the queue` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
     render();
   } catch(err){
     syncing = false; setSync("", 0);
@@ -1205,7 +1231,7 @@ function vEdit(v){
     <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
     <div class="field"><label for="pl">Link</label><input type="text" id="pl" value="${esc(P.link)}" autocapitalize="off"></div>
     <div class="field"><label for="pfolder">This account's own Drive folder (optional)</label><input type="text" id="pfolder" value="${esc(P.folderName)}" placeholder="Leave empty to share the main folder" autocapitalize="off" autocorrect="off"></div>
-    <div class="hint">Files in this folder only post on this account. Files in the main folder are split between all your accounts, never posted twice.</div>
+    <div class="hint">Files in this folder only post on this account, and it stops taking files from the main folder. Nothing is ever posted twice.</div>
     <div class="field"><label for="pf">Followers right now</label><input type="number" id="pf" inputmode="numeric" min="0" value="${followersNow()}"></div>
     <div class="field"><label for="pg">New followers per day</label><input type="number" id="pg" inputmode="numeric" min="0" value="${esc(P.growth)}"></div>
     <div class="field"><label for="pfo">Following</label><input type="number" id="pfo" inputmode="numeric" min="0" value="${esc(P.following)}"></div>
@@ -1226,6 +1252,12 @@ function vSettings(v){
       <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks your folders every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
       <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
       <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
+    </div>
+    <div class="card"><h3>Folders</h3>
+      <div class="hint">An account with its own folder posts only from that folder. The main folder above is split between the accounts that don't have one.</div>
+      ${S.accounts.map(a => `<div class="field"><label for="af_${esc(a.id)}">@${esc(handleOf(a))}'s own folder</label><input type="text" id="af_${esc(a.id)}" data-acctfolder="${esc(a.id)}" value="${esc(a.folderName)}" placeholder="None: uses the main folder" autocapitalize="off" autocorrect="off"></div>`).join("")}
+      <button class="btn" type="button" data-reread>Re-read all folders</button>
+      <div class="hint">Use this after moving things around in Drive. It finds every folder again and rebuilds the queue from what's in them now. Posts that are already up stay where they are.</div>
       <details><summary class="hint">Google connection details</summary>
         <div class="field" style="margin-top:8px"><label for="sclient">Google client ID</label><input type="text" id="sclient" value="${esc(st.clientId)}" autocapitalize="off" autocorrect="off"></div>
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
@@ -1253,6 +1285,7 @@ function vSettings(v){
   </div>`;
   const save = async () => { st.clientId = $("#sclient").value.trim() || CLIENT_ID; const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
   $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
+  v.querySelectorAll("[data-acctfolder]").forEach(inp => inp.addEventListener("change", async () => { const a = accountById(inp.dataset.acctfolder); const fn = inp.value.trim(); if (fn !== a.folderName){ a.folderName = fn; a.folderId = ""; await saveAccounts(); toast(`@${handleOf(a)} folder saved. Tap Re-read all folders to apply it.`); } }));
   $("#smycap").addEventListener("change", async e => { st.myCaptions = e.target.value; await saveSettings(); await redoCaptions(); await autoCaptions(); toast("Captions saved and applied"); });
   $("#smystory").addEventListener("change", async e => { st.myStoryTexts = e.target.value; await saveSettings(); for (const p of S.posts.filter(p => isStory(p) && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x"))); await savePost(p); } toast("Story text saved"); });
   $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); A().interval = Math.round(1440/n); await saveAccounts(); await respace(A()); toast(`@${handleOf(A())} posts about ${perDay(A())} a day`); });
@@ -1338,6 +1371,7 @@ document.addEventListener("click", async e => {
   if (d.href){ go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab){ go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if ("reread" in d){ if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: rebuilds the queue from your folders"; return; } t.textContent = "Re-reading…"; try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} await saveSettings(); sync(false, true); return; }
   if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
   if ("switch" in d){ accountSwitcher(); return; }
   if ("mute" in d){ feedMuted = !feedMuted; document.querySelectorAll("video[data-auto]").forEach(v => v.muted = feedMuted); document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); return; }
@@ -1451,7 +1485,9 @@ window.addEventListener("hashchange", () => { const r = route(); if ($("#full").
   await autoRun();
   render();
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
-  if (back || now() - last > 20*60e3) sync(true);
+  let fullPending = false; try { fullPending = localStorage.getItem("reel-full-pending") === "1"; localStorage.removeItem("reel-full-pending"); } catch(e){}
+  if (back && fullPending) sync(false, true);
+  else if (back || now() - last > 20*60e3) sync(true);
   setInterval(() => sync(true), 30*60e3);
   setInterval(() => autoStories(), 30*60e3);
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
