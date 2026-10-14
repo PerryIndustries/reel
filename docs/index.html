@@ -348,7 +348,7 @@ async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
 async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
-function newAccount(n){ return { ...DEFAULT_ACCOUNT, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
+function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
 const urls = new Map();
 async function mediaURL(key){
@@ -414,22 +414,77 @@ const STORY_TEXT = ["who's up? 👀","dm me 😈","bored. entertain me","rate me
 "no thoughts, just this","lights off or on? 😏","say hi, i won't bite. much","be honest… 🔥 or 🔥🔥","missed me?","you up?","in the mood for trouble","too hot for the feed",
 "close friends only 🤫","what would you do if you were here","dare me","slide in, door's open","sending this to the right person","can't sleep. distract me","weekend mode 😈"];
 const POOL = 240;
+const SYL = ["yo","ru","ka","ze","mi","ra","ko","ri","sa","ne","ku","ro","lu","na","vi","ki","ta","no","shi","ma","ya","ha","ly","ve","to","zu","ai","ren","kai","sol","rin","jin","sei","kyo","mio","rei","sora","yume","hika","aki","nao","ryu","tsu","ex","ix","vy"];
+const EDGE = ["night","ghost","lunar","echo","vapor","static","neon","orbit","haze","frost","ember","glitch","drift","sable","onyx","cyan","nova","void","halo","rift","venom","lotus","kitsune","shade","pixel","yuki","zero","vanta"];
+const leet = (w, r) => w.replace(/[oeia]/g, c => r() < .35 ? ({o:"0",e:"3",i:"1",a:"4"})[c] : c);
+function gamerHandle(r){
+  const two = () => pick(SYL,r) + pick(SYL,r);
+  switch (Math.floor(r()*9)){
+    case 0: return two();                                                  // yoru
+    case 1: return String(100 + Math.floor(r()*900)) + pick(SYL,r);        // 520le
+    case 2: return two() + Math.floor(r()*99);                             // kuro44
+    case 3: return leet(pick(EDGE,r), r);                                  // n1ght
+    case 4: return pick(SYL,r) + "." + Math.floor(r()*10);                 // vex.7
+    case 5: return "x" + two() + "x";                                      // xkazex
+    case 6: { const w = two(); return w + w.slice(-1); }                   // yoruu
+    case 7: return pick(EDGE,r) + "_" + pick(SYL,r);                       // ghost_rin
+    default: return "_" + two();                                           // _miyu
+  }
+}
+function gamerName(handle, r){
+  const k = r();
+  const bare = handle.replace(/^[_.]+|[_.]+$/g, "").replace(/^x(.+)x$/, "$1");
+  if (k < .45) return handle;
+  if (k < .75) return bare.charAt(0).toUpperCase() + bare.slice(1);
+  return bare + " " + pick(["🦋","🌙","🖤","✨","🍒","⚡","🥀","☁️","🎧","🕊️"], r);
+}
 
 /* ================= fake world: accounts ================= */
-const acctCache = new Map();
+const acctCache = new Map(), usedHandles = new Set();
 function acct(i){
   if (acctCache.has(i)) return acctCache.get(i);
   const r = rng(hashStr("acct"+i+"|"+S.settings.seed));
-  const first = pick(FIRST,r), last = pick(LAST,r);
-  const f = first.toLowerCase(), l = last.toLowerCase();
-  const style = Math.floor(r()*7);
-  const handle = [ f+"."+l, f+"_"+pick(WORDS,r), f+l.slice(0,1)+Math.floor(r()*99), "its"+f, f+"."+pick(WORDS,r), l+"."+f, f+"_"+l+Math.floor(r()*9) ][style];
+  let handle = gamerHandle(r);
+  if (usedHandles.has(handle)) handle += Math.floor(r()*90 + 10);
+  usedHandles.add(handle);
   const big = r() < .06;
   const followers = Math.round(big ? 20000 + r()*900000 : Math.exp(4 + r()*4.5));
-  const a = { i, handle, name: first+" "+last, bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
+  const a = { i, handle, name: gamerName(handle, r), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
   acctCache.set(i, a); return a;
 }
-function acctAv(a, size){ return `<span class="av s${size}" style="background:linear-gradient(135deg,hsl(${a.hueA} 70% 62%),hsl(${a.hueB} 65% 42%))">${esc(a.name[0])}</span>`; }
+// Every fake account gets a picture: mostly illustrated faces (DiceBear), some aesthetic art, a few gradient pics.
+const DB_VER = "9.4.3";
+const PFP_STYLES = ["lorelei","notionists","adventurer","micah","open-peeps","personas"];
+let pfpLib = null, pfpLoading = null;
+const pfpCache = new Map();
+function loadPfps(){
+  if (pfpLoading) return pfpLoading;
+  pfpLoading = Promise.all([import(`https://cdn.jsdelivr.net/npm/@dicebear/core@${DB_VER}/+esm`), ...PFP_STYLES.map(st => import(`https://cdn.jsdelivr.net/npm/@dicebear/${st}@${DB_VER}/+esm`))])
+    .then(([core, ...styles]) => { pfpLib = { core, styles }; pfpCache.clear(); safeRender(); })
+    .catch(() => { pfpLoading = null; });
+  return pfpLoading;
+}
+const PASTELS = ["b6e3f4","c0aede","d1d4f9","ffd5dc","ffdfbf","c1f4c5","fde68a","fbcfe8","a7f3d0","e9d5ff","fecaca","bae6fd"];
+function pfpFor(a){
+  if (pfpCache.has(a.i)) return pfpCache.get(a.i);
+  const r = rng(a.seed ^ 0x3c6ef372);
+  const k = r();
+  let uri = "";
+  if (k < .12) uri = "art";
+  else if (pfpLib){
+    const st = pfpLib.styles[Math.floor(r()*pfpLib.styles.length)];
+    try { uri = pfpLib.core.createAvatar(st, { seed: a.handle, backgroundColor: [pick(PASTELS, r)], radius: 0 }).toDataUri(); } catch(e){ uri = ""; }
+  }
+  if (uri) pfpCache.set(a.i, uri);
+  return uri;
+}
+function acctAv(a, size){
+  const pic = pfpFor(a);
+  if (pic === "art") return `<span class="av s${size}" style="${tileArt(a, 99)}"></span>`;
+  if (pic) return `<span class="av s${size}"><img src="${pic}" alt=""></span>`;
+  loadPfps();
+  return `<span class="av s${size}" style="background:linear-gradient(135deg,hsl(${a.hueA} 70% 62%),hsl(${a.hueB} 65% 42%))">${esc(a.name.replace(/[^a-z0-9]/gi,"")[0] || "?")}</span>`;
+}
 function myAv(size, a){
   a = a || A();
   if (a && a.avatar) return `<span class="av s${size}"><img data-media="${esc(a.avatar)}" alt=""></span>`;
@@ -1569,7 +1624,7 @@ document.addEventListener("click", async e => {
     S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
-  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
+  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); usedHandles.clear(); pfpCache.clear(); genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
   if ("reset" in d){
     if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: this erases every post on this phone"; return; }
     await DB.clear("posts"); await DB.clear("media"); await DB.clear("kv"); try { localStorage.clear(); } catch(_){}

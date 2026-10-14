@@ -1,5 +1,5 @@
 // Offline support for the app shell. Your photos live in the app's own storage, not here.
-const CACHE = "reel-v7";
+const CACHE = "reel-v8";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -16,8 +16,14 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const req = e.request;
-  // Only the app's own files. Google sign-in and Drive downloads go straight to the network.
-  if (req.method !== "GET" || new URL(req.url).origin !== location.origin) return;
+  if (req.method !== "GET") return;
+  // Pinned library versions from the CDN never change, so keep a copy for offline use.
+  if (new URL(req.url).origin === "https://cdn.jsdelivr.net"){
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })));
+    return;
+  }
+  // Otherwise only the app's own files. Google sign-in, Drive and Anthropic go straight to the network.
+  if (new URL(req.url).origin !== location.origin) return;
   e.respondWith(
     fetch(req)
       .then((res) => {
