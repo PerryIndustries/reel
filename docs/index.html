@@ -343,7 +343,7 @@ const DB = {
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"", folderLink:false,
-  captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random" };
+  captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
 function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
@@ -830,36 +830,37 @@ async function frameB64(f){
 const VOICE = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. The voice is a flirty, confident thirst trap: teasing, suggestive, playful, a little cocky. Innuendo is fine; keep it non-explicit, with no graphic sexual description.";
 const direction = d => d && d.trim() ? `\n\nThe owner's direction, which takes priority over the default style:\n${d.trim()}` : "";
 const CAPTION_RULES = "One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them.";
-const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.";
+const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. Each comment is from a different person. Never mention being an AI or a bot.";
 const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
 const cleanLine = t => String(t || "").replace(/^["'“]+|["'”]+$/g, "").trim();
 // One request per post: the caption and the comments come back together when both are needed.
 async function writeOne(j){
   const p = j.p, a = acctOf(p);
-  const img = await frameB64(p.files[0]);
+  const img = a.writer === "photos" ? await frameB64(p.files[0]) : null;
+  const blind = img ? "" : "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
   const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
   if (j.kind === "story"){
-    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${direction(a.storyDirection || a.capDirection)}`, withImg("Write the story text."));
+    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${blind}${direction(a.storyDirection || a.capDirection)}`, withImg("Write the story text."));
     if (out) p.storyText = cleanLine(out);
     p.storyWritten = true;
   } else if (j.cap){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
     const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
     if (j.com){
-      const out = await ask(`${VOICE}\n\nWrite this post's caption and the comments different followers leave on it.\nCaption: ${CAPTION_RULES}${direction(a.capDirection)}\n\nComments: ${COMMENT_RULES} They react to the caption you wrote.${direction(a.comDirection)}${avoid}`,
+      const out = await ask(`${VOICE}\n\nWrite this post's caption and the comments different followers leave on it.\nCaption: ${CAPTION_RULES}${direction(a.capDirection)}\n\nComments: ${COMMENT_RULES} They react to the caption you wrote.${blind}${direction(a.comDirection)}${avoid}`,
         withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
       if (out && out.caption) p.caption = cleanLine(out.caption);
       p.captionWritten = true;
       if (out) setComments(out.comments); else p.commentsWritten = true;
     } else {
-      const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. ${CAPTION_RULES} Reply with the caption only, no quotes.${direction(a.capDirection)}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
+      const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. ${CAPTION_RULES} Reply with the caption only, no quotes.${blind}${direction(a.capDirection)}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
       if (out) p.caption = cleanLine(out);
       p.captionWritten = true;
     }
   } else {
-    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. ${COMMENT_RULES}${direction(a.comDirection)}`,
+    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. ${COMMENT_RULES}${blind}${direction(a.comDirection)}`,
       withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
     if (out) setComments(out.comments); else p.commentsWritten = true;
   }
@@ -875,6 +876,7 @@ async function writerRun(){
   try {
     const jobs = [];
     for (const p of S.posts){
+      if (acctOf(p).writer === "off") continue;
       if (isStory(p)){ if (!p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
       const cap = !!(p.captionAuto && !p.captionWritten), com = !p.commentsWritten;
       if (cap || com) jobs.push({ p, kind: "post", cap, com });
@@ -1298,7 +1300,7 @@ function qRow(p){
 }
 function accountSwitcher(){
   sheet(`<h3>Accounts</h3>
-    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
+    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued · Claude: ${({off:"off",text:"text only",photos:"sees photos"})[a.writer || "text"]}</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
     ${S.accounts.length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
       const b = el.closest("[data-acc]"); if (!b) return;
       closeSheet();
@@ -1579,9 +1581,9 @@ function vSettings(v){
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
     <div class="card"><h3>Caption writer</h3>
-      <div class="hint">With your Anthropic API key, Claude writes every caption, comment and story text for the photo it's on, following each account's direction. Without a key, the built-in lines are used.</div>
+      <div class="hint">With your Anthropic API key, Claude writes every caption, comment and story text for the photo it's on, following each account's direction. Each account's page sets whether Claude is off, writes from text only, or sees the photos. Without a key, the built-in lines are used.</div>
       <div class="field"><label for="skey">Anthropic API key</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="hint">Saved only on this phone. Your photos are sent to Anthropic to write about them. Each caption or batch of comments costs about 1 to 2 cents.</div>
+      <div class="hint">Saved only on this phone. Photos are only sent to Anthropic for accounts set to "Sees photos". Each caption or batch of comments costs about 1 to 2 cents.</div>
       <button class="btn" type="button" data-testkey>Test the key</button>
       <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
       <button class="btn" type="button" data-rewrite="all">Rewrite every account</button></div>
@@ -1612,6 +1614,9 @@ function vAset(v, r){
       <button class="btn" type="button" data-pickfolder="${id}">Pick from Drive</button>
       <div class="hint">Only this account posts from this folder, and nothing is posted twice. A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile. A link works for folders other Google accounts have shared with you.</div>
     </div>
+    <div class="card"><h3>Claude</h3>
+      ${seg("writer", a.writer || "text", [["off","Off"],["text","Text only"],["photos","Sees photos"]])}
+      <div class="hint">${a.writer === "off" ? "Claude doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to Anthropic." : a.writer === "photos" ? "Claude sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to Anthropic." : "Claude writes from your direction boxes only. No photos or videos from this account are sent to Anthropic."}</div></div>
     <div class="card"><h3>Posting</h3>
       <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
       <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
@@ -1765,6 +1770,7 @@ document.addEventListener("click", async e => {
   if (d.follow !== undefined){ const i = +d.follow; followMap()[i] = !isFollowing(i); await saveMisc(); render(); return; }
   if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
   if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
+  if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `Claude sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `Claude is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
