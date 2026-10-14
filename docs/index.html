@@ -911,6 +911,14 @@ async function sync(auto, full){
   }
   syncing = true; setSync("Finding your folders…", 0);
   try {
+    // A text file named reel-key.txt anywhere in your Drive hands the caption writer its Anthropic key.
+    try {
+      const kf = (await gapi(`files?q=${encodeURIComponent("name='reel-key.txt' and trashed=false")}&orderBy=modifiedTime desc&fields=files(id,modifiedTime)&pageSize=1`, token)).files[0];
+      if (kf && kf.modifiedTime !== S.secret.keyFrom){
+        const k = (await (await gapi(`files/${kf.id}?alt=media`, token, true)).text()).trim();
+        if (/^sk-ant-\S{20,}$/.test(k)){ S.secret.key = k; S.secret.keyFrom = kf.modifiedTime; await saveSecret(); client = null; setWriter(""); toast("Caption writer connected"); setTimeout(writerRun, 1500); }
+      }
+    } catch(e){ if (e.message === "signin") throw e; }
     // sources: the shared folder (split across accounts) + each account's own folder
     const sources = [];
     if (S.settings.folderName.trim()) sources.push({ owner: null, holder: S.settings });
