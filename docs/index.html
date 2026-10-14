@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Reel">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>Reel</title>
+<style>
+:root{
+  --bg:#ffffff; --fg:#0f0f12; --muted:#737380; --line:#e6e6ea; --soft:#f3f3f6;
+  --accent:#ff5a36; --accent-fg:#ffffff; --heart:#ff3040; --link:#3b6cf6;
+  --font:-apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  --display:-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --bar:52px;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#000000; --fg:#f4f4f6; --muted:#a0a0ab; --line:#26262b; --soft:#141417;
+  --accent:#ff7350; --accent-fg:#160803; --heart:#ff3b55; --link:#7c9cff; color-scheme:dark}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--font);overscroll-behavior-y:none}
+[hidden]{display:none!important}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+input,textarea,select{font:inherit;color:var(--fg);background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
+textarea{min-height:90px;resize:vertical}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.num{font-variant-numeric:tabular-nums}
+
+/* app chrome */
+.top{position:sticky;top:0;z-index:10;background:var(--bg);padding-top:env(safe-area-inset-top,0px);border-bottom:1px solid var(--line)}
+.top .in{height:48px;display:flex;align-items:center;gap:10px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.top h1{font:700 19px var(--display);margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top h1.logo{font:800 26px var(--display);letter-spacing:-.03em}
+.iconbtn{width:36px;height:36px;display:grid;place-items:center;border-radius:50%}
+.iconbtn svg{width:24px;height:24px}
+main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);max-width:640px;margin:0 auto}
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--bg);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.tabbar .in{height:var(--bar);display:grid;grid-template-columns:repeat(3,1fr);max-width:640px;margin:0 auto}
+.tabbar button{display:grid;place-items:center;position:relative}
+.tabbar svg{width:26px;height:26px}
+.tabbar .dot{position:absolute;top:10px;left:calc(50% + 8px);width:8px;height:8px;border-radius:50%;background:var(--heart)}
+.tabbar .me{width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid transparent}
+.tabbar .on .me{border-color:var(--fg)}
+.pad{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+/* avatars */
+.av{border-radius:50%;overflow:hidden;display:grid;place-items:center;flex:none;color:#fff;font-weight:700;background:var(--soft)}
+.av img{width:100%;height:100%;object-fit:cover}
+.av.s28{width:28px;height:28px;font-size:12px}.av.s32{width:32px;height:32px;font-size:13px}.av.s44{width:44px;height:44px;font-size:17px}.av.s86{width:86px;height:86px;font-size:34px}
+.ring{padding:2px;border-radius:50%;background:conic-gradient(from 200deg,#ffb23f,#ff5a36,#d6249f,#6a5cff,#ffb23f)}
+.ring>.av{border:2px solid var(--bg)}
+.check{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:#3b8cf6;color:#fff;vertical-align:-2px;margin-left:3px}
+.check svg{width:10px;height:10px}
+
+/* feed post */
+.post{border-bottom:1px solid var(--line);padding-bottom:10px}
+.phead{display:flex;align-items:center;gap:10px;padding:10px 0}
+.phead .who{flex:1;min-width:0}
+.phead b{font-weight:600}
+.carousel{position:relative;background:var(--soft)}
+.slides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.slides::-webkit-scrollbar{display:none}
+.slide{flex:0 0 100%;scroll-snap-align:center;display:grid;place-items:center;background:#000}
+.slide img,.slide video{width:100%;max-height:75vh;object-fit:contain;display:block}
+.slide.sq img,.slide.sq video{aspect-ratio:4/5;object-fit:cover;max-height:none}
+.count{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:3px 8px;border-radius:999px}
+.dots{display:flex;justify-content:center;gap:4px;padding-top:8px;min-height:14px}
+.dots i{width:6px;height:6px;border-radius:50%;background:var(--line)}
+.dots i.on{background:var(--link)}
+.burst{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.burst svg{width:96px;height:96px;color:#fff;filter:drop-shadow(0 4px 14px rgba(0,0,0,.4));animation:pop .8s ease-out forwards}
+@keyframes pop{0%{transform:scale(.2);opacity:0}20%{transform:scale(1.15);opacity:1}40%{transform:scale(.95)}80%{opacity:1}100%{transform:scale(1);opacity:0}}
+.pbar{display:flex;align-items:center;gap:14px;padding-top:6px}
+.pbar .sp{flex:1}
+.pbar button{display:flex;align-items:center;gap:5px;font-weight:600;font-size:14px}
+.pbar svg{width:26px;height:26px}
+.pbar .liked{color:var(--heart)}
+.likes{font-weight:600;margin-top:6px;display:block;text-align:left}
+.caption{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere}
+.caption b{font-weight:600}
+.morec{display:block;margin-top:4px;color:var(--muted)}
+.when{margin-top:4px;color:var(--muted);font-size:12px}
+.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* profile */
+.prof{padding-top:14px}
+.prow{display:flex;align-items:center;gap:22px}
+.pstats{flex:1;display:grid;grid-template-columns:repeat(3,1fr);text-align:center}
+.pstats button{display:flex;flex-direction:column;align-items:center}
+.pstats b{font-size:17px;font-weight:700}
+.pstats span{font-size:13px}
+.pname{font-weight:600;margin-top:12px}
+.pbio{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px}
+.plink{color:var(--link);font-weight:500}
+.pbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
+.btn{background:var(--soft);border-radius:9px;padding:8px 12px;font-weight:600;font-size:14px;text-align:center;display:block;width:100%}
+.btn.primary{background:var(--accent);color:var(--accent-fg)}
+.btn.blue{background:#3b8cf6;color:#fff}
+.btn.danger{color:var(--heart)}
+.ptabs{display:grid;grid-template-columns:1fr 1fr;margin-top:14px;border-bottom:1px solid var(--line)}
+.ptabs button{padding:10px;display:grid;place-items:center;color:var(--muted);border-bottom:1px solid transparent;margin-bottom:-1px}
+.ptabs button.on{color:var(--fg);border-bottom-color:var(--fg)}
+.ptabs svg{width:24px;height:24px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.tile{position:relative;aspect-ratio:3/4;max-width:100%;overflow:hidden;background:var(--soft);display:block;width:100%}
+.tile img,.tile video{width:100%;height:100%;object-fit:cover;display:block}
+.tile .ic{position:absolute;top:6px;right:6px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.tile .ic svg{width:18px;height:18px}
+.tile .txt{position:absolute;inset:0;padding:8px;display:flex;align-items:center;font-weight:600;font-size:12px;color:var(--fg);overflow:hidden}
+
+/* lists */
+.list .row{display:flex;align-items:center;gap:12px;padding:8px 0}
+.list .row .who{flex:1;min-width:0}
+.list .row .who div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.list .row .btn{width:auto;padding:6px 14px}
+.cmt{display:flex;gap:12px;padding:10px 0}
+.cmt .body{flex:1;min-width:0}
+.cmt .t{white-space:pre-wrap;overflow-wrap:anywhere}
+.cmt .meta{display:flex;gap:14px;margin-top:4px;font-size:12px;color:var(--muted)}
+.cmt .h{display:grid;justify-items:center;color:var(--muted);font-size:11px;padding-top:4px}
+.cmt .h svg{width:14px;height:14px}
+.cbox{position:fixed;left:0;right:0;bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px));background:var(--bg);border-top:1px solid var(--line);z-index:9}
+.cbox .in{display:flex;gap:10px;align-items:center;padding-block:8px;max-width:640px;margin:0 auto}
+.cbox input{border-radius:999px}
+.cbox button{color:var(--link);font-weight:600}
+
+/* activity */
+.act{display:flex;gap:12px;align-items:center;padding:9px 0}
+.act .t{flex:1;min-width:0;overflow-wrap:anywhere}
+.act .thumb{width:44px;height:44px;object-fit:cover;flex:none;background:var(--soft);border-radius:4px;overflow:hidden}
+.act .thumb img,.act .thumb video{width:100%;height:100%;object-fit:cover}
+.sect{font-weight:700;font-size:16px;padding-top:16px;padding-bottom:4px}
+
+/* forms */
+.form{display:flex;flex-direction:column;gap:14px;padding-top:16px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label,.lbl{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.hint{font-size:13px;color:var(--muted)}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
+.seg button{border:1px solid var(--line);border-radius:9px;padding:9px 4px;font-weight:600;font-size:13px}
+.seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.card{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card h3{margin:0;font:700 16px var(--display)}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--soft);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere;user-select:all}
+.thumbs{display:flex;gap:6px;flex-wrap:wrap}
+.thumbs .th{width:72px;height:72px;border-radius:8px;overflow:hidden;background:var(--soft)}
+.thumbs img,.thumbs video{width:100%;height:100%;object-fit:cover}
+.status{font-size:13px;color:var(--muted);min-height:18px}
+.progress{height:4px;border-radius:2px;background:var(--soft);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+.qrow{display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.qrow .th{width:56px;height:56px;border-radius:6px;overflow:hidden;background:var(--soft);flex:none}
+.qrow .th img,.qrow .th video{width:100%;height:100%;object-fit:cover}
+.qrow .info{flex:1;min-width:0}
+.qrow .info div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qrow .btn{width:auto;padding:6px 10px;font-size:13px}
+.empty{text-align:center;padding:56px 24px;color:var(--muted)}
+.empty h2{color:var(--fg);font:700 20px var(--display);margin:0 0 6px}
+.empty .btn{display:inline-block;width:auto;margin-top:16px;padding:10px 18px}
+
+/* sheet + toast */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--bg);width:100%;max-width:640px;max-height:90%;overflow:auto;border-radius:16px 16px 0 0;padding-block:8px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column}
+.sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
+.sheet .opt{padding:14px 0;text-align:left;font-size:16px;border-bottom:1px solid var(--line)}
+.sheet .opt:last-child{border-bottom:0}
+.sheet .opt.red{color:var(--heart)}
+.sheet h3{margin:0 0 4px;font:700 17px var(--display)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 70px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:50;max-width:calc(100% - 32px);text-align:center}
+@media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
+</style>
+</head>
+<body>
+<header class="top"><div class="in" id="top"></div></header>
+<main id="view"></main>
+<nav class="tabbar"><div class="in">
+  <button type="button" data-tab="home" aria-label="Home"></button>
+  <button type="button" data-tab="activity" aria-label="Activity"></button>
+  <button type="button" data-tab="me" aria-label="Profile"></button>
+</div></nav>
+<div id="layer"></div>
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="picker" accept="image/*,video/*" multiple hidden>
+<input type="file" id="avPicker" accept="image/*" hidden>
+
+<script>
+"use strict";
+/* ================= icons ================= */
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  homeOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  add:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8" stroke-linecap="round"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
+  heartOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
+  comment:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21.5 3 10 14M21.5 3 15 21l-5-7-7-3z"/></svg>',
+  save:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  saveOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>',
+  menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  multi:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 3h11a3 3 0 0 1 3 3v11h-2V6a1 1 0 0 0-1-1H7z"/><rect x="3" y="7" width="14" height="14" rx="2"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
+  sync:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5L20 16M20 20v-4h-4"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+};
+
+/* ================= utils ================= */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const now = () => Date.now();
+const H = 3600e3, D = 86400e3;
+function hashStr(s){ let h = 2166136261; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h,16777619); } return h>>>0; }
+function rng(seed){ let a = seed>>>0; return () => { a = (a + 0x6D2B79F5)>>>0; let t = a; t = Math.imul(t ^ t>>>15, t|1); t ^= t + Math.imul(t ^ t>>>7, t|61); return ((t ^ t>>>14)>>>0)/4294967296; }; }
+const pick = (arr, r) => arr[Math.floor(r()*arr.length)];
+function fmt(n){
+  n = Math.max(0, Math.round(n));
+  if (n < 10000) return n.toLocaleString("en-US");
+  if (n < 1e6) return (n/1e3).toFixed(n < 1e5 ? 1 : 0).replace(/\.0$/,"") + "K";
+  return (n/1e6).toFixed(n < 1e7 ? 1 : 0).replace(/\.0$/,"") + "M";
+}
+function full(n){ return Math.max(0,Math.round(n)).toLocaleString("en-US"); }
+function ago(t, long){
+  const s = Math.max(0, now()-t)/1000;
+  if (s < 60) return long ? "Just now" : "now";
+  if (s < 3600){ const m = Math.floor(s/60); return long ? m+(m==1?" minute ago":" minutes ago") : m+"m"; }
+  if (s < 86400){ const h = Math.floor(s/3600); return long ? h+(h==1?" hour ago":" hours ago") : h+"h"; }
+  if (s < 604800){ const d = Math.floor(s/86400); return long ? d+(d==1?" day ago":" days ago") : d+"d"; }
+  if (!long) return Math.floor(s/604800)+"w";
+  return new Date(t).toLocaleDateString("en-US",{month:"long",day:"numeric",year: new Date(t).getFullYear()===new Date().getFullYear()?undefined:"numeric"});
+}
+function until(t){
+  const s = (t-now())/1000;
+  if (s < 60) return "in under a minute";
+  if (s < 3600) return "in "+Math.round(s/60)+" min";
+  if (s < 86400) return "in "+(s/3600).toFixed(1).replace(/\.0$/,"")+" h";
+  return new Date(t).toLocaleString("en-US",{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 2400); }
+const natural = new Intl.Collator(undefined,{numeric:true,sensitivity:"base"});
+const isVideo = m => (m||"").startsWith("video/");
+const isImage = m => (m||"").startsWith("image/");
+const uid = p => p + Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+
+/* ================= storage (IndexedDB, all on this phone) ================= */
+const DB = {
+  db: null,
+  open(){ return new Promise((res, rej) => {
+    const r = indexedDB.open("reel", 1);
+    r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("kv"); d.createObjectStore("posts",{keyPath:"id"}); d.createObjectStore("media"); };
+    r.onsuccess = () => { DB.db = r.result; res(); };
+    r.onerror = () => rej(r.error);
+  }); },
+  tx(store, mode, fn){ return new Promise((res, rej) => {
+    const t = DB.db.transaction(store, mode); const s = t.objectStore(store); let out;
+    const q = fn(s); if (q) q.onsuccess = () => out = q.result;
+    t.oncomplete = () => res(out); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+  }); },
+  get: (st,k) => DB.tx(st,"readonly",s=>s.get(k)),
+  put: (st,v,k) => DB.tx(st,"readwrite",s=> k===undefined ? s.put(v) : s.put(v,k)),
+  del: (st,k) => DB.tx(st,"readwrite",s=>s.delete(k)),
+  all: st => DB.tx(st,"readonly",s=>s.getAll()),
+  clear: st => DB.tx(st,"readwrite",s=>s.clear()),
+};
+
+/* ================= state ================= */
+const DEFAULT_SETTINGS = { clientId:"", folderName:"", folderId:"", interval:180, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
+const DEFAULT_PROFILE = { name:"", handle:"", bio:"", link:"", avatar:null, followers:2400, following:312, growth:35, verified:false, startedAt:0 };
+const S = { settings:{...DEFAULT_SETTINGS}, profile:{...DEFAULT_PROFILE}, posts:[], follows:{}, seenAt:0, saved:{} };
+async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
+async function saveProfile(){ await DB.put("kv", S.profile, "profile"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved}, "misc"); }
+async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
+
+const urls = new Map();
+async function mediaURL(key){
+  if (!key) return "";
+  if (urls.has(key)) return urls.get(key);
+  const blob = await DB.get("media", key);
+  if (!blob) return "";
+  const u = URL.createObjectURL(blob); urls.set(key, u); return u;
+}
+// Fill every [data-media] element after a render.
+async function hydrate(root){
+  for (const el of root.querySelectorAll("[data-media]")){
+    if (el.getAttribute("src")) continue;
+    const u = await mediaURL(el.dataset.media);
+    if (!u) continue;
+    if (el.tagName === "VIDEO") { el.src = u + (el.dataset.poster ? "#t=0.1" : ""); } else el.src = u;
+  }
+}
+function mediaTag(f, cls, opts={}){
+  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" ${opts.controls?"controls":""} ${opts.poster?'data-poster="1" muted':""} playsinline preload="metadata" ${opts.loop?"loop autoplay muted":""}></video>`;
+  return `<img class="${cls||""}" data-media="${esc(f.key)}" alt="" ${opts.lazy===false?"":'loading="lazy"'}>`;
+}
+
+/* ================= fake world: accounts ================= */
+const FIRST = ["Maya","Jordan","Theo","Ava","Liam","Zoe","Kai","Nina","Marcus","Isla","Leo","Sofia","Ethan","Chloe","Noah","Mila","Jayden","Aria","Lucas","Ella","Mateo","Ivy","Dylan","Luna","Owen","Nora","Elijah","Hazel","Caleb","Ruby","Adrian","Jade","Miles","Lila","Ezra","Sienna","Kian","Amara","Rafael","Tess","Andre","Priya","Malik","Yuki","Diego","Freya","Omar","Leila","Sam","Bianca","Nico","Camila","Tyler","Grace","Xavier","Elena","Jonah","Alina","Reid","Naomi"];
+const LAST = ["Reyes","Carter","Nguyen","Brooks","Kim","Santos","Bennett","Park","Rivera","Hayes","Cole","Patel","Morales","Ward","Chen","Foster","Silva","Hughes","Diaz","Lane","Ortiz","Grant","Shaw","Moreno","Price","Kelly","Rossi","Fox","Mendes","Vance","Abbott","Navarro","Quinn","Hart","Lowe","Jensen"];
+const WORDS = ["lens","daily","films","vibes","studio","raw","jpg","archive","szn","club","fit","eats","travels","world","motion","tone","goes","ok","irl","hq"];
+const BIOS = ["coffee first ☕","just here for the vibes","📍 LA","photos + bad jokes","living slowly","catch me outside","gym · food · repeat","sunsets collector 🌅","dog parent 🐶","new music fridays","travel when I can ✈️","film camera era 📷","ok but where's the food","always on the move","main character energy","designer by day","night owl 🌙","plant mom 🌿","say less","here for the comments",""];
+const COMMENTS = ["this is so good 🔥","obsessed with this","okay this one 😮‍💨","need this energy today","🔥🔥🔥","the lighting here 😍","W post","insane shot","who took this?? 📸","lowkey iconic","can't stop looking at this","vibes are immaculate","the fit 🔥","goals fr","so clean","you're glowing ✨","this is a whole mood","where is this??","ok you ate this","😍😍","looking great!!","main character moment","need the details on this","love this so much","stunning","you never miss","best one yet","this made my day","the colors 🤌","framing this","yesss","❤️❤️❤️","no because this is perfect","the confidence 👏","what camera do you use?","living your best life","been waiting for this post","straight to my saved","I see you 👀","elite","so proud of you","literally perfect","this is art","haha love it","okay I'm jealous","bring me next time","the way this turned out 😭","10/10","post more like this","how are you this photogenic"];
+const POOL = 240;
+const acctCache = new Map();
+function acct(i){
+  if (acctCache.has(i)) return acctCache.get(i);
+  const r = rng(hashStr("acct"+i+"|"+S.settings.seed));
+  const first = pick(FIRST,r), last = pick(LAST,r);
+  const f = first.toLowerCase(), l = last.toLowerCase();
+  const style = Math.floor(r()*7);
+  const handle = [ f+"."+l, f+"_"+pick(WORDS,r), f+l.slice(0,1)+Math.floor(r()*99), "its"+f, f+"."+pick(WORDS,r), l+"."+f, f+"_"+l+Math.floor(r()*9) ][style];
+  const big = r() < .06;
+  const followers = Math.round(big ? 20000 + r()*900000 : Math.exp(4 + r()*4.5));
+  const a = { i, handle, name: first+" "+last, bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
+  acctCache.set(i, a); return a;
+}
+function acctAv(a, size){ return `<span class="av s${size}" style="background:linear-gradient(135deg,hsl(${a.hueA} 70% 62%),hsl(${a.hueB} 65% 42%))">${esc(a.name[0])}</span>`; }
+function myAv(size){
+  if (S.profile.avatar) return `<span class="av s${size}"><img data-media="${esc(S.profile.avatar)}" alt=""></span>`;
+  return `<span class="av s${size}" style="background:linear-gradient(135deg,#ffb23f,#ff5a36 50%,#d6249f)">${esc((S.profile.name||"Y")[0].toUpperCase())}</span>`;
+}
+function tileArt(a, k){
+  const r = rng(a.seed + k*7919);
+  const h1 = (a.hueA + r()*60)%360, h2 = (a.hueB + r()*60)%360, h3 = Math.floor(r()*360);
+  return `background:radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h3} 80% 70% / .9), transparent ${30+Math.floor(r()*30)}%),radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h1} 70% 55%), transparent 70%),linear-gradient(${Math.floor(r()*360)}deg,hsl(${h1} 55% 35%),hsl(${h2} 60% 55%))`;
+}
+const checkMark = v => v ? `<span class="check">${I.check}</span>` : "";
+const myName = () => S.profile.handle || "you";
+
+/* ================= fake world: growth + engagement ================= */
+const LEVEL = { low:.45, normal:1, high:2.2, viral:5 };
+function followersAt(t){
+  const start = S.profile.startedAt || now();
+  const days = Math.max(0, (t - start)/D);
+  const r = rng(hashStr("f"+Math.floor(days)+"|"+S.settings.seed));
+  return Math.round(S.profile.followers + S.profile.growth*days*(LEVEL[S.settings.level]||1)*(.8+r()*.4));
+}
+const followersNow = () => followersAt(now());
+function engage(p){
+  const r = rng(p.seed);
+  const lv = LEVEL[S.settings.level] || 1;
+  let rate = (.04 + r()*.08) * lv;
+  if (r() < .12) rate *= 2 + r()*3.5;
+  const totalL = p.likesTarget ?? Math.round(followersAt(p.publishAt) * Math.min(rate, 2.5));
+  const totalC = p.commentsTarget ?? Math.max(1, Math.round(totalL * (.01 + r()*.03)));
+  const age = Math.max(0, now() - p.publishAt);
+  const g = 1 - Math.exp(-age/(5*H));
+  const likes = Math.round(totalL * g) + (p.liked?1:0);
+  const comments = Math.max(Math.round(totalC * (1 - Math.exp(-age/(7*H)))), visibleComments(p).length);
+  return { likes, comments, totalL, totalC };
+}
+const genCache = new Map();
+function genComments(p){
+  const key = p.id+"|"+(p.commentsTarget??"")+"|"+(p.likesTarget??"")+"|"+S.settings.level+"|"+S.settings.seed;
+  if (genCache.has(key)) return genCache.get(key);
+  const r = rng(p.seed ^ 0x9e3779b9);
+  const lv = LEVEL[S.settings.level] || 1;
+  let rate = (.04 + rng(p.seed)()*.08) * lv;
+  const totalL = p.likesTarget ?? Math.round(followersAt(p.publishAt)*rate);
+  const totalC = p.commentsTarget ?? Math.max(1, Math.round(totalL*(.01+r()*.03)));
+  const n = Math.min(totalC, 60);
+  const out = [];
+  const used = new Set();
+  for (let k=0;k<n;k++){
+    let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
+    const off = -7*H*Math.log(1 - r()*.97) + r()*120e3;
+    out.push({ id:"g"+k, acct:ai, text: pick(COMMENTS,r), at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
+  }
+  genCache.set(key, out); return out;
+}
+function visibleComments(p){
+  const hidden = new Set(p.hidden||[]);
+  const g = genComments(p).filter(c => c.at <= now() && !hidden.has(c.id));
+  const mine = (p.myComments||[]).map(c => ({...c, mine:true}));
+  return [...g, ...mine].sort((a,b) => a.at - b.at);
+}
+function likerSample(p, n){
+  const r = rng(p.seed ^ 0x5bd1e995); const out = new Set();
+  while (out.size < n) out.add(Math.floor(r()*POOL));
+  return [...out];
+}
+function isFollowing(i){ if (i in S.follows) return S.follows[i]; return rng(hashStr("fol"+i+S.settings.seed))() < .35; }
+function followsYou(i){ return rng(hashStr("fy"+i+S.settings.seed))() < .8; }
+function followingCount(){ let n = S.profile.following; for (const [i,v] of Object.entries(S.follows)){ const base = rng(hashStr("fol"+i+S.settings.seed))() < .35; if (v && !base) n++; if (!v && base) n--; } return n; }
+
+/* ================= posts ================= */
+const live = () => S.posts.filter(p => p.publishAt && p.publishAt <= now()).sort((a,b) => b.publishAt - a.publishAt);
+const queued = () => S.posts.filter(p => p.publishAt && p.publishAt > now()).sort((a,b) => a.publishAt - b.publishAt);
+const waiting = () => S.posts.filter(p => !p.publishAt).sort((a,b) => (a.order??0) - (b.order??0));
+function nextSlot(){
+  const step = Math.max(1, +S.settings.interval || 180) * 60e3;
+  const q = queued(); const last = q.length ? q[q.length-1].publishAt : 0;
+  const lastLive = live()[0]?.publishAt || 0;
+  return Math.max(now() + 60e3, (last || lastLive) + step);
+}
+async function schedule(posts, mode){
+  if (!posts.length) return;
+  const step = Math.max(1, +S.settings.interval || 180) * 60e3;
+  if (mode === "now"){ let t = now(); for (let i = posts.length-1; i >= 0; i--){ posts[i].publishAt = t; t -= 60e3; } }
+  else if (mode === "backdate"){
+    const r = rng(hashStr("bd"+now())); let t = now() - 2*H;
+    for (let i = posts.length-1; i >= 0; i--){ posts[i].publishAt = t; t -= (.6 + r()*2.8) * D; }
+    const oldest = posts[0].publishAt; if (!S.profile.startedAt || S.profile.startedAt > oldest) { S.profile.startedAt = oldest - 3*D; await saveProfile(); }
+  } else { for (const p of posts){ p.publishAt = nextSlot(); await savePost(p); } return; }
+  for (const p of posts) await savePost(p);
+}
+
+/* ================= Google Drive ================= */
+const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const redirectURI = () => location.origin + location.pathname;
+function tokenOK(){ try { const t = JSON.parse(localStorage.getItem("reel-token")||"null"); return t && t.exp > now() + 60e3 ? t.token : null; } catch(e){ return null; } }
+function signIn(silent){
+  const state = (silent ? "s" : "i") + Math.random().toString(36).slice(2);
+  try { localStorage.setItem("reel-oauth-state", state); localStorage.setItem("reel-return", location.hash || "#/"); if (silent) localStorage.setItem("reel-silent-at", String(now())); } catch(e){}
+  const q = new URLSearchParams({ client_id: S.settings.clientId.trim(), redirect_uri: redirectURI(), response_type: "token", scope: SCOPE, include_granted_scopes: "true", state });
+  if (silent) q.set("prompt", "none");
+  location.href = "https://accounts.google.com/o/oauth2/v2/auth?" + q;
+}
+const needsGoogle = () => { try { return localStorage.getItem("reel-needs-signin") === "1"; } catch(e){ return false; } };
+function takeOAuthReturn(){
+  if (!location.hash.includes("access_token=") && !location.hash.includes("error=")) return false;
+  const h = new URLSearchParams(location.hash.slice(1));
+  let ok = false;
+  try {
+    const want = localStorage.getItem("reel-oauth-state");
+    if (h.get("access_token") && (!want || h.get("state") === want)){
+      localStorage.setItem("reel-token", JSON.stringify({ token: h.get("access_token"), exp: now() + (+h.get("expires_in")||3600)*1000 }));
+      ok = true;
+    }
+  } catch(e){}
+  let back = "#/", silent = false;
+  try { back = localStorage.getItem("reel-return") || "#/"; silent = (h.get("state")||"").startsWith("s"); localStorage.setItem("reel-needs-signin", ok ? "0" : "1"); } catch(e){}
+  history.replaceState(null, "", location.pathname + back);
+  if (!ok && !silent) setTimeout(() => toast(h.get("error") === "access_denied" ? "Google sign-in was cancelled" : "Google sign-in didn't finish. Try again."), 300);
+  return ok;
+}
+async function gapi(path, token, asBlob){
+  const res = await fetch("https://www.googleapis.com/drive/v3/" + path, { headers: { Authorization: "Bearer " + token } });
+  if (res.status === 401){ localStorage.removeItem("reel-token"); throw new Error("signin"); }
+  if (!res.ok) throw new Error("Drive said " + res.status);
+  return asBlob ? res.blob() : res.json();
+}
+async function listChildren(id, token){
+  const out = []; let pageToken = "";
+  do {
+    const q = encodeURIComponent(`'${id}' in parents and trashed=false`);
+    const j = await gapi(`files?q=${q}&pageSize=1000&fields=nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,size)&supportsAllDrives=true&includeItemsFromAllDrives=true${pageToken?"&pageToken="+pageToken:""}`, token);
+    out.push(...j.files); pageToken = j.nextPageToken || "";
+  } while (pageToken);
+  return out;
+}
+const FOLDER = "application/vnd.google-apps.folder";
+const base = n => n.replace(/\.[^.]+$/, "").toLowerCase();
+const isText = f => f.mimeType === "text/plain" || /\.txt$/i.test(f.name);
+
+let syncing = false;
+async function sync(auto){
+  if (syncing) return;
+  if (auto && (!S.settings.clientId.trim() || !S.settings.folderName.trim())) return;
+  if (!S.settings.clientId.trim()){ toast("Add your Google client ID first"); go("#/settings"); return; }
+  if (!S.settings.folderName.trim()){ toast("Type the Drive folder name first"); go("#/settings"); return; }
+  const token = tokenOK();
+  if (!token){
+    if (!auto) { signIn(false); return; }
+    let last = 0; try { last = +localStorage.getItem("reel-silent-at") || 0; } catch(e){}
+    if (!needsGoogle() && now() - last > 10*60e3) signIn(true);
+    return;
+  }
+  syncing = true; setSync("Finding your folder…", 0);
+  try {
+    let folderId = S.settings.folderId;
+    if (!folderId){
+      const name = S.settings.folderName.trim().replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+      const j = await gapi(`files?q=${encodeURIComponent(`name='${name}' and mimeType='${FOLDER}' and trashed=false`)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, token);
+      if (!j.files.length) throw new Error(`No Drive folder named “${S.settings.folderName.trim()}”. Check the spelling.`);
+      folderId = j.files[0].id; S.settings.folderId = folderId; await saveSettings();
+    }
+    setSync("Reading the folder…", 0);
+    const kids = await listChildren(folderId, token);
+    const known = new Set(S.posts.map(p => p.driveKey).filter(Boolean));
+    const ignored = new Set(S.settings.ignored || []);
+    const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
+    const entries = [];
+    // profile extras
+    for (const f of kids){
+      const b = base(f.name);
+      if ((b === "avatar" || b === "profile") && isImage(f.mimeType) && S.profile.avatarDrive !== f.id){ entries.push({ kind:"avatar", f }); }
+      if (b === "bio" && isText(f) && S.profile.bioDrive !== f.modifiedTime){ entries.push({ kind:"bio", f }); }
+    }
+    for (const f of kids){
+      const b = base(f.name);
+      if (b === "avatar" || b === "profile" || b === "bio") continue;
+      if (f.mimeType === FOLDER){
+        if (known.has(f.id) || ignored.has(f.id)) continue;
+        const inner = await listChildren(f.id, token);
+        const media = inner.filter(x => isImage(x.mimeType) || isVideo(x.mimeType)).sort((a,b) => natural.compare(a.name,b.name));
+        if (!media.length) continue;
+        entries.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media, caption: inner.find(isText) });
+      } else if (isImage(f.mimeType) || isVideo(f.mimeType)){
+        if (known.has(f.id) || ignored.has(f.id)) continue;
+        entries.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media:[f], caption: texts.get(base(f.name)) });
+      }
+    }
+    const postsIn = entries.filter(e => e.kind === "post");
+    if (S.settings.order === "date") postsIn.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+    else if (S.settings.order === "random"){ const r = rng(hashStr("o"+now())); postsIn.sort(() => r() - .5); }
+    else postsIn.sort((a,b) => natural.compare(a.name,b.name));
+    const totalFiles = entries.reduce((n,e) => n + (e.kind==="post" ? e.media.length + (e.caption?1:0) : 1), 0);
+    let done = 0;
+    const tick = label => setSync(label, totalFiles ? done/totalFiles : 1);
+    for (const e of entries){
+      if (e.kind === "avatar"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); const key = "d_"+e.f.id; await DB.put("media", blob, key); urls.delete(key); S.profile.avatar = key; S.profile.avatarDrive = e.f.id; await saveProfile(); done++; }
+      if (e.kind === "bio"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); S.profile.bio = (await blob.text()).trim(); S.profile.bioDrive = e.f.modifiedTime; await saveProfile(); done++; }
+    }
+    let order = Math.max(0, ...S.posts.map(p => p.order||0));
+    const fresh = [];
+    for (const e of postsIn){
+      const files = [];
+      for (const m of e.media){
+        tick(`Downloading ${done+1} of ${totalFiles}…`);
+        const key = "d_" + m.id;
+        if (!(await DB.get("media", key))){ const blob = await gapi(`files/${m.id}?alt=media`, token, true); await DB.put("media", blob, key); }
+        files.push({ key, mime: m.mimeType, driveId: m.id }); done++;
+      }
+      let caption = "";
+      if (e.caption){ caption = (await (await gapi(`files/${e.caption.id}?alt=media`, token, true)).text()).trim(); done++; }
+      const p = { id: uid("p_"), driveKey: e.key, source:"drive", files, caption, createdAt: now(), publishAt: 0, seed: hashStr(e.key), order: ++order, myComments: [], hidden: [] };
+      await savePost(p); fresh.push(p);
+    }
+    setSync("", 1);
+    syncing = false;
+    try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
+    await autoSchedule();
+    if (!auto) toast(fresh.length ? `The bot picked up ${fresh.length} new ${fresh.length===1?"file":"files"}` : entries.length ? "Profile updated from Drive" : "No new files in the folder");
+    render();
+  } catch(err){
+    syncing = false; setSync("", 0);
+    if (err.message === "signin"){ if (!auto) signIn(false); return; }
+    if (!auto) toast(err.message || "Sync failed");
+    render();
+  }
+}
+function setSync(label, frac){
+  const s = $("#syncStatus"), b = $("#syncBar");
+  if (s) s.textContent = label; if (b) b.style.width = Math.round(frac*100)+"%";
+}
+// First run: a few posts go up as older posts so the profile isn't empty. After that, everything new joins the bot's queue.
+async function autoSchedule(){
+  const W = waiting(); if (!W.length) return;
+  const firstRun = !live().length && !queued().length;
+  const n = firstRun ? Math.min(W.length, Math.max(0, +S.settings.starter || 0)) : 0;
+  if (n) await schedule(W.slice(0, n), "backdate");
+  await schedule(W.slice(n), "queue");
+}
+function askSchedule(posts){
+  const n = posts.length;
+  const empty = live().length === 0;
+  sheet(`<h3>${n} new ${n===1?"post":"posts"} from Drive</h3>
+    <p class="hint" style="margin:0 0 6px">How should the bot post ${n===1?"it":"them"}?</p>
+    <button class="opt" data-s="queue">Give to the bot<br><span class="hint">One every ${esc(intervalLabel())}, starting ${esc(until(nextSlot()))}</span></button>
+    <button class="opt" data-s="backdate">Post as older posts${empty?" (recommended)":""}<br><span class="hint">Spread over the past ${Math.max(1,Math.round(n*1.9))} days so the profile looks established</span></button>
+    <button class="opt" data-s="now">Post all now</button>
+    <button class="opt" data-s="later">Decide later<br><span class="hint">They wait in your queue tab</span></button>`, async el => {
+      const b = el.closest("[data-s]"); if (!b) return;
+      closeSheet();
+      if (b.dataset.s !== "later") await schedule(posts, b.dataset.s);
+      toast(b.dataset.s === "queue" ? "The bot has "+n+" new "+(n===1?"post":"posts") : b.dataset.s === "later" ? "Saved to your queue" : "Posted");
+      render();
+    });
+}
+const intervalLabel = () => { const m = +S.settings.interval||180; return m < 60 ? m+" min" : m % 60 ? (m/60).toFixed(1)+" hours" : (m/60)+(m===60?" hour":" hours"); };
+
+/* ================= router ================= */
+function go(h){ if (location.hash === h) render(); else location.hash = h; }
+function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b] = h.split("/"); return { name: name || "home", a, b }; }
+window.addEventListener("hashchange", () => { render(); window.scrollTo(0,0); });
+function setTop(html){ $("#top").innerHTML = html; }
+const backBtn = `<button class="iconbtn" type="button" data-back aria-label="Back">${I.back}</button>`;
+
+function render(){
+  const r = route();
+  for (const b of document.querySelectorAll(".tabbar [data-tab]")){
+    const t = b.dataset.tab; const on = (t === r.name) || (t === "home" && r.name === "home");
+    b.classList.toggle("on", on);
+    if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
+    if (t === "add") b.innerHTML = I.add;
+    if (t === "activity") b.innerHTML = (on ? I.heartOn : I.heart) + (unseen() ? '<span class="dot"></span>' : "");
+    if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
+  }
+  const v = $("#view");
+  const views = { home: vHome, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  (views[r.name] || vHome)(v, r);
+  hydrate(document.body);
+  wireCarousels(v);
+}
+
+/* ================= views ================= */
+function postCard(p){
+  const e = engage(p);
+  const vc = visibleComments(p);
+  const liker = acct(likerSample(p,1)[0]);
+  const many = p.files.length > 1;
+  const slides = p.files.map(f => `<div class="slide">${mediaTag(f,"",{controls:isVideo(f.mime), lazy:true})}</div>`).join("");
+  return `<article class="post" data-post="${esc(p.id)}">
+    <div class="phead pad">
+      <a href="#/me" class="ring">${myAv(32)}</a>
+      <div class="who"><b>${esc(myName())}</b>${checkMark(S.profile.verified)}${p.location?`<div class="small">${esc(p.location)}</div>`:""}</div>
+      <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Post options">${I.dots}</button>
+    </div>
+    <div class="carousel" data-dbl="${esc(p.id)}">
+      <div class="slides">${slides}</div>
+      ${many?`<span class="count">1/${p.files.length}</span>`:""}
+    </div>
+    <div class="pad">
+      ${many?`<div class="dots">${p.files.map((_,i)=>`<i class="${i?"":"on"}"></i>`).join("")}</div>`:""}
+      <div class="pbar">
+        <button type="button" data-like="${esc(p.id)}" class="${p.liked?"liked":""}" aria-label="Like">${p.liked?I.heartOn:I.heart}</button>
+        <a href="#/c/${esc(p.id)}" aria-label="Comments" style="display:flex">${I.comment}</a>
+        <button type="button" data-share aria-label="Share">${I.share}</button>
+        <span class="sp"></span>
+        <button type="button" data-save="${esc(p.id)}" aria-label="Save">${S.saved[p.id]?I.saveOn:I.save}</button>
+      </div>
+      <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b>${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
+      ${p.caption?`<div class="caption clamp"><b>${esc(myName())}</b> ${esc(p.caption)}</div>`:""}
+      ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
+      ${vc.slice(-2).map(c => { const a = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><b>${esc(a ? a.handle : myName())}</b> ${esc(c.text)}</div>`; }).join("")}
+      <div class="when">${esc(ago(p.publishAt, true))}</div>
+    </div>
+  </article>`;
+}
+
+function vHome(v){
+  setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button>`);
+  const L = live();
+  const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folder. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
+  if (!L.length){
+    const setup = !S.settings.clientId || !S.settings.folderName;
+    v.innerHTML = banner + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
+      <p>${setup ? "Add your Google sign-in details and the folder name once. After that the bot posts from the folder by itself." : queued().length ? `The bot's first post goes up ${esc(until(queued()[0].publishAt))}.` : "The bot is watching your Drive folder. Put photos in it and they'll start going up."}</p>
+      ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
+    return;
+  }
+  v.innerHTML = banner + L.map(postCard).join("");
+}
+
+function profileHeader(o){
+  return `<div class="prof pad">
+    <div class="prow">${o.av}<div class="pstats num">
+      <button type="button" ${o.postsHref?`data-href="${o.postsHref}"`:""}><b>${fmt(o.posts)}</b><span>posts</span></button>
+      <button type="button" data-href="${o.followersHref}"><b>${fmt(o.followers)}</b><span>followers</span></button>
+      <button type="button" data-href="${o.followingHref}"><b>${fmt(o.following)}</b><span>following</span></button>
+    </div></div>
+    ${o.name?`<div class="pname">${esc(o.name)}</div>`:""}
+    ${o.bio?`<div class="pbio">${esc(o.bio)}</div>`:""}
+    ${o.link?`<div class="plink">${esc(o.link)}</div>`:""}
+    ${o.extra||""}
+    <div class="pbtns">${o.buttons}</div>
+  </div>`;
+}
+function vMe(v, r){
+  const tab = r.a === "queue" ? "queue" : "grid";
+  setTop(`<h1>${esc(myName())}${checkMark(S.profile.verified)}</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const L = live(), Q = queued(), W = waiting();
+  let body;
+  if (tab === "grid"){
+    body = L.length ? `<div class="grid">${L.map(p => { const f = p.files[0]; return `<a class="tile" href="#/p/${esc(p.id)}">${mediaTag(f,"",{poster:true})}${p.files.length>1?`<span class="ic">${I.multi}</span>`:isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}</a>`; }).join("")}</div>`
+      : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
+  } else {
+    body = `<div class="pad">
+      <div class="card" style="margin-top:14px"><h3>The bot</h3>
+        <div class="hint">New files in your Drive folder join this queue by themselves. The bot posts one every ${esc(intervalLabel())}. ${Q.length ? "Next one goes up "+esc(until(Q[0].publishAt))+"." : "Nothing queued right now."}</div>
+        <div class="seg">${[[60,"1h"],[180,"3h"],[360,"6h"],[720,"12h"],[1440,"1 day"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+S.settings.interval===m}">${l}</button>`).join("")}</div>
+        ${Q.length>1?`<button class="btn" type="button" data-respace>Re-space the queue</button>`:""}
+      </div>
+      ${W.length ? `<div class="sect">Not scheduled (${W.length})</div><div class="hint">New files from Drive wait here until you pick how to post them.</div>
+        <button class="btn primary" type="button" data-askwait style="margin-top:8px">Schedule these</button>${W.map(qRow).join("")}` : ""}
+      <div class="sect">Queued (${Q.length})</div>
+      ${Q.length ? Q.map(qRow).join("") : `<div class="hint">Empty. Sync Drive or add photos to give the bot something to post.</div>`}
+    </div>`;
+  }
+  v.innerHTML = profileHeader({
+    av: `<span class="ring">${myAv(86)}</span>`, posts: L.length, followers: followersNow(), following: followingCount(),
+    followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
+    name: S.profile.name, bio: S.profile.bio, link: S.profile.link,
+    buttons: `<a class="btn" href="#/edit">Edit profile</a><button class="btn" type="button" data-sync>Check Drive now</button>`
+  }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${(Q.length+W.length)?`<span class="small" style="margin-left:4px">${Q.length+W.length}</span>`:""}</button></div>` + body;
+  if (!S.profile.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set your name and handle</a></div>`);
+}
+function qRow(p){
+  const f = p.files[0];
+  return `<div class="qrow"><div class="th">${mediaTag(f,"",{poster:true})}</div>
+    <div class="info"><div>${esc(p.caption || (p.files.length+" "+(p.files.length===1?"file":"files")))}</div><div class="hint">${p.publishAt ? esc(until(p.publishAt)) : "Not scheduled"}</div></div>
+    <button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button>
+    <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button></div>`;
+}
+
+function vUser(v, r){
+  const a = acct(+r.a); const fol = isFollowing(a.i);
+  setTop(`${backBtn}<h1>${esc(a.handle)}${checkMark(a.verified)}</h1>`);
+  v.innerHTML = profileHeader({
+    av: acctAv(a, 86), posts: a.posts, followers: a.followers + (fol?1:0), following: a.following,
+    followersHref:`#/list/followers/${a.i}`, followingHref:`#/list/following/${a.i}`,
+    name: a.name, bio: a.bio,
+    extra: followsYou(a.i) ? `<div class="hint" style="margin-top:6px">Follows you</div>` : "",
+    buttons: `<button class="btn ${fol?"":"blue"}" type="button" data-follow="${a.i}">${fol?"Following":"Follow"}</button><button class="btn" type="button" data-msg>Message</button>`
+  }) + `<div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on" aria-label="Posts">${I.grid}</button></div>
+    <div class="grid">${Array.from({length:a.tiles},(_,k)=>`<div class="tile" style="${tileArt(a,k)}"></div>`).join("")}</div>`;
+}
+
+function vPost(v, r){
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>Post</h1>`);
+  v.innerHTML = p ? postCard(p) : `<div class="empty"><h2>Post not found</h2></div>`;
+  const c = v.querySelector(".caption.clamp"); if (c) c.classList.remove("clamp");
+}
+
+function vComments(v, r){
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>Comments</h1>`);
+  if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
+  const vc = visibleComments(p);
+  const e = engage(p);
+  const extra = Math.max(0, e.comments - vc.length);
+  v.innerHTML = `<div class="pad" style="padding-bottom:70px">
+    ${p.caption?`<div class="cmt" style="border-bottom:1px solid var(--line)">${myAv(32)}<div class="body"><div class="t"><b>${esc(myName())}</b> ${esc(p.caption)}</div><div class="meta">${esc(ago(p.publishAt))}</div></div></div>`:""}
+    ${vc.slice().reverse().map(c => {
+      const a = c.mine ? null : acct(c.acct);
+      const lk = (c.likes||0) + ((p.cLikes||{})[c.id] ? 1 : 0);
+      return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32)}<div class="body">
+        <div class="t"><a href="${a?"#/u/"+a.i:"#/me"}"><b>${esc(a?a.handle:myName())}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
+        <div class="meta"><span>${esc(ago(c.at))}</span>${lk?`<span>${fmt(lk)} ${lk===1?"like":"likes"}</span>`:""}<button type="button" data-reply="${esc(a?a.handle:"")}">Reply</button><button type="button" data-hidec="${esc(c.id)}" data-p="${esc(p.id)}">${c.mine?"Delete":"Hide"}</button></div>
+      </div><button class="h" type="button" data-clike="${esc(c.id)}" data-p="${esc(p.id)}" style="${(p.cLikes||{})[c.id]?"color:var(--heart)":""}" aria-label="Like comment">${(p.cLikes||{})[c.id]?I.heartOn:I.heart}</button></div>`;
+    }).join("")}
+    ${extra?`<div class="hint" style="padding:12px 0">${full(extra)} more ${extra===1?"comment":"comments"}</div>`:""}
+    ${!vc.length?`<div class="empty"><h2>No comments yet</h2><p>They come in over the first few hours after posting.</p></div>`:""}
+  </div>
+  <div class="cbox"><div class="in pad">${myAv(32)}<input type="text" id="cin" placeholder="Add a comment…" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
+}
+
+function vList(v, r){
+  const kind = r.a, id = r.b;
+  let title = "", ids = [], total = 0;
+  if (kind === "likes"){ const p = S.posts.find(x=>x.id===id); title = "Likes"; if (p){ total = engage(p).likes; ids = likerSample(p, Math.min(total, 60)); } }
+  else {
+    const who = id === "me" ? null : acct(+id);
+    title = kind === "followers" ? "Followers" : "Following";
+    total = who ? (kind === "followers" ? who.followers : who.following) : (kind === "followers" ? followersNow() : followingCount());
+    const rr = rng(hashStr(kind+id+S.settings.seed)); const set = new Set();
+    if (!who && kind === "following"){ for (let i=0;i<POOL;i++) if (isFollowing(i)) set.add(i); }
+    else if (!who && kind === "followers"){ for (let i=0;i<POOL;i++) if (followsYou(i)) set.add(i); }
+    else while (set.size < Math.min(50, total)) set.add(Math.floor(rr()*POOL));
+    ids = [...set].slice(0, 80);
+  }
+  setTop(`${backBtn}<h1>${esc(title)}</h1>`);
+  v.innerHTML = `<div class="pad list"><div class="hint" style="padding-top:10px">${full(total)} ${title.toLowerCase()}</div>
+    ${ids.map(i => { const a = acct(i); const fol = isFollowing(i); return `<div class="row"><a href="#/u/${i}">${acctAv(a,44)}</a><a class="who" href="#/u/${i}"><div><b>${esc(a.handle)}</b>${checkMark(a.verified)}</div><div class="muted small">${esc(a.name)}</div></a><button class="btn ${fol?"":"blue"}" type="button" data-follow="${i}">${fol?"Following":"Follow"}</button></div>`; }).join("")}
+    ${total > ids.length ? `<div class="hint" style="padding:12px 0">and ${full(total-ids.length)} more</div>` : ""}</div>`;
+}
+
+function events(){
+  const ev = [];
+  for (const p of live().slice(0, 15)){
+    const e = engage(p); const f = p.files[0];
+    for (const c of visibleComments(p).filter(c=>!c.mine).slice(-4)) ev.push({ at:c.at, acct:c.acct, html:`<b>${esc(acct(c.acct).handle)}</b> commented: ${esc(c.text)}`, p, f });
+    if (e.likes > 2){ const s = likerSample(p, 2); ev.push({ at: Math.min(now(), p.publishAt + 40*60e3), acct:s[0], html:`<b>${esc(acct(s[0]).handle)}</b>, <b>${esc(acct(s[1]).handle)}</b> and ${full(e.likes-2)} others liked your post.`, p, f }); }
+  }
+  const days = 10, r = rng(hashStr("ev"+Math.floor(now()/D)+S.settings.seed));
+  for (let d=0; d<days; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (S.profile.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); }
+  return ev.filter(e => e.at <= now()).sort((a,b) => b.at - a.at).slice(0, 80);
+}
+const unseen = () => { const L = live(); return L.length && events().some(e => e.at > (S.seenAt||0)); };
+function vActivity(v){
+  setTop(`<h1>Activity</h1>`);
+  const ev = events();
+  const seen = S.seenAt || 0;
+  S.seenAt = now(); saveMisc();
+  if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once you've posted.</p></div>`; return; }
+  const groups = [["New", e => e.at > seen], ["Today", e => now()-e.at < D], ["This week", e => now()-e.at < 7*D], ["Earlier", () => true]];
+  const used = new Set(); let html = "";
+  for (const [label, test] of groups){
+    const g = ev.filter(e => !used.has(e) && test(e)); g.forEach(e => used.add(e));
+    if (!g.length) continue;
+    html += `<div class="sect">${label}</div>` + g.map(e => `<div class="act"><a href="#/u/${e.acct}">${acctAv(acct(e.acct),44)}</a><div class="t">${e.html} <span class="muted">${esc(ago(e.at))}</span></div>${e.p ? `<a class="thumb" href="#/p/${esc(e.p.id)}">${mediaTag(e.f,"",{poster:true})}</a>` : `<button class="btn ${isFollowing(e.follow)?"":"blue"}" style="width:auto;padding:6px 12px" type="button" data-follow="${e.follow}">${isFollowing(e.follow)?"Following":"Follow back"}</button>`}</div>`).join("");
+  }
+  v.innerHTML = `<div class="pad">${html}</div>`;
+}
+
+let draft = { files: [], caption: "", mode: "now", at: "" };
+function vNew(v){
+  setTop(`${backBtn}<h1>New post</h1>`);
+  v.innerHTML = `<div class="pad form">
+    <div class="field"><span class="lbl">Photos and videos</span>
+      <div class="thumbs">${draft.files.map((f,i)=>`<div class="th">${mediaTag(f,"",{poster:true})}</div>`).join("")}</div>
+      <button class="btn" type="button" data-pick>${draft.files.length ? "Choose again" : "Choose from your phone"}</button></div>
+    <div class="field"><label for="ncap">Caption</label><textarea id="ncap" placeholder="Write a caption…">${esc(draft.caption)}</textarea></div>
+    <div class="field"><span class="lbl">When</span><div class="seg" id="nmode">
+      ${[["now","Now"],["queue","Bot queue"],["at","Pick time"],["back","Backdate"]].map(([m,l])=>`<button type="button" data-m="${m}" aria-pressed="${draft.mode===m}">${l}</button>`).join("")}</div>
+      <input type="datetime-local" id="nat" value="${esc(draft.at)}" ${draft.mode==="at"||draft.mode==="back"?"":"hidden"}>
+      <div class="hint">${draft.mode==="queue" ? "Goes up "+esc(until(nextSlot())) : draft.mode==="back" ? "Pick a past date and it shows up as an older post" : draft.mode==="at" ? "Pick when it goes live" : "Goes up right away"}</div></div>
+    <button class="btn primary" type="button" data-publish>${draft.mode==="now"?"Share":"Schedule"}</button>
+  </div>`;
+  $("#ncap").addEventListener("input", e => draft.caption = e.target.value);
+  $("#nat").addEventListener("input", e => draft.at = e.target.value);
+  $("#nmode").addEventListener("click", e => { const b = e.target.closest("[data-m]"); if (b){ draft.mode = b.dataset.m; render(); } });
+}
+
+function vEditPost(v, r){
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>Edit post</h1>`);
+  if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
+  const e = engage(p);
+  const dt = p.publishAt ? new Date(p.publishAt - new Date().getTimezoneOffset()*60e3).toISOString().slice(0,16) : "";
+  v.innerHTML = `<div class="pad form">
+    <div class="thumbs">${p.files.map(f=>`<div class="th">${mediaTag(f,"",{poster:true})}</div>`).join("")}</div>
+    <div class="field"><label for="ecap">Caption</label><textarea id="ecap">${esc(p.caption)}</textarea></div>
+    <div class="field"><label for="eloc">Location</label><input type="text" id="eloc" value="${esc(p.location||"")}" placeholder="Optional"></div>
+    <div class="field"><label for="ewhen">Posted at</label><input type="datetime-local" id="ewhen" value="${esc(dt)}"></div>
+    <div class="field"><label for="elikes">Likes it ends up with</label><input type="number" id="elikes" min="0" inputmode="numeric" value="${esc(p.likesTarget ?? "")}" placeholder="Auto (${full(e.totalL)})"></div>
+    <div class="field"><label for="ecom">Comments it ends up with</label><input type="number" id="ecom" min="0" inputmode="numeric" value="${esc(p.commentsTarget ?? "")}" placeholder="Auto (${full(e.totalC)})"></div>
+    <div class="hint">Likes and comments climb toward these numbers over the first day, like a real post.</div>
+    <button class="btn primary" type="button" data-savepost="${esc(p.id)}">Save</button>
+    <button class="btn danger" type="button" data-delpost="${esc(p.id)}">Delete post</button>
+  </div>`;
+}
+
+function vEdit(v){
+  setTop(`${backBtn}<h1>Edit profile</h1>`);
+  const P = S.profile;
+  v.innerHTML = `<div class="pad form">
+    <div style="display:flex;align-items:center;gap:14px">${myAv(86)}<button class="btn" type="button" data-avpick style="width:auto">Change photo</button></div>
+    <div class="hint">Or put a file named avatar.jpg in your Drive folder.</div>
+    <div class="field"><label for="pn">Name</label><input type="text" id="pn" value="${esc(P.name)}"></div>
+    <div class="field"><label for="ph">Username</label><input type="text" id="ph" value="${esc(P.handle)}" autocapitalize="off" autocorrect="off"></div>
+    <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
+    <div class="field"><label for="pl">Link</label><input type="text" id="pl" value="${esc(P.link)}" autocapitalize="off"></div>
+    <div class="field"><label for="pf">Followers right now</label><input type="number" id="pf" inputmode="numeric" min="0" value="${followersNow()}"></div>
+    <div class="field"><label for="pg">New followers per day</label><input type="number" id="pg" inputmode="numeric" min="0" value="${esc(P.growth)}"></div>
+    <div class="field"><label for="pfo">Following</label><input type="number" id="pfo" inputmode="numeric" min="0" value="${esc(P.following)}"></div>
+    <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="pv" ${P.verified?"checked":""} style="width:auto"> Show a verified check</label>
+    <button class="btn primary" type="button" data-saveprofile>Save</button>
+  </div>`;
+}
+
+function vSettings(v){
+  setTop(`${backBtn}<h1>Settings</h1>`);
+  const st = S.settings, signed = !!tokenOK();
+  v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Google Drive</h3>
+      <div class="field"><label for="sfolder">Folder name</label><input type="text" id="sfolder" value="${esc(st.folderName)}" placeholder="The exact name of your Drive folder" autocapitalize="off" autocorrect="off"></div>
+      <div class="hint">Photos and videos in the folder become posts. A subfolder becomes one post with several photos. A .txt file with the same name as a photo is its caption. avatar.jpg sets your profile photo and bio.txt sets your bio.</div>
+      <div class="field"><label for="sclient">Google client ID</label><input type="text" id="sclient" value="${esc(st.clientId)}" placeholder="…apps.googleusercontent.com" autocapitalize="off" autocorrect="off"></div>
+      <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div>
+      <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks the folder every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
+      <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
+      <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
+    </div>
+    <div class="card"><h3>The bot</h3>
+      <div class="field"><label for="sint">Hours between posts</label><input type="number" id="sint" min="0.25" step="0.25" inputmode="decimal" value="${esc((+st.interval||180)/60)}"></div>
+      <div class="field"><label for="sstart">Already up on the first run</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
+      <div class="hint">The first time it reads your folder, this many files go up as older posts so your profile isn't empty. The rest are posted one at a time.</div></div>
+    <div class="card"><h3>Order new files</h3>
+      <div class="seg" id="sorder">${[["name","By name"],["date","Oldest first"],["random","Shuffle"]].map(([k,l])=>`<button type="button" data-order="${k}" aria-pressed="${st.order===k}">${l}</button>`).join("")}</div></div>
+    <div class="card"><h3>How popular you are</h3>
+      <div class="seg" id="slevel">${[["low","Small"],["normal","Normal"],["high","Big"],["viral","Huge"]].map(([k,l])=>`<button type="button" data-level="${k}" aria-pressed="${st.level===k}">${l}</button>`).join("")}</div>
+      <div class="hint">Changes how many likes and comments each post gets, compared with your follower count. Follower numbers are under Edit profile.</div></div>
+    <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div>
+      <a class="btn" href="#/new">Add photos from this phone instead</a>
+      <button class="btn" type="button" data-newworld>Shuffle the fake accounts</button>
+      <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
+  </div>`;
+  const save = async () => { st.clientId = $("#sclient").value.trim(); const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
+  $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
+  $("#sint").addEventListener("change", async e => { const h = Math.max(.25, +e.target.value || 3); S.settings.interval = Math.round(h*60); await saveSettings(); toast("The bot posts every "+intervalLabel()); });
+  $("#sstart").addEventListener("change", async e => { S.settings.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
+  v.querySelector("[data-sync]").addEventListener("click", save, { capture: true });
+  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.length} posts saved.`; });
+}
+
+/* ================= carousel + gestures ================= */
+function wireCarousels(root){
+  for (const c of root.querySelectorAll(".carousel")){
+    const sl = c.querySelector(".slides"), cnt = c.querySelector(".count"), dots = c.parentElement.querySelectorAll(".dots i");
+    sl.addEventListener("scroll", () => {
+      const i = Math.round(sl.scrollLeft / sl.clientWidth);
+      if (cnt) cnt.textContent = (i+1)+"/"+sl.children.length;
+      dots.forEach((d,k) => d.classList.toggle("on", k===i));
+    }, { passive:true });
+    let lastTap = 0;
+    c.addEventListener("click", e => {
+      if (e.target.tagName === "VIDEO") return;
+      const t = now();
+      if (t - lastTap < 320){ likePost(c.dataset.dbl, true); const b = document.createElement("div"); b.className = "burst"; b.innerHTML = I.heartOn; c.appendChild(b); setTimeout(() => b.remove(), 900); }
+      lastTap = t;
+    });
+  }
+}
+async function likePost(id, force){
+  const p = S.posts.find(x => x.id === id); if (!p) return;
+  p.liked = force ? true : !p.liked; await savePost(p);
+  const el = document.querySelector(`[data-post="${CSS.escape(id)}"]`);
+  if (el){ el.outerHTML = postCard(p); const n = document.querySelector(`[data-post="${CSS.escape(id)}"]`); hydrate(n); wireCarousels(n); }
+}
+
+/* ================= sheets ================= */
+function sheet(html, onClick){
+  $("#layer").innerHTML = `<div class="scrim" id="scrim"><div class="sheet pad" role="dialog"><div class="grab"></div>${html}</div></div>`;
+  $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim") return closeSheet(); onClick && onClick(e.target); });
+}
+function closeSheet(){ $("#layer").innerHTML = ""; }
+function postMenu(id){
+  const p = S.posts.find(x => x.id === id); if (!p) return;
+  sheet(`${p.publishAt && p.publishAt <= now() ? "" : `<button class="opt" data-o="now">Post now</button>`}
+    <button class="opt" data-o="edit">Edit caption, likes, comments, date</button>
+    ${p.publishAt && p.publishAt <= now() ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
+    <button class="opt" data-o="copy">Copy caption</button>
+    <button class="opt red" data-o="del">Delete</button>`, async el => {
+      const b = el.closest("[data-o]"); if (!b) return;
+      const o = b.dataset.o;
+      if (o === "del"){ if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } closeSheet(); await deletePost(p); return; }
+      closeSheet();
+      if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
+      if (o === "edit") go("#/editpost/"+p.id);
+      if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
+      if (o === "copy"){ try { await navigator.clipboard.writeText(p.caption||""); toast("Copied"); } catch(_){ toast("Couldn't copy"); } }
+    });
+}
+async function deletePost(p){
+  await DB.del("posts", p.id); S.posts = S.posts.filter(x => x.id !== p.id);
+  if (p.driveKey){ S.settings.ignored = [...new Set([...(S.settings.ignored||[]), p.driveKey])]; await saveSettings(); }
+  else for (const f of p.files) await DB.del("media", f.key);
+  toast("Deleted"); if (route().name === "editpost" || route().name === "p") history.back(); else render();
+}
+
+/* ================= clicks ================= */
+document.addEventListener("click", async e => {
+  const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim")) return;
+  const d = t.dataset;
+  if (d.href){ go(d.href); return; }
+  if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
+  if (d.tab){ if (d.tab === "add"){ draft = { files: [], caption:"", mode:"now", at:"" }; go("#/new"); } else go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
+  if (d.like){ likePost(d.like); return; }
+  if (d.save){ S.saved[d.save] = !S.saved[d.save]; await saveMisc(); t.innerHTML = S.saved[d.save] ? I.saveOn : I.save; return; }
+  if ("share" in d){ toast("Shared"); return; }
+  if ("msg" in d){ toast("Messages aren't part of this app"); return; }
+  if (d.postmenu){ postMenu(d.postmenu); return; }
+  if (d.postnow){ const p = S.posts.find(x=>x.id===d.postnow); p.publishAt = now(); await savePost(p); toast("Posted"); render(); return; }
+  if (d.follow !== undefined){ const i = +d.follow; S.follows[i] = !isFollowing(i); await saveMisc(); render(); return; }
+  if (d.interval){ S.settings.interval = +d.interval; await saveSettings(); toast("The bot posts every "+intervalLabel()); render(); return; }
+  if ("respace" in d){ const step = (+S.settings.interval||180)*60e3; let at = now(); for (const p of queued()){ at += step; p.publishAt = at; await savePost(p); } toast("Queue re-spaced"); render(); return; }
+  if ("askwait" in d){ askSchedule(waiting()); return; }
+  if (d.order){ S.settings.order = d.order; await saveSettings(); render(); return; }
+  if (d.level){ S.settings.level = d.level; await saveSettings(); genCache.clear(); render(); return; }
+  if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
+  if (d.hidec){ const p = S.posts.find(x=>x.id===d.p); if (d.hidec.startsWith("g")) p.hidden = [...(p.hidden||[]), d.hidec]; else p.myComments = (p.myComments||[]).filter(c=>c.id!==d.hidec); await savePost(p); render(); return; }
+  if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
+  if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
+  if ("pick" in d){ $("#picker").click(); return; }
+  if ("avpick" in d){ $("#avPicker").click(); return; }
+  if ("publish" in d){
+    if (!draft.files.length){ toast("Choose at least one photo or video"); return; }
+    let at = now();
+    if (draft.mode === "queue") at = nextSlot();
+    if (draft.mode === "at" || draft.mode === "back"){ at = new Date(draft.at).getTime(); if (!at){ toast("Pick a date and time"); return; } }
+    const p = { id: uid("p_"), source:"local", files: draft.files, caption: draft.caption.trim(), createdAt: now(), publishAt: at, seed: hashStr(uid("s")), order: 0, myComments: [], hidden: [] };
+    await savePost(p);
+    if (at < (S.profile.startedAt || now())){ S.profile.startedAt = at - 3*D; await saveProfile(); }
+    draft = { files: [], caption:"", mode:"now", at:"" };
+    toast(at <= now() ? "Shared" : "Queued for "+until(at));
+    go(at <= now() ? "#/" : "#/me/queue"); return;
+  }
+  if (d.savepost){
+    const p = S.posts.find(x=>x.id===d.savepost);
+    p.caption = $("#ecap").value.trim(); p.location = $("#eloc").value.trim();
+    const w = new Date($("#ewhen").value).getTime(); if (w) p.publishAt = w;
+    const l = $("#elikes").value, c = $("#ecom").value;
+    p.likesTarget = l === "" ? undefined : Math.max(0, +l); p.commentsTarget = c === "" ? undefined : Math.max(0, +c);
+    if (p.publishAt && p.publishAt < (S.profile.startedAt||now())){ S.profile.startedAt = p.publishAt - 3*D; await saveProfile(); }
+    await savePost(p); genCache.clear(); toast("Saved"); history.back(); return;
+  }
+  if (d.delpost){ if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again to delete"; return; } deletePost(S.posts.find(x=>x.id===d.delpost)); return; }
+  if ("saveprofile" in d){
+    const P = S.profile;
+    P.name = $("#pn").value.trim(); P.handle = $("#ph").value.trim().replace(/^@/,"").replace(/\s+/g,"").toLowerCase();
+    P.bio = $("#pb").value; P.link = $("#pl").value.trim();
+    P.growth = Math.max(0, +$("#pg").value || 0); P.following = Math.max(0, +$("#pfo").value || 0); P.verified = $("#pv").checked;
+    const want = Math.max(0, +$("#pf").value || 0);
+    if (!P.startedAt) P.startedAt = Math.min(now(), ...S.posts.map(p=>p.publishAt||now())) - 3*D;
+    P.followers = Math.round(P.followers + want - followersNow());
+    await saveProfile(); toast("Profile saved"); history.back(); return;
+  }
+  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
+  if ("reset" in d){
+    if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: this erases every post on this phone"; return; }
+    await DB.clear("posts"); await DB.clear("media"); await DB.clear("kv"); try { localStorage.clear(); } catch(_){}
+    location.replace(location.pathname); return;
+  }
+});
+$("#picker").addEventListener("change", async e => {
+  const files = [...e.target.files]; e.target.value = "";
+  draft.files = [];
+  for (const f of files){ const key = uid("l_"); await DB.put("media", f, key); draft.files.push({ key, mime: f.type || "image/jpeg" }); }
+  render();
+});
+$("#avPicker").addEventListener("change", async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const key = uid("av_"); await DB.put("media", f, key); S.profile.avatar = key; await saveProfile(); render();
+});
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape") closeSheet(); });
+
+/* ================= boot ================= */
+(async function boot(){
+  await DB.open();
+  S.settings = { ...DEFAULT_SETTINGS, ...(await DB.get("kv","settings") || {}) };
+  if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
+  S.profile = { ...DEFAULT_PROFILE, ...(await DB.get("kv","profile") || {}) };
+  if (!S.profile.startedAt){ S.profile.startedAt = now() - 30*D; await saveProfile(); }
+  const misc = await DB.get("kv","misc") || {}; S.follows = misc.follows || {}; S.seenAt = misc.seenAt || 0; S.saved = misc.saved || {};
+  S.posts = await DB.all("posts");
+  if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
+  const back = takeOAuthReturn();
+  await autoSchedule();
+  render();
+  let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
+  if (back || now() - last > 20*60e3) sync(true);
+  setInterval(() => sync(true), 30*60e3);
+  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible" && now() - l > 20*60e3) sync(true); });
+  setInterval(() => { const r = route().name; if (["home","me","activity"].includes(r) && !$("#layer").innerHTML && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") render(); }, 60e3);
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+})();
+</script>
+</body>
+</html>
