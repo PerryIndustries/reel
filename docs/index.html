@@ -452,38 +452,39 @@ function acct(i){
   const a = { i, handle, name: gamerName(handle, r), bio: pick(BIOS,r), followers, following: Math.round(80 + r()*1400), posts: 6 + Math.floor(r()*120), hueA: Math.floor(r()*360), hueB: Math.floor(r()*360), verified: big && r() < .5, tiles: 9 + Math.floor(r()*12), seed: hashStr("t"+i+"|"+S.settings.seed) };
   acctCache.set(i, a); return a;
 }
-// Every fake account gets a picture: mostly illustrated faces (DiceBear), some aesthetic art, a few gradient pics.
-const DB_VER = "9.4.3";
-const PFP_STYLES = ["lorelei","notionists","adventurer","micah","open-peeps","personas"];
-let pfpLib = null, pfpLoading = null;
+// Every fake account gets a picture like real profiles have: mostly realistic faces (AI-generated people
+// who don't exist, all adults), then photos of views, pets and things, and some with no picture at all.
+let pfpIndex = null, pfpLoading = null;
 const pfpCache = new Map();
 function loadPfps(){
   if (pfpLoading) return pfpLoading;
-  pfpLoading = Promise.all([import(`https://cdn.jsdelivr.net/npm/@dicebear/core@${DB_VER}/+esm`), ...PFP_STYLES.map(st => import(`https://cdn.jsdelivr.net/npm/@dicebear/${st}@${DB_VER}/+esm`))])
-    .then(([core, ...styles]) => { pfpLib = { core, styles }; pfpCache.clear(); safeRender(); })
-    .catch(() => { pfpLoading = null; });
+  pfpLoading = fetch("pfp/index.json").then(r => r.json()).then(j => { pfpIndex = j; pfpCache.clear(); safeRender(); }).catch(() => { pfpLoading = null; });
   return pfpLoading;
 }
-const PASTELS = ["b6e3f4","c0aede","d1d4f9","ffd5dc","ffdfbf","c1f4c5","fde68a","fbcfe8","a7f3d0","e9d5ff","fecaca","bae6fd"];
+const BLANK_PFP = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#dbdbdb"/><circle cx="50" cy="39" r="17" fill="#fff"/><path d="M18 92c3-20 17-30 32-30s29 10 32 30z" fill="#fff"/></svg>');
+let pfpPerm = null;
 function pfpFor(a){
   if (pfpCache.has(a.i)) return pfpCache.get(a.i);
-  const r = rng(a.seed ^ 0x3c6ef372);
-  const k = r();
-  let uri = "";
-  if (k < .12) uri = "art";
-  else if (pfpLib){
-    const st = pfpLib.styles[Math.floor(r()*pfpLib.styles.length)];
-    try { uri = pfpLib.core.createAvatar(st, { seed: a.handle, backgroundColor: [pick(PASTELS, r)], radius: 0 }).toDataUri(); } catch(e){ uri = ""; }
+  if (!pfpIndex) return "";
+  if (!pfpPerm){
+    // one shuffled order per set of fake accounts, so neighbours never share a picture
+    const r0 = rng(hashStr("perm" + S.settings.seed));
+    const shuffle = n => { const o = Array.from({length:n}, (_,k) => k); for (let k = n-1; k > 0; k--){ const j = Math.floor(r0()*(k+1)); [o[k], o[j]] = [o[j], o[k]]; } return o; };
+    pfpPerm = { f: shuffle(pfpIndex.faces.length), p: shuffle(pfpIndex.photos.length) };
   }
-  if (uri) pfpCache.set(a.i, uri);
+  const k = rng(a.seed ^ 0x3c6ef372)();
+  let uri;
+  if (k < .09) uri = BLANK_PFP;
+  else if (k < .66) uri = "pfp/" + pfpIndex.faces[pfpPerm.f[a.i % pfpPerm.f.length]];
+  else uri = "pfp/" + pfpIndex.photos[pfpPerm.p[a.i % pfpPerm.p.length]];
+  pfpCache.set(a.i, uri);
   return uri;
 }
 function acctAv(a, size){
   const pic = pfpFor(a);
-  if (pic === "art") return `<span class="av s${size}" style="${tileArt(a, 99)}"></span>`;
-  if (pic) return `<span class="av s${size}"><img src="${pic}" alt=""></span>`;
+  if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy"></span>`;
   loadPfps();
-  return `<span class="av s${size}" style="background:linear-gradient(135deg,hsl(${a.hueA} 70% 62%),hsl(${a.hueB} 65% 42%))">${esc(a.name.replace(/[^a-z0-9]/gi,"")[0] || "?")}</span>`;
+  return `<span class="av s${size}" style="background:#dbdbdb"></span>`;
 }
 function myAv(size, a){
   a = a || A();
@@ -1624,7 +1625,7 @@ document.addEventListener("click", async e => {
     S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
-  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); usedHandles.clear(); pfpCache.clear(); genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
+  if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); usedHandles.clear(); pfpCache.clear(); pfpPerm = null; genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
   if ("reset" in d){
     if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: this erases every post on this phone"; return; }
     await DB.clear("posts"); await DB.clear("media"); await DB.clear("kv"); try { localStorage.clear(); } catch(_){}

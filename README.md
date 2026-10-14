@@ -13,3 +13,9 @@ A private photo feed for your phone. A bot posts from a Google Drive folder on a
 
 ## Icons
 `python tools/make_icons.py`
+
+## Fake-account profile pictures
+`docs/pfp/` holds the pictures: `f*.jpg` are AI-generated faces from thispersondoesnotexist.com (people who don't
+exist), `p*.jpg` are free-license photos from Lorem Picsum (Unsplash). Every face was reviewed by eye and anything
+that could pass for under 18 was removed. `python tools/fetch_pfps.py <faces> <photos>` adds more; review new faces
+the same way before committing, then rebuild `docs/pfp/index.json`.
