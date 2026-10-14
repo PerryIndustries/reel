@@ -43,11 +43,13 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .top .in{height:48px;display:flex;align-items:center;gap:10px;padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
 .top h1{font:700 19px var(--display);margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .top h1.logo{font:800 26px var(--display);letter-spacing:-.03em}
+.top h1 button{font:inherit;display:inline-flex;align-items:center;gap:4px}
+.top h1 button svg{width:16px;height:16px}
 .iconbtn{width:36px;height:36px;display:grid;place-items:center;border-radius:50%}
 .iconbtn svg{width:24px;height:24px}
 main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);max-width:640px;margin:0 auto}
 .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:10;background:var(--bg);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-.tabbar .in{height:var(--bar);display:grid;grid-template-columns:repeat(3,1fr);max-width:640px;margin:0 auto}
+.tabbar .in{height:var(--bar);display:grid;grid-template-columns:repeat(4,1fr);max-width:640px;margin:0 auto}
 .tabbar button{display:grid;place-items:center;position:relative}
 .tabbar svg{width:26px;height:26px}
 .tabbar .dot{position:absolute;top:10px;left:calc(50% + 8px);width:8px;height:8px;border-radius:50%;background:var(--heart)}
@@ -58,11 +60,19 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 /* avatars */
 .av{border-radius:50%;overflow:hidden;display:grid;place-items:center;flex:none;color:#fff;font-weight:700;background:var(--soft)}
 .av img{width:100%;height:100%;object-fit:cover}
-.av.s28{width:28px;height:28px;font-size:12px}.av.s32{width:32px;height:32px;font-size:13px}.av.s44{width:44px;height:44px;font-size:17px}.av.s86{width:86px;height:86px;font-size:34px}
-.ring{padding:2px;border-radius:50%;background:conic-gradient(from 200deg,#ffb23f,#ff5a36,#d6249f,#6a5cff,#ffb23f)}
+.av.s28{width:28px;height:28px;font-size:12px}.av.s32{width:32px;height:32px;font-size:13px}.av.s44{width:44px;height:44px;font-size:17px}.av.s62{width:62px;height:62px;font-size:24px}.av.s86{width:86px;height:86px;font-size:34px}
+.ring{padding:2px;border-radius:50%;background:conic-gradient(from 200deg,#ffb23f,#ff5a36,#d6249f,#6a5cff,#ffb23f);display:inline-block;line-height:0}
+.ring.seen{background:var(--line)}
+.ring.none{background:transparent}
 .ring>.av{border:2px solid var(--bg)}
 .check{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;background:#3b8cf6;color:#fff;vertical-align:-2px;margin-left:3px}
 .check svg{width:10px;height:10px}
+
+/* stories tray */
+.tray{display:flex;gap:14px;overflow-x:auto;padding-block:10px;border-bottom:1px solid var(--line);scrollbar-width:none}
+.tray::-webkit-scrollbar{display:none}
+.st{display:flex;flex-direction:column;align-items:center;gap:4px;width:72px;flex:none;font-size:12px}
+.st span.n{max-width:72px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* feed post */
 .post{border-bottom:1px solid var(--line);padding-bottom:10px}
@@ -72,9 +82,10 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .carousel{position:relative;background:var(--soft)}
 .slides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
 .slides::-webkit-scrollbar{display:none}
-.slide{flex:0 0 100%;scroll-snap-align:center;display:grid;place-items:center;background:#000}
+.slide{flex:0 0 100%;scroll-snap-align:center;display:grid;place-items:center;background:#000;position:relative}
 .slide img,.slide video{width:100%;max-height:75vh;object-fit:contain;display:block}
-.slide.sq img,.slide.sq video{aspect-ratio:4/5;object-fit:cover;max-height:none}
+.mute{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:grid;place-items:center}
+.mute svg{width:16px;height:16px}
 .count{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:3px 8px;border-radius:999px}
 .dots{display:flex;justify-content:center;gap:4px;padding-top:8px;min-height:14px}
 .dots i{width:6px;height:6px;border-radius:50%;background:var(--line)}
@@ -109,16 +120,18 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .btn.primary{background:var(--accent);color:var(--accent-fg)}
 .btn.blue{background:#3b8cf6;color:#fff}
 .btn.danger{color:var(--heart)}
-.ptabs{display:grid;grid-template-columns:1fr 1fr;margin-top:14px;border-bottom:1px solid var(--line)}
-.ptabs button{padding:10px;display:grid;place-items:center;color:var(--muted);border-bottom:1px solid transparent;margin-bottom:-1px}
+.ptabs{display:grid;grid-template-columns:repeat(3,1fr);margin-top:14px;border-bottom:1px solid var(--line)}
+.ptabs button{padding:10px;display:flex;justify-content:center;align-items:center;gap:4px;color:var(--muted);border-bottom:1px solid transparent;margin-bottom:-1px}
 .ptabs button.on{color:var(--fg);border-bottom-color:var(--fg)}
 .ptabs svg{width:24px;height:24px}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
 .tile{position:relative;aspect-ratio:3/4;max-width:100%;overflow:hidden;background:var(--soft);display:block;width:100%}
+.tile.tall{aspect-ratio:9/16}
 .tile img,.tile video{width:100%;height:100%;object-fit:cover;display:block}
 .tile .ic{position:absolute;top:6px;right:6px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 .tile .ic svg{width:18px;height:18px}
-.tile .txt{position:absolute;inset:0;padding:8px;display:flex;align-items:center;font-weight:600;font-size:12px;color:var(--fg);overflow:hidden}
+.tile .views{position:absolute;left:6px;bottom:6px;color:#fff;font-size:12px;font-weight:600;display:flex;align-items:center;gap:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}
+.tile .views svg{width:13px;height:13px}
 
 /* lists */
 .list .row{display:flex;align-items:center;gap:12px;padding:8px 0}
@@ -139,7 +152,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 /* activity */
 .act{display:flex;gap:12px;align-items:center;padding:9px 0}
 .act .t{flex:1;min-width:0;overflow-wrap:anywhere}
-.act .thumb{width:44px;height:44px;object-fit:cover;flex:none;background:var(--soft);border-radius:4px;overflow:hidden}
+.act .thumb{width:44px;height:44px;flex:none;background:var(--soft);border-radius:4px;overflow:hidden}
 .act .thumb img,.act .thumb video{width:100%;height:100%;object-fit:cover}
 .sect{font-weight:700;font-size:16px;padding-top:16px;padding-bottom:4px}
 
@@ -166,19 +179,54 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .qrow .info{flex:1;min-width:0}
 .qrow .info div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qrow .btn{width:auto;padding:6px 10px;font-size:13px}
+.arow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);width:100%;text-align:left}
+.arow .who{flex:1;min-width:0}
 .empty{text-align:center;padding:56px 24px;color:var(--muted)}
 .empty h2{color:var(--fg);font:700 20px var(--display);margin:0 0 6px}
 .empty .btn{display:inline-block;width:auto;margin-top:16px;padding:10px 18px}
 
 /* sheet + toast */
-.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:30;display:flex;align-items:flex-end;justify-content:center}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--bg);width:100%;max-width:640px;max-height:90%;overflow:auto;border-radius:16px 16px 0 0;padding-block:8px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column}
 .sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 10px}
 .sheet .opt{padding:14px 0;text-align:left;font-size:16px;border-bottom:1px solid var(--line)}
 .sheet .opt:last-child{border-bottom:0}
 .sheet .opt.red{color:var(--heart)}
 .sheet h3{margin:0 0 4px;font:700 17px var(--display)}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 70px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:50;max-width:calc(100% - 32px);text-align:center}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 70px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;z-index:80;max-width:calc(100% - 32px);text-align:center}
+
+/* full-screen viewers (stories, reels) */
+.full{position:fixed;inset:0;background:#000;color:#fff;z-index:50}
+.sv .media{position:absolute;inset:0}
+.sv .media img,.sv .media video{width:100%;height:100%;object-fit:cover}
+.sv .shade{position:absolute;inset:0;background:linear-gradient(rgba(0,0,0,.45),transparent 18%,transparent 75%,rgba(0,0,0,.5));pointer-events:none}
+.sv .bars{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;display:flex;gap:3px}
+.sv .bar{flex:1;height:2.5px;background:rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
+.sv .bar i{display:block;height:100%;background:#fff;width:0}
+.sv .hd{position:absolute;top:calc(env(safe-area-inset-top,0px) + 20px);left:12px;right:8px;display:flex;align-items:center;gap:8px;font-size:14px}
+.sv .hd .sp{flex:1}
+.sv .hd .x{width:36px;height:36px;display:grid;place-items:center;color:#fff}
+.sv .hd .x svg{width:26px;height:26px}
+.sv .txt{position:absolute;left:20px;right:20px;top:60%;text-align:center;pointer-events:none}
+.sv .txt span{font:800 25px/1.55 var(--display);background:#fff;color:#000;padding:2px 10px;-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:6px}
+.sv .taps{position:absolute;inset:80px 0 90px;display:grid;grid-template-columns:1fr 2fr}
+.sv .ft{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;align-items:center}
+.sv .ft .reply{flex:1;border:1px solid rgba(255,255,255,.6);border-radius:999px;padding:10px 14px;color:rgba(255,255,255,.85);font-size:14px}
+.sv .ft .seen{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:13px;font-weight:600}
+.sv .ft svg{width:26px;height:26px;color:#fff}
+.rv{overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
+.rv::-webkit-scrollbar{display:none}
+.rv .r{position:relative;height:100vh;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always}
+.rv video{width:100%;height:100%;object-fit:cover}
+.rv .side{position:absolute;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);display:flex;flex-direction:column;gap:18px;align-items:center;font-size:12px;font-weight:600}
+.rv .side button,.rv .side a{display:flex;flex-direction:column;align-items:center;gap:3px;color:#fff}
+.rv .side svg{width:30px;height:30px}
+.rv .side .liked{color:var(--heart)}
+.rv .info{position:absolute;left:14px;right:70px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.rv .info .u{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px}
+.rv .shade{position:absolute;inset:0;background:linear-gradient(transparent 60%,rgba(0,0,0,.55));pointer-events:none}
+.rv .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff}
+.rv .close svg{width:28px;height:28px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
 </style>
 </head>
@@ -187,9 +235,11 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 <main id="view"></main>
 <nav class="tabbar"><div class="in">
   <button type="button" data-tab="home" aria-label="Home"></button>
+  <button type="button" data-tab="reels" aria-label="Reels"></button>
   <button type="button" data-tab="activity" aria-label="Activity"></button>
   <button type="button" data-tab="me" aria-label="Profile"></button>
 </div></nav>
+<div id="full"></div>
 <div id="layer"></div>
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="picker" accept="image/*,video/*" multiple hidden>
@@ -201,7 +251,8 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 const I = {
   home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
   homeOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
-  add:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 8v8M8 12h8" stroke-linecap="round"/></svg>',
+  reels:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M3 8.5h18M8.5 3l3 5.5M14.5 3l3 5.5"/><path d="M10 12.2v5l4.3-2.5z" fill="currentColor"/></svg>',
+  reelsOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M3 8.5h18M8.5 3l3 5.5M14.5 3l3 5.5"/><path d="M10 12.2v5l4.3-2.5z" fill="currentColor"/></svg>',
   heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
   heartOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
   comment:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
@@ -209,14 +260,21 @@ const I = {
   save:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
   saveOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>',
+  close:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
   dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
   grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>',
   clock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   multi:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 3h11a3 3 0 0 1 3 3v11h-2V6a1 1 0 0 0-1-1H7z"/><rect x="3" y="7" width="14" height="14" rx="2"/></svg>',
   play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
+  playLine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg>',
+  muted:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 5 6M21 9l-5 6"/></svg>',
+  sound:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
+  eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   sync:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5L20 16M20 20v-4h-4"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
 };
 
 /* ================= utils ================= */
@@ -279,13 +337,16 @@ const DB = {
 
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
-const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", interval:720, starter:9, captionStyle:"thirst", myCaptions:"", order:"name", level:"normal", seed:0, ignored:[] };
-const DEFAULT_PROFILE = { name:"", handle:"", bio:"", link:"", avatar:null, followers:2400, following:312, growth:35, verified:false, startedAt:0 };
-const S = { settings:{...DEFAULT_SETTINGS}, profile:{...DEFAULT_PROFILE}, posts:[], follows:{}, seenAt:0, saved:{} };
+const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, order:"name", seed:0, ignored:[] };
+const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"" };
+const S = { settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
+const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
-async function saveProfile(){ await DB.put("kv", S.profile, "profile"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved}, "misc"); }
+async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
+function newAccount(n){ return { ...DEFAULT_ACCOUNT, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
 const urls = new Map();
 async function mediaURL(key){
@@ -295,26 +356,25 @@ async function mediaURL(key){
   if (!blob) return "";
   const u = URL.createObjectURL(blob); urls.set(key, u); return u;
 }
-// Fill every [data-media] element after a render.
 async function hydrate(root){
   for (const el of root.querySelectorAll("[data-media]")){
     if (el.getAttribute("src")) continue;
     const u = await mediaURL(el.dataset.media);
-    if (!u) continue;
-    if (el.tagName === "VIDEO") { el.src = u + (el.dataset.poster ? "#t=0.1" : ""); } else el.src = u;
+    if (!u || el.getAttribute("src")) continue;
+    el.src = (el.tagName === "VIDEO" && el.dataset.poster) ? u + "#t=0.1" : u;
   }
 }
 function mediaTag(f, cls, opts={}){
-  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" ${opts.controls?"controls":""} ${opts.poster?'data-poster="1" muted':""} playsinline preload="metadata" ${opts.loop?"loop autoplay muted":""}></video>`;
+  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
   return `<img class="${cls||""}" data-media="${esc(f.key)}" alt="" ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
 
-/* ================= fake world: accounts ================= */
+/* ================= words ================= */
 const FIRST = ["Maya","Jordan","Theo","Ava","Liam","Zoe","Kai","Nina","Marcus","Isla","Leo","Sofia","Ethan","Chloe","Noah","Mila","Jayden","Aria","Lucas","Ella","Mateo","Ivy","Dylan","Luna","Owen","Nora","Elijah","Hazel","Caleb","Ruby","Adrian","Jade","Miles","Lila","Ezra","Sienna","Kian","Amara","Rafael","Tess","Andre","Priya","Malik","Yuki","Diego","Freya","Omar","Leila","Sam","Bianca","Nico","Camila","Tyler","Grace","Xavier","Elena","Jonah","Alina","Reid","Naomi"];
 const LAST = ["Reyes","Carter","Nguyen","Brooks","Kim","Santos","Bennett","Park","Rivera","Hayes","Cole","Patel","Morales","Ward","Chen","Foster","Silva","Hughes","Diaz","Lane","Ortiz","Grant","Shaw","Moreno","Price","Kelly","Rossi","Fox","Mendes","Vance","Abbott","Navarro","Quinn","Hart","Lowe","Jensen"];
 const WORDS = ["lens","daily","films","vibes","studio","raw","jpg","archive","szn","club","fit","eats","travels","world","motion","tone","goes","ok","irl","hq"];
 const BIOS = ["coffee first ☕","just here for the vibes","📍 LA","photos + bad jokes","living slowly","catch me outside","gym · food · repeat","sunsets collector 🌅","dog parent 🐶","new music fridays","travel when I can ✈️","film camera era 📷","ok but where's the food","always on the move","main character energy","designer by day","night owl 🌙","plant mom 🌿","say less","here for the comments",""];
-const COMMENTS = ["this is so good 🔥","obsessed with this","okay this one 😮‍💨","need this energy today","🔥🔥🔥","the lighting here 😍","W post","insane shot","who took this?? 📸","lowkey iconic","can't stop looking at this","vibes are immaculate","the fit 🔥","goals fr","so clean","you're glowing ✨","this is a whole mood","where is this??","ok you ate this","😍😍","looking great!!","main character moment","need the details on this","love this so much","stunning","you never miss","best one yet","this made my day","the colors 🤌","framing this","yesss","❤️❤️❤️","no because this is perfect","the confidence 👏","what camera do you use?","living your best life","been waiting for this post","straight to my saved","I see you 👀","elite","so proud of you","literally perfect","this is art","haha love it","okay I'm jealous","bring me next time","the way this turned out 😭","10/10","post more like this","how are you this photogenic"];
+const COMMENTS = ["this is so good 🔥","obsessed with this","okay this one 😮‍💨","need this energy today","🔥🔥🔥","the lighting here 😍","W post","insane shot","lowkey iconic","can't stop looking at this","the fit 🔥","goals fr","you're glowing ✨","ok you ate this","😍😍","stunning","you never miss","best one yet","framing this","❤️❤️❤️","literally perfect","post more like this","how are you this photogenic"];
 const THIRST = [
 "caught you looking 👀","you're welcome","thought you could use a distraction","not my fault you're staring","dangerous in the best way",
 "your new favorite view","don't fall in love","too late, you already looked twice","behave. or don't 😈","come closer",
@@ -334,15 +394,26 @@ const THIRST = [
 "you looked. i saw.","careful what you wish for 😏","say less, look more","bedroom eyes, morning light","you up?",
 "what's your excuse for staring","just me, being a problem","your favorite distraction, back again","lights low, standards high","made this one a little too hot, my bad",
 "you weren't supposed to see this. kidding, you were","dress code: optional","a little bit of trouble never hurt anyone","stop scrolling, start sweating","i don't do subtle",
-"ruining your productivity one post at a time","good morning to everyone except whoever has to look at this and stay calm","this angle should come with a warning label","i'll be in your thoughts tonight","not sorry 💋",
+"ruining your productivity one post at a time","this angle should come with a warning label","i'll be in your thoughts tonight","not sorry 💋",
 "ok who turned the heat up","rare footage of me behaving. jk","feeling dangerous, might delete later","admit it, you saved it","this post is a test. you failed 😏"
 ];
 const THIRST_COMMENTS = ["who allowed this","down bad rn","the audacity 😳","why post this at 2am 😭","CALM DOWN","respectfully… wow","not me zooming in","the internet isn't ready",
 "i need a minute","stop it right now 😩","called in sick to look at this","saving this for research","ok i'm blushing","this should be illegal","my screen is fogging up","help 🫠",
-"ugh fine, followed","delete this before i fall in love","threat 😮‍💨","be serious rn","the caption 💀","you did this on purpose","hydrating rn 💦","sending this to my therapist",
-"i'm screaming","the way i gasped","sinful","no one is safe","dangerous behavior","i'm not okay","sir/ma'am/whoever, please","this is a crime scene 🚨","okay but WHO took this",
-"have mercy 😭","my type exactly","i'd risk it all","fire department on the way 🚒","feeling unwell after this","the thirst is real","rent free in my head now"];
+"delete this before i fall in love","threat 😮‍💨","be serious rn","the caption 💀","you did this on purpose","hydrating rn 💦","sending this to my therapist",
+"the way i gasped","sinful","no one is safe","dangerous behavior","i'm not okay","this is a crime scene 🚨","okay but WHO took this",
+"have mercy 😭","my type exactly","i'd risk it all","fire department on the way 🚒","feeling unwell after this","the thirst is real","rent free in my head now",
+"marry me. or don't, just text me","what's your number","drop the location 📍","i'd do unspeakable things for this","you can't just post this and expect me to function","bad for my blood pressure",
+"come over","i'm in love and it's your fault","dm me, i won't tell","so you just want me to stare forever?","ok you have my full attention","i'd let you ruin my life",
+"this is the post i'm thinking about tonight","stop being this fine, it's rude","in my head rent free and paying me back in thoughts","praying for strength 🙏","need you to post the rest",
+"who's taking you home","you look like trouble and i'm interested","my phone is overheating","i'd text you back in 0.2 seconds","wifey/hubby material fr","asking for a friend: are you single",
+"😍🔥😈","🥵🥵🥵","🫦","😮‍💨😮‍💨","👀👀👀","💦💦"];
+const STORY_TEXT = ["who's up? 👀","dm me 😈","bored. entertain me","rate me 1-10","guess what i'm doing","should i post the rest? 🙊","come over","bad idea incoming",
+"thinking about you. maybe","reply if you're down bad","just woke up like this","late night thoughts 🌙","catch me if you can","feeling dangerous today","first to reply gets a surprise",
+"no thoughts, just this","lights off or on? 😏","say hi, i won't bite. much","be honest… 🔥 or 🔥🔥","missed me?","you up?","in the mood for trouble","too hot for the feed",
+"close friends only 🤫","what would you do if you were here","dare me","slide in, door's open","sending this to the right person","can't sleep. distract me","weekend mode 😈"];
 const POOL = 240;
+
+/* ================= fake world: accounts ================= */
 const acctCache = new Map();
 function acct(i){
   if (acctCache.has(i)) return acctCache.get(i);
@@ -357,9 +428,10 @@ function acct(i){
   acctCache.set(i, a); return a;
 }
 function acctAv(a, size){ return `<span class="av s${size}" style="background:linear-gradient(135deg,hsl(${a.hueA} 70% 62%),hsl(${a.hueB} 65% 42%))">${esc(a.name[0])}</span>`; }
-function myAv(size){
-  if (S.profile.avatar) return `<span class="av s${size}"><img data-media="${esc(S.profile.avatar)}" alt=""></span>`;
-  return `<span class="av s${size}" style="background:linear-gradient(135deg,#ffb23f,#ff5a36 50%,#d6249f)">${esc((S.profile.name||"Y")[0].toUpperCase())}</span>`;
+function myAv(size, a){
+  a = a || A();
+  if (a && a.avatar) return `<span class="av s${size}"><img data-media="${esc(a.avatar)}" alt=""></span>`;
+  return `<span class="av s${size}" style="background:linear-gradient(135deg,#ffb23f,#ff5a36 50%,#d6249f)">${esc(((a&&(a.name||a.handle))||"Y")[0].toUpperCase())}</span>`;
 }
 function tileArt(a, k){
   const r = rng(a.seed + k*7919);
@@ -367,47 +439,65 @@ function tileArt(a, k){
   return `background:radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h3} 80% 70% / .9), transparent ${30+Math.floor(r()*30)}%),radial-gradient(circle at ${Math.floor(r()*100)}% ${Math.floor(r()*100)}%, hsl(${h1} 70% 55%), transparent 70%),linear-gradient(${Math.floor(r()*360)}deg,hsl(${h1} 55% 35%),hsl(${h2} 60% 55%))`;
 }
 const checkMark = v => v ? `<span class="check">${I.check}</span>` : "";
-const myName = () => S.profile.handle || "you";
+const handleOf = a => (a && a.handle) || "you";
 
 /* ================= fake world: growth + engagement ================= */
 const LEVEL = { low:.45, normal:1, high:2.2, viral:5 };
-function followersAt(t){
-  const start = S.profile.startedAt || now();
+const thirsty = () => S.settings.captionStyle === "thirst";
+function baseFollowersAt(a, t){
+  const start = a.startedAt || now();
   const days = Math.max(0, (t - start)/D);
-  const r = rng(hashStr("f"+Math.floor(days)+"|"+S.settings.seed));
-  return Math.round(S.profile.followers + S.profile.growth*days*(LEVEL[S.settings.level]||1)*(.8+r()*.4));
+  const r = rng(hashStr("f"+Math.floor(days)+"|"+a.seed));
+  return Math.round(a.followers + a.growth*days*(LEVEL[a.level]||1)*(.8+r()*.4));
 }
-const followersNow = () => followersAt(now());
-function engage(p){
+// Every post and story brings in new followers over the hours after it goes up; strong posts bring more.
+function followBump(p, a){
+  const r = rng(p.seed ^ 0x7f4a7c15);
+  const lv = LEVEL[a.level] || 1;
+  let rate = isStory(p) ? .003 + r()*.007 : .012 + r()*.03;
+  if (!isStory(p) && r() < .15) rate *= 2.5 + r()*3;
+  return Math.round(baseFollowersAt(a, p.publishAt) * rate * Math.sqrt(lv));
+}
+function followersAt(a, t){
+  let n = baseFollowersAt(a, t);
+  for (const p of S.posts) if (p.acct === a.id && p.publishAt && p.publishAt <= t) n += Math.round(followBump(p, a) * curve(t - p.publishAt, 5*H));
+  return n;
+}
+const followersNow = a => followersAt(a || A(), now());
+function totals(p){
+  const a = accountById(p.acct) || A();
   const r = rng(p.seed);
-  const lv = LEVEL[S.settings.level] || 1;
-  let rate = (.04 + r()*.08) * lv;
+  let rate = (.05 + r()*.08) * (LEVEL[a.level] || 1);
   if (r() < .12) rate *= 2 + r()*3.5;
-  const totalL = p.likesTarget ?? Math.round(followersAt(p.publishAt) * Math.min(rate, 2.5));
-  const totalC = p.commentsTarget ?? Math.max(1, Math.round(totalL * (.01 + r()*.03)));
+  const totalL = p.likesTarget ?? Math.round(followersAt(a, p.publishAt) * Math.min(rate, 2.5));
+  const totalC = p.commentsTarget ?? Math.max(3, Math.round(totalL * ((thirsty() ? .03 : .012) + r()*.03)));
+  return { totalL, totalC, views: Math.round(totalL * (5 + r()*9)) };
+}
+// Engagement lands fast after posting: a burst in the first minutes, then it keeps climbing for about a day.
+const curve = (age, tau) => age <= 0 ? 0 : 1 - .9*Math.exp(-age/tau) - .1*Math.exp(-age/(6*60e3));
+function engage(p){
+  const t = totals(p);
   const age = Math.max(0, now() - p.publishAt);
-  const g = 1 - Math.exp(-age/(5*H));
-  const likes = Math.round(totalL * g) + (p.liked?1:0);
-  const comments = Math.max(Math.round(totalC * (1 - Math.exp(-age/(7*H)))), visibleComments(p).length);
-  return { likes, comments, totalL, totalC };
+  const g = curve(age, 4*H);
+  const likes = Math.round(t.totalL * g) + (p.liked?1:0);
+  const comments = Math.max(Math.round(t.totalC * curve(age, 6*H)), visibleComments(p).length);
+  const views = Math.round(t.views * curve(age, 5*H));
+  return { likes, comments, views, ...t };
 }
 const genCache = new Map();
 function genComments(p){
-  const key = p.id+"|"+(p.commentsTarget??"")+"|"+(p.likesTarget??"")+"|"+S.settings.level+"|"+S.settings.seed+"|"+S.settings.captionStyle;
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, S.settings.captionStyle, (accountById(p.acct)||{}).level].join("|");
   if (genCache.has(key)) return genCache.get(key);
   const r = rng(p.seed ^ 0x9e3779b9);
-  const lv = LEVEL[S.settings.level] || 1;
-  let rate = (.04 + rng(p.seed)()*.08) * lv;
-  const totalL = p.likesTarget ?? Math.round(followersAt(p.publishAt)*rate);
-  const totalC = p.commentsTarget ?? Math.max(1, Math.round(totalL*(.01+r()*.03)));
+  const { totalC, totalL } = totals(p);
   const n = Math.min(totalC, 60);
   const out = [];
   const used = new Set();
   for (let k=0;k<n;k++){
     let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
-    const off = -7*H*Math.log(1 - r()*.97) + r()*120e3;
-    const thirsty = S.settings.captionStyle === "thirst" && r() < .7;
-    out.push({ id:"g"+k, acct:ai, text: pick(thirsty ? THIRST_COMMENTS : COMMENTS, r), at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
+    const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
+    const text = thirsty() ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
+    out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
   genCache.set(key, out); return out;
 }
@@ -419,44 +509,170 @@ function visibleComments(p){
 }
 function likerSample(p, n){
   const r = rng(p.seed ^ 0x5bd1e995); const out = new Set();
-  while (out.size < n) out.add(Math.floor(r()*POOL));
+  while (out.size < Math.min(n, POOL)) out.add(Math.floor(r()*POOL));
   return [...out];
 }
-function isFollowing(i){ if (i in S.follows) return S.follows[i]; return rng(hashStr("fol"+i+S.settings.seed))() < .35; }
-function followsYou(i){ return rng(hashStr("fy"+i+S.settings.seed))() < .8; }
-function followingCount(){ let n = S.profile.following; for (const [i,v] of Object.entries(S.follows)){ const base = rng(hashStr("fol"+i+S.settings.seed))() < .35; if (v && !base) n++; if (!v && base) n--; } return n; }
+const followMap = () => (S.follows[A().id] ||= {});
+function baseFollowing(i){ return rng(hashStr("fol"+i+A().seed))() < .35; }
+function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
+function followsYou(i){ return rng(hashStr("fy"+i+A().seed))() < .8; }
+function followingCount(){ let n = A().following; for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n; }
 
-/* ================= posts ================= */
-const live = () => S.posts.filter(p => p.publishAt && p.publishAt <= now()).sort((a,b) => b.publishAt - a.publishAt);
-const queued = () => S.posts.filter(p => p.publishAt && p.publishAt > now()).sort((a,b) => a.publishAt - b.publishAt);
-const waiting = () => S.posts.filter(p => !p.publishAt).sort((a,b) => (a.order??0) - (b.order??0));
-// Next free time for the bot: the post gap with some jitter, never between midnight and 9 AM.
+/* ================= posts + bot ================= */
+const isStory = p => p.kind === "story";
+const postsOf = (aid, kind) => S.posts.filter(p => p.acct === aid && (kind === "story" ? isStory(p) : !isStory(p)));
+const live = (aid = A().id) => postsOf(aid).filter(p => p.publishAt && p.publishAt <= now()).sort((a,b) => b.publishAt - a.publishAt);
+const queued = (aid = A().id) => postsOf(aid).filter(p => p.publishAt && p.publishAt > now()).sort((a,b) => a.publishAt - b.publishAt);
+const waitingAll = () => S.posts.filter(p => !p.publishAt && !isStory(p)).sort((a,b) => (a.order??0) - (b.order??0));
+const liveReels = (aid = A().id) => live(aid).filter(p => p.files.length === 1 && isVideo(p.files[0].mime));
+const activeStories = aid => postsOf(aid, "story").filter(p => p.publishAt <= now() && now() - p.publishAt < D).sort((a,b) => a.publishAt - b.publishAt);
 function humanize(t){
-  const d = new Date(t), h = d.getHours();
-  if (h < 9){ d.setHours(9, 0, 0, 0); return d.getTime() + Math.floor(rng(hashStr("q"+t))()*150)*60e3; }
+  const d = new Date(t);
+  if (d.getHours() < 9){ d.setHours(9, 0, 0, 0); return d.getTime() + Math.floor(rng(hashStr("q"+t))()*150)*60e3; }
   return t;
 }
-function nextSlot(){
-  const step = Math.max(15, +S.settings.interval || 720) * 60e3;
-  const q = queued(); const last = q.length ? q[q.length-1].publishAt : 0;
-  const lastLive = live()[0]?.publishAt || 0;
-  const from = last || lastLive;
-  const jitter = (rng(hashStr("j"+from+S.settings.seed))() - .5) * .5 * step;
+function nextSlot(a){
+  const step = Math.max(15, +a.interval || 720) * 60e3;
+  const q = queued(a.id); const last = q.length ? q[q.length-1].publishAt : 0;
+  const from = last || live(a.id)[0]?.publishAt || 0;
+  const jitter = (rng(hashStr("j"+from+a.seed))() - .5) * .5 * step;
   return humanize(Math.max(now() + 5*60e3, from + step + jitter));
 }
-const perDay = () => Math.round(1440 / (+S.settings.interval || 720) * 10) / 10;
-function runway(){ const Q = queued(); return Q.length ? (Q[Q.length-1].publishAt - now()) / D : 0; }
-async function schedule(posts, mode){
-  if (!posts.length) return;
-  const step = Math.max(1, +S.settings.interval || 180) * 60e3;
-  if (mode === "now"){ let t = now(); for (let i = posts.length-1; i >= 0; i--){ posts[i].publishAt = t; t -= 60e3; } }
-  else if (mode === "backdate"){
-    const r = rng(hashStr("bd"+now())); let t = now() - 2*H;
-    for (let i = posts.length-1; i >= 0; i--){ posts[i].publishAt = t; t -= (.6 + r()*2.8) * D; }
-    const oldest = posts[0].publishAt; if (!S.profile.startedAt || S.profile.startedAt > oldest) { S.profile.startedAt = oldest - 3*D; await saveProfile(); }
-  } else { for (const p of posts){ p.publishAt = nextSlot(); await savePost(p); } return; }
-  for (const p of posts) await savePost(p);
+const perDay = a => Math.round(1440 / (+a.interval || 720) * 10) / 10;
+function runway(a){ const Q = queued(a.id); return Q.length ? (Q[Q.length-1].publishAt - now()) / D : 0; }
+async function backdate(posts, a){
+  const r = rng(hashStr("bd"+now()+a.id)); let t = now() - (1 + r()*3)*H;
+  for (let i = posts.length-1; i >= 0; i--){ posts[i].publishAt = t; t -= (.6 + r()*2.8) * D; await savePost(posts[i]); }
+  if (posts.length && (!a.startedAt || a.startedAt > posts[0].publishAt)){ a.startedAt = posts[0].publishAt - 3*D; await saveAccounts(); }
 }
+async function enqueue(posts, a){ for (const p of posts){ p.publishAt = nextSlot(a); await savePost(p); } }
+async function respace(a){
+  const Q = queued(a.id); for (const p of Q){ p.publishAt = 0; await savePost(p); }
+  await enqueue(Q, a);
+}
+// Shared-folder files go to whichever account has the least waiting for it; an account's own folder only feeds that account.
+async function autoSchedule(){
+  const W = waitingAll(); if (!W.length || !S.accounts.length) return;
+  const load = a => queued(a.id).length + W.filter(p => p.acct === a.id).length;
+  for (const p of W){
+    if (p.acct && accountById(p.acct)) continue;
+    const a = S.accounts.slice().sort((x,y) => load(x) - load(y))[0];
+    p.acct = a.id; await savePost(p);
+  }
+  for (const a of S.accounts){
+    const mine = W.filter(p => p.acct === a.id); if (!mine.length) continue;
+    const firstRun = !live(a.id).length && !queued(a.id).length;
+    const n = firstRun ? Math.min(Math.ceil(mine.length/2), Math.max(0, +S.settings.starter || 0)) : 0;
+    if (n) await backdate(mine.slice(0, n), a);
+    await enqueue(mine.slice(n), a);
+  }
+}
+// A new account takes a fair share of what's still queued on the others, and starts with a few up already.
+async function rebalanceFor(a){
+  const others = S.accounts.filter(x => x.id !== a.id && !x.folderName);
+  const pool = others.flatMap(x => queued(x.id).filter(p => p.shared !== false)).sort((x,y) => x.publishAt - y.publishAt);
+  const share = Math.floor(pool.length / S.accounts.length);
+  const take = pool.filter((_, i) => i % S.accounts.length === 0).slice(0, share);
+  for (const p of take){ p.acct = a.id; p.publishAt = 0; await savePost(p); }
+  for (const x of others) await respace(x);
+  const n = Math.min(Math.ceil(take.length/2), Math.max(0, +S.settings.starter || 0));
+  await backdate(take.slice(0, n), a); await enqueue(take.slice(n), a);
+}
+
+/* ================= stories ================= */
+function storyTextPool(){
+  const mine = (S.settings.myStoryTexts || "").split("\n").map(x => x.trim()).filter(Boolean);
+  return [...mine, ...mine, ...mine, ...(S.settings.storyStyle === "thirst" ? STORY_TEXT : [])];
+}
+function storyText(seed){ const pool = storyTextPool(); return pool.length ? pick(pool, rng(seed)) : ""; }
+// Keeps about a day of stories scheduled per account: files from a "stories" folder first, otherwise reshares of that account's own photos.
+async function autoStories(){
+  const perDay = Math.max(0, +S.settings.storiesPerDay || 0);
+  for (const a of S.accounts){
+    const st = postsOf(a.id, "story");
+    const waitingOwn = S.posts.filter(p => isStory(p) && !p.publishAt && (p.acct === a.id || !p.acct));
+    if (!perDay) continue;
+    let last = st.reduce((m,p) => Math.max(m, p.publishAt||0), 0);
+    const step = D / perDay;
+    if (!last) last = now() - step*1.5;
+    const imgs = live(a.id).flatMap(p => p.files.filter(f => isImage(f.mime) || isVideo(f.mime)));
+    let guard = 0;
+    while (last < now() + D && guard++ < 20){
+      const r = rng(hashStr("st"+last+a.seed));
+      const t = humanize(last + step*(.7 + r()*.6));
+      let p = waitingOwn.shift();
+      if (p){ p.acct = a.id; p.publishAt = t; p.storyText = p.storyText || storyText(hashStr(p.id)); }
+      else if (imgs.length){ const f = imgs[Math.floor(r()*imgs.length)]; p = { id: uid("s_"), kind:"story", source:"reshare", acct:a.id, files:[f], publishAt:t, seed:hashStr("s"+t+a.id), storyText: storyText(hashStr("tx"+t+a.id)) }; }
+      else break;
+      await savePost(p); last = t;
+    }
+  }
+  // drop expired reshares so storage doesn't grow forever
+  for (const p of S.posts.filter(p => isStory(p) && p.source === "reshare" && p.publishAt && now() - p.publishAt > 3*D)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); }
+}
+function storyStats(p){
+  const a = accountById(p.acct) || A();
+  const r = rng(p.seed ^ 0x2545f491);
+  const total = Math.round(followersAt(a, p.publishAt) * (.12 + r()*.18) * (LEVEL[a.level]||1));
+  const v = Math.round(total * curve(now() - p.publishAt, 3*H));
+  return { views: v, likes: Math.round(v * (.05 + r()*.07)) };
+}
+
+/* ================= captions ================= */
+function captionPool(){
+  const mine = (S.settings.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
+  return [...mine, ...mine, ...mine, ...(thirsty() ? THIRST : [])];
+}
+function genCaption(p, attempt){
+  const pool = captionPool(); if (!pool.length) return "";
+  const used = new Set(S.posts.filter(x => x !== p).map(x => x.caption));
+  const fresh = pool.filter(c => !used.has(c));
+  const r = rng((p.seed ^ hashStr("cap"+(attempt||0))) >>> 0);
+  return pick(fresh.length ? fresh : pool, r);
+}
+async function autoCaptions(){
+  for (const p of S.posts){
+    if (isStory(p) || p.caption || p.captionManual) continue;
+    const c = genCaption(p); if (!c) return;
+    p.caption = c; p.captionAuto = true; await savePost(p);
+  }
+}
+async function redoCaptions(){
+  const auto = S.posts.filter(p => !isStory(p) && p.captionAuto);
+  for (const p of auto) p.caption = "";
+  for (const p of auto){ p.capTry = (p.capTry||0) + 1; p.caption = genCaption(p, p.capTry); await savePost(p); }
+}
+
+/* ================= profile photos ================= */
+const allImages = aid => [...new Set(S.posts.filter(p => !isStory(p) && (!aid || p.acct === aid)).flatMap(p => p.files.filter(f => isImage(f.mime)).map(f => f.key)))];
+async function ensureAvatars(force){
+  for (const a of (force ? [force] : S.accounts)){
+    if (a.avatar && !force) continue;
+    const taken = new Set(S.accounts.map(x => x.avatar));
+    let imgs = allImages(a.id).filter(k => !taken.has(k));
+    if (!imgs.length) imgs = allImages().filter(k => !taken.has(k));
+    if (!imgs.length) continue;
+    a.avatar = imgs[Math.floor(Math.random()*imgs.length)]; a.avatarAuto = true;
+  }
+  await saveAccounts();
+}
+function avatarChooser(){
+  const a = A(); const imgs = allImages(a.id).concat(allImages().filter(k => !allImages(a.id).includes(k)));
+  sheet(`<h3>Choose a profile photo</h3>
+    ${imgs.length ? `<div class="grid" style="margin:8px 0">${imgs.map(k => `<button type="button" class="tile" data-av="${esc(k)}" style="aspect-ratio:1"><img data-media="${esc(k)}" alt=""></button>`).join("")}</div>` : `<p class="hint">No photos yet. They show up here once the bot has read your Drive folder.</p>`}
+    <button class="opt" data-av="__bot">Let the bot pick another</button>
+    <button class="opt" data-av="__phone">Choose from your phone</button>`, async el => {
+      const b = el.closest("[data-av]"); if (!b) return;
+      const k = b.dataset.av; closeSheet();
+      if (k === "__phone"){ $("#avPicker").click(); return; }
+      if (k === "__bot") await ensureAvatars(a);
+      else { a.avatar = k; a.avatarAuto = false; await saveAccounts(); }
+      toast("Profile photo updated"); render();
+    });
+  hydrate($("#layer"));
+}
+
+async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); }
 
 /* ================= Google Drive ================= */
 const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
@@ -502,16 +718,23 @@ async function listChildren(id, token){
   } while (pageToken);
   return out;
 }
+async function findFolder(name, token){
+  const n = name.trim().replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+  const j = await gapi(`files?q=${encodeURIComponent(`name='${n}' and mimeType='${FOLDER}' and trashed=false`)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, token);
+  if (!j.files.length) throw new Error(`No Drive folder named “${name.trim()}”. Check the spelling.`);
+  return j.files[0].id;
+}
 const FOLDER = "application/vnd.google-apps.folder";
 const base = n => n.replace(/\.[^.]+$/, "").toLowerCase();
 const isText = f => f.mimeType === "text/plain" || /\.txt$/i.test(f.name);
+const isMedia = f => isImage(f.mimeType) || isVideo(f.mimeType);
+const hasSetup = () => !!(S.settings.folderName.trim() || S.accounts.some(a => a.folderName.trim()));
 
 let syncing = false;
 async function sync(auto){
   if (syncing) return;
-  if (auto && (!S.settings.clientId.trim() || !S.settings.folderName.trim())) return;
-  if (!S.settings.clientId.trim()){ toast("Add your Google client ID first"); go("#/settings"); return; }
-  if (!S.settings.folderName.trim()){ toast("Type the Drive folder name first"); go("#/settings"); return; }
+  if (auto && (!S.settings.clientId.trim() || !hasSetup())) return;
+  if (!hasSetup()){ toast("Type a Drive folder name first"); go("#/settings"); return; }
   const token = tokenOK();
   if (!token){
     if (!auto) { signIn(false); return; }
@@ -519,72 +742,70 @@ async function sync(auto){
     if (!needsGoogle() && now() - last > 10*60e3) signIn(true);
     return;
   }
-  syncing = true; setSync("Finding your folder…", 0);
+  syncing = true; setSync("Finding your folders…", 0);
   try {
-    let folderId = S.settings.folderId;
-    if (!folderId){
-      const name = S.settings.folderName.trim().replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-      const j = await gapi(`files?q=${encodeURIComponent(`name='${name}' and mimeType='${FOLDER}' and trashed=false`)}&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, token);
-      if (!j.files.length) throw new Error(`No Drive folder named “${S.settings.folderName.trim()}”. Check the spelling.`);
-      folderId = j.files[0].id; S.settings.folderId = folderId; await saveSettings();
-    }
-    setSync("Reading the folder…", 0);
-    const kids = await listChildren(folderId, token);
+    // sources: the shared folder (split across accounts) + each account's own folder
+    const sources = [];
+    if (S.settings.folderName.trim()) sources.push({ owner: null, holder: S.settings });
+    for (const a of S.accounts) if (a.folderName.trim()) sources.push({ owner: a.id, holder: a });
     const known = new Set(S.posts.map(p => p.driveKey).filter(Boolean));
     const ignored = new Set(S.settings.ignored || []);
-    const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
-    const entries = [];
-    // profile extras
-    for (const f of kids){
-      const b = base(f.name);
-      if ((b === "avatar" || b === "profile") && isImage(f.mimeType) && S.profile.avatarDrive !== f.id){ entries.push({ kind:"avatar", f }); }
-      if (b === "bio" && isText(f) && S.profile.bioDrive !== f.modifiedTime){ entries.push({ kind:"bio", f }); }
-    }
-    for (const f of kids){
-      const b = base(f.name);
-      if (b === "avatar" || b === "profile" || b === "bio") continue;
-      if (f.mimeType === FOLDER){
-        if (known.has(f.id) || ignored.has(f.id)) continue;
-        const inner = await listChildren(f.id, token);
-        const media = inner.filter(x => isImage(x.mimeType) || isVideo(x.mimeType)).sort((a,b) => natural.compare(a.name,b.name));
-        if (!media.length) continue;
-        entries.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media, caption: inner.find(isText) });
-      } else if (isImage(f.mimeType) || isVideo(f.mimeType)){
-        if (known.has(f.id) || ignored.has(f.id)) continue;
-        entries.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media:[f], caption: texts.get(base(f.name)) });
+    const jobs = [];
+    for (const src of sources){
+      if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await saveSettings(); await saveAccounts(); }
+      setSync("Reading " + src.holder.folderName.trim() + "…", 0);
+      const kids = await listChildren(src.holder.folderId, token);
+      const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
+      const target = src.owner ? accountById(src.owner) : S.accounts[0];
+      for (const f of kids){
+        const b = base(f.name);
+        if ((b === "avatar" || b === "profile") && isImage(f.mimeType) && target && target.avatarDrive !== f.id) jobs.push({ kind:"avatar", f, a: target });
+        if (b === "bio" && isText(f) && target && target.bioDrive !== f.modifiedTime) jobs.push({ kind:"bio", f, a: target });
       }
+      const posts = [];
+      for (const f of kids){
+        const b = base(f.name);
+        if (["avatar","profile","bio"].includes(b)) continue;
+        if (f.mimeType === FOLDER && b === "stories"){
+          const inner = await listChildren(f.id, token);
+          for (const m of inner.filter(isMedia)) if (!known.has(m.id) && !ignored.has(m.id)) jobs.push({ kind:"story", key:m.id, media:[m], owner: src.owner });
+          continue;
+        }
+        if (known.has(f.id) || ignored.has(f.id)) continue;
+        if (f.mimeType === FOLDER){
+          const inner = await listChildren(f.id, token);
+          const media = inner.filter(isMedia).sort((a,b) => natural.compare(a.name,b.name));
+          if (media.length) posts.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media, caption: inner.find(isText), owner: src.owner });
+        } else if (isMedia(f)) posts.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media:[f], caption: texts.get(b), owner: src.owner });
+      }
+      if (S.settings.order === "date") posts.sort((a,b) => (a.time||"").localeCompare(b.time||""));
+      else if (S.settings.order === "random"){ const r = rng(hashStr("o"+now())); posts.sort(() => r() - .5); }
+      else posts.sort((a,b) => natural.compare(a.name,b.name));
+      jobs.push(...posts);
     }
-    const postsIn = entries.filter(e => e.kind === "post");
-    if (S.settings.order === "date") postsIn.sort((a,b) => (a.time||"").localeCompare(b.time||""));
-    else if (S.settings.order === "random"){ const r = rng(hashStr("o"+now())); postsIn.sort(() => r() - .5); }
-    else postsIn.sort((a,b) => natural.compare(a.name,b.name));
-    const totalFiles = entries.reduce((n,e) => n + (e.kind==="post" ? e.media.length + (e.caption?1:0) : 1), 0);
-    let done = 0;
-    const tick = label => setSync(label, totalFiles ? done/totalFiles : 1);
-    for (const e of entries){
-      if (e.kind === "avatar"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); const key = "d_"+e.f.id; await DB.put("media", blob, key); urls.delete(key); S.profile.avatar = key; S.profile.avatarAuto = false; S.profile.avatarDrive = e.f.id; await saveProfile(); done++; }
-      if (e.kind === "bio"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); S.profile.bio = (await blob.text()).trim(); S.profile.bioDrive = e.f.modifiedTime; await saveProfile(); done++; }
-    }
+    const totalFiles = jobs.reduce((n,e) => n + (e.media ? e.media.length : 1), 0);
+    let done = 0, fresh = 0;
     let order = Math.max(0, ...S.posts.map(p => p.order||0));
-    const fresh = [];
-    for (const e of postsIn){
+    for (const e of jobs){
+      if (e.kind === "avatar"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); const key = "d_"+e.f.id; await DB.put("media", blob, key); urls.delete(key); Object.assign(e.a, { avatar:key, avatarAuto:false, avatarDrive:e.f.id }); await saveAccounts(); done++; continue; }
+      if (e.kind === "bio"){ const blob = await gapi(`files/${e.f.id}?alt=media`, token, true); Object.assign(e.a, { bio:(await blob.text()).trim(), bioDrive:e.f.modifiedTime }); await saveAccounts(); done++; continue; }
       const files = [];
       for (const m of e.media){
-        tick(`Downloading ${done+1} of ${totalFiles}…`);
+        setSync(`Downloading ${done+1} of ${totalFiles}…`, totalFiles ? done/totalFiles : 1);
         const key = "d_" + m.id;
         if (!(await DB.get("media", key))){ const blob = await gapi(`files/${m.id}?alt=media`, token, true); await DB.put("media", blob, key); }
         files.push({ key, mime: m.mimeType, driveId: m.id }); done++;
       }
       let caption = "";
-      if (e.caption){ caption = (await (await gapi(`files/${e.caption.id}?alt=media`, token, true)).text()).trim(); done++; }
-      const p = { id: uid("p_"), driveKey: e.key, source:"drive", files, caption, createdAt: now(), publishAt: 0, seed: hashStr(e.key), order: ++order, myComments: [], hidden: [] };
-      await savePost(p); fresh.push(p);
+      if (e.caption){ caption = (await (await gapi(`files/${e.caption.id}?alt=media`, token, true)).text()).trim(); }
+      const p = { id: uid(e.kind === "story" ? "s_" : "p_"), kind: e.kind, driveKey: e.key, source:"drive", acct: e.owner || null, shared: !e.owner, files, caption, captionManual: !!caption, createdAt: now(), publishAt: 0, seed: hashStr(e.key), order: ++order, myComments: [], hidden: [] };
+      await savePost(p); fresh++;
     }
     setSync("", 1);
     syncing = false;
     try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
     await autoRun();
-    if (!auto) toast(fresh.length ? `The bot picked up ${fresh.length} new ${fresh.length===1?"file":"files"}` : entries.length ? "Profile updated from Drive" : "No new files in the folder");
+    if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
     render();
   } catch(err){
     syncing = false; setSync("", 0);
@@ -597,77 +818,6 @@ function setSync(label, frac){
   const s = $("#syncStatus"), b = $("#syncBar");
   if (s) s.textContent = label; if (b) b.style.width = Math.round(frac*100)+"%";
 }
-async function respace(){
-  const Q = queued(); for (const p of Q){ p.publishAt = 0; await savePost(p); }
-  for (const p of Q){ p.publishAt = nextSlot(); await savePost(p); }
-}
-// No profile picture yet: the bot picks one of your photos.
-async function ensureAvatar(force){
-  if (S.profile.avatar && !force) return;
-  const imgs = allImages().filter(k => k !== S.profile.avatar);
-  if (!imgs.length) return;
-  S.profile.avatar = imgs[Math.floor(Math.random()*imgs.length)]; S.profile.avatarAuto = true; await saveProfile();
-}
-const allImages = () => [...new Set(S.posts.flatMap(p => p.files.filter(f => isImage(f.mime)).map(f => f.key)))];
-function avatarChooser(){
-  const imgs = allImages();
-  sheet(`<h3>Choose a profile photo</h3>
-    ${imgs.length ? `<div class="grid" style="margin:8px 0">${imgs.map(k => `<button type="button" class="tile" data-av="${esc(k)}" style="aspect-ratio:1"><img data-media="${esc(k)}" alt=""></button>`).join("")}</div>` : `<p class="hint">No photos yet. They show up here once the bot has read your Drive folder.</p>`}
-    <button class="opt" data-av="__bot">Let the bot pick another</button>
-    <button class="opt" data-av="__phone">Choose from your phone</button>`, async el => {
-      const b = el.closest("[data-av]"); if (!b) return;
-      const k = b.dataset.av; closeSheet();
-      if (k === "__phone"){ $("#avPicker").click(); return; }
-      if (k === "__bot") await ensureAvatar(true);
-      else { S.profile.avatar = k; S.profile.avatarAuto = false; await saveProfile(); }
-      toast("Profile photo updated"); render();
-    });
-  hydrate($("#layer"));
-}
-// First run: a few posts go up as older posts so the profile isn't empty. After that, everything new joins the bot's queue.
-async function autoSchedule(){
-  const W = waiting(); if (!W.length) return;
-  const firstRun = !live().length && !queued().length;
-  const n = firstRun ? Math.min(W.length, Math.max(0, +S.settings.starter || 0)) : 0;
-  if (n) await schedule(W.slice(0, n), "backdate");
-  await schedule(W.slice(n), "queue");
-}
-function captionPool(){
-  const mine = (S.settings.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
-  return [...mine, ...mine, ...(S.settings.captionStyle === "thirst" ? THIRST : [])];
-}
-function genCaption(p, attempt){
-  const pool = captionPool(); if (!pool.length) return "";
-  const used = new Set(S.posts.map(x => x.caption));
-  const fresh = pool.filter(c => !used.has(c));
-  const r = rng((p.seed ^ hashStr("cap"+(attempt||0))) >>> 0);
-  return pick(fresh.length ? fresh : pool, r);
-}
-async function autoCaptions(){
-  for (const p of S.posts){
-    if (p.caption || p.captionManual) continue;
-    const c = genCaption(p); if (!c) return;
-    p.caption = c; p.captionAuto = true; await savePost(p);
-  }
-}
-async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatar(); }
-function askSchedule(posts){
-  const n = posts.length;
-  const empty = live().length === 0;
-  sheet(`<h3>${n} new ${n===1?"post":"posts"} from Drive</h3>
-    <p class="hint" style="margin:0 0 6px">How should the bot post ${n===1?"it":"them"}?</p>
-    <button class="opt" data-s="queue">Give to the bot<br><span class="hint">One every ${esc(intervalLabel())}, starting ${esc(until(nextSlot()))}</span></button>
-    <button class="opt" data-s="backdate">Post as older posts${empty?" (recommended)":""}<br><span class="hint">Spread over the past ${Math.max(1,Math.round(n*1.9))} days so the profile looks established</span></button>
-    <button class="opt" data-s="now">Post all now</button>
-    <button class="opt" data-s="later">Decide later<br><span class="hint">They wait in your queue tab</span></button>`, async el => {
-      const b = el.closest("[data-s]"); if (!b) return;
-      closeSheet();
-      if (b.dataset.s !== "later") await schedule(posts, b.dataset.s);
-      toast(b.dataset.s === "queue" ? "The bot has "+n+" new "+(n===1?"post":"posts") : b.dataset.s === "later" ? "Saved to your queue" : "Posted");
-      render();
-    });
-}
-const intervalLabel = () => { const m = +S.settings.interval||720; return m < 60 ? m+" min" : m % 60 ? (m/60).toFixed(1)+" hours" : (m/60)+(m===60?" hour":" hours"); };
 
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
@@ -679,31 +829,34 @@ const backBtn = `<button class="iconbtn" type="button" data-back aria-label="Bac
 function render(){
   const r = route();
   for (const b of document.querySelectorAll(".tabbar [data-tab]")){
-    const t = b.dataset.tab; const on = (t === r.name) || (t === "home" && r.name === "home");
+    const t = b.dataset.tab; const on = t === r.name;
     b.classList.toggle("on", on);
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
-    if (t === "add") b.innerHTML = I.add;
+    if (t === "reels") b.innerHTML = on ? I.reelsOn : I.reels;
     if (t === "activity") b.innerHTML = (on ? I.heartOn : I.heart) + (unseen() ? '<span class="dot"></span>' : "");
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
-  const views = { home: vHome, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  const views = { home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
-  hydrate(document.body);
   wireCarousels(v);
+  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => wireAutoplay(v));
 }
 
 /* ================= views ================= */
 function postCard(p){
+  const a = accountById(p.acct) || A();
   const e = engage(p);
   const vc = visibleComments(p);
   const liker = acct(likerSample(p,1)[0]);
   const many = p.files.length > 1;
-  const slides = p.files.map(f => `<div class="slide">${mediaTag(f,"",{controls:isVideo(f.mime), lazy:true})}</div>`).join("");
+  const vid = !many && isVideo(p.files[0].mime);
+  const slides = p.files.map(f => `<div class="slide">${mediaTag(f,"",{auto:isVideo(f.mime), lazy:true})}${isVideo(f.mime)?`<button class="mute" type="button" data-mute aria-label="Sound">${I.muted}</button>`:""}</div>`).join("");
+  const hasStory = activeStories(a.id).length;
   return `<article class="post" data-post="${esc(p.id)}">
     <div class="phead pad">
-      <a href="#/me" class="ring">${myAv(32)}</a>
-      <div class="who"><b>${esc(myName())}</b>${checkMark(S.profile.verified)}${p.location?`<div class="small">${esc(p.location)}</div>`:""}</div>
+      <button type="button" class="ring ${hasStory ? (storyUnseen(a.id) ? "" : "seen") : "none"}" ${hasStory?`data-story="${esc(a.id)}"`:`data-href="#/me"`}>${myAv(32, a)}</button>
+      <div class="who"><b>${esc(handleOf(a))}</b>${checkMark(a.verified)}${p.location?`<div class="small">${esc(p.location)}</div>`:""}</div>
       <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Post options">${I.dots}</button>
     </div>
     <div class="carousel" data-dbl="${esc(p.id)}">
@@ -719,33 +872,40 @@ function postCard(p){
         <span class="sp"></span>
         <button type="button" data-save="${esc(p.id)}" aria-label="Save">${S.saved[p.id]?I.saveOn:I.save}</button>
       </div>
+      ${vid ? `<div class="likes num">${full(e.views)} views</div>` : ""}
       <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b>${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
-      ${p.caption?`<div class="caption clamp"><b>${esc(myName())}</b> ${esc(p.caption)}</div>`:""}
+      ${p.caption?`<div class="caption clamp"><b>${esc(handleOf(a))}</b> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
-      ${vc.slice(-2).map(c => { const a = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><b>${esc(a ? a.handle : myName())}</b> ${esc(c.text)}</div>`; }).join("")}
+      ${vc.slice(-2).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><b>${esc(f ? f.handle : handleOf(a))}</b> ${esc(c.text)}</div>`; }).join("")}
       <div class="when">${esc(ago(p.publishAt, true))}</div>
     </div>
   </article>`;
 }
-
+const storyUnseen = aid => activeStories(aid).some(p => !S.storySeen[p.id]);
+function storyTray(){
+  const items = S.accounts.filter(a => activeStories(a.id).length).sort((x,y) => (storyUnseen(y.id)?1:0) - (storyUnseen(x.id)?1:0) || (x.id === S.current ? -1 : 1));
+  if (!items.length) return "";
+  return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${a.id === S.current ? "Your story" : esc(handleOf(a))}</span></button>`).join("")}</div>`;
+}
 function vHome(v){
+  const multi = S.accounts.length > 1;
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button>`);
   const L = live();
-  const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folder. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
+  const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
   if (!L.length){
-    const setup = !S.settings.clientId || !S.settings.folderName;
-    v.innerHTML = banner + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
-      <p>${setup ? "Add your Google sign-in details and the folder name once. After that the bot posts from the folder by itself." : queued().length ? `The bot's first post goes up ${esc(until(queued()[0].publishAt))}.` : "The bot is watching your Drive folder. Put photos in it and they'll start going up."}</p>
+    const setup = !hasSetup();
+    v.innerHTML = banner + storyTray() + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
+      <p>${setup ? "Type your Drive folder name once in settings. After that the bot posts from it by itself." : queued().length ? `The bot's first post goes up ${esc(until(queued()[0].publishAt))}.` : "The bot is watching your Drive folders. Put photos in them and they'll start going up."}</p>
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  v.innerHTML = banner + L.map(postCard).join("");
+  v.innerHTML = banner + storyTray() + (multi ? `<div class="pad hint" style="padding-top:8px">Showing @${esc(handleOf(A()))}. Switch accounts on your profile.</div>` : "") + L.map(postCard).join("");
 }
 
 function profileHeader(o){
   return `<div class="prof pad">
     <div class="prow">${o.av}<div class="pstats num">
-      <button type="button" ${o.postsHref?`data-href="${o.postsHref}"`:""}><b>${fmt(o.posts)}</b><span>posts</span></button>
+      <button type="button"><b>${fmt(o.posts)}</b><span>posts</span></button>
       <button type="button" data-href="${o.followersHref}"><b>${fmt(o.followers)}</b><span>followers</span></button>
       <button type="button" data-href="${o.followingHref}"><b>${fmt(o.following)}</b><span>following</span></button>
     </div></div>
@@ -756,35 +916,42 @@ function profileHeader(o){
     <div class="pbtns">${o.buttons}</div>
   </div>`;
 }
+function tileFor(p, reel){
+  const f = p.files[0];
+  const views = reel ? `<span class="views">${I.playLine}${fmt(engage(p).views)}</span>` : "";
+  return `<a class="tile ${reel?"tall":""}" href="${reel ? "#/reels/"+esc(p.id) : "#/p/"+esc(p.id)}">${mediaTag(f,"",{poster:true})}${!reel && p.files.length>1?`<span class="ic">${I.multi}</span>`:!reel && isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}${views}</a>`;
+}
 function vMe(v, r){
-  const tab = r.a === "queue" ? "queue" : "grid";
-  setTop(`<h1>${esc(myName())}${checkMark(S.profile.verified)}</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  const L = live(), Q = queued(), W = waiting();
+  const a = A();
+  const tab = r.a === "queue" ? "queue" : r.a === "reels" ? "reels" : "grid";
+  setTop(`<h1><button type="button" data-switch>${esc(handleOf(a))}${checkMark(a.verified)} ${I.down}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const L = live(), Q = queued(), R = liveReels();
   let body;
   if (tab === "grid"){
-    body = L.length ? `<div class="grid">${L.map(p => { const f = p.files[0]; return `<a class="tile" href="#/p/${esc(p.id)}">${mediaTag(f,"",{poster:true})}${p.files.length>1?`<span class="ic">${I.multi}</span>`:isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}</a>`; }).join("")}</div>`
-      : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
+    body = L.length ? `<div class="grid">${L.map(p => tileFor(p,false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
+  } else if (tab === "reels"){
+    body = R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Videos in your Drive folder become reels.</p></div>`;
   } else {
+    const rw = runway(a);
     body = `<div class="pad">
       <div class="card" style="margin-top:14px"><h3>The bot</h3>
-        <div class="hint">New files in your Drive folder join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. There's enough for about <b>${Math.max(1, Math.round(runway()))} more ${Math.round(runway())===1?"day":"days"}</b>${runway() < 3 ? ". Add more photos to the folder soon." : "."}` : "The queue is empty, so the bot has nothing to post. Add photos to your Drive folder."}</div>
+        <div class="hint">New files join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. There's enough for about <b>${Math.max(1, Math.round(rw))} more ${Math.round(rw)===1?"day":"days"}</b>${rw < 3 ? ". Add more photos to the folder soon." : "."}` : "The queue is empty, so the bot has nothing to post. Add photos to your Drive folder."}</div>
         <span class="lbl">Posts per day</span>
-        <div class="seg">${[[2880,"½"],[1440,"1"],[720,"2"],[480,"3"],[288,"5"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+S.settings.interval===m}">${l}</button>`).join("")}</div>
-        ${Q.length>1?`<button class="btn" type="button" data-respace>Re-space the queue</button>`:""}
+        <div class="seg">${[[2880,"½"],[1440,"1"],[720,"2"],[480,"3"],[288,"5"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
       </div>
-      ${W.length ? `<div class="sect">Not scheduled (${W.length})</div><div class="hint">New files from Drive wait here until you pick how to post them.</div>
-        <button class="btn primary" type="button" data-askwait style="margin-top:8px">Schedule these</button>${W.map(qRow).join("")}` : ""}
       <div class="sect">Queued (${Q.length})</div>
-      ${Q.length ? Q.map(qRow).join("") : `<div class="hint">Empty. Sync Drive or add photos to give the bot something to post.</div>`}
+      ${Q.length ? Q.map(qRow).join("") : `<div class="hint">Empty. Add photos to your Drive folder to give the bot something to post.</div>`}
     </div>`;
   }
+  const hasStory = activeStories(a.id).length;
   v.innerHTML = profileHeader({
-    av: `<span class="ring">${myAv(86)}</span>`, posts: L.length, followers: followersNow(), following: followingCount(),
+    av: hasStory ? `<button type="button" class="ring ${storyUnseen(a.id)?"":"seen"}" data-story="${esc(a.id)}">${myAv(86)}</button>` : `<span class="ring none">${myAv(86)}</span>`,
+    posts: L.length, followers: followersNow(), following: followingCount(),
     followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
-    name: S.profile.name, bio: S.profile.bio, link: S.profile.link,
-    buttons: `<a class="btn" href="#/edit">Edit profile</a><button class="btn" type="button" data-sync>Check Drive now</button>`
-  }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${(Q.length+W.length)?`<span class="small" style="margin-left:4px">${Q.length+W.length}</span>`:""}</button></div>` + body;
-  if (!S.profile.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set your name and handle</a></div>`);
+    name: a.name, bio: a.bio, link: a.link,
+    buttons: `<a class="btn" href="#/edit">Edit profile</a><button class="btn" type="button" data-switch>${S.accounts.length > 1 ? "Switch account" : "Add account"}</button>`
+  }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/reels" class="${tab==="reels"?"on":""}" aria-label="Reels">${I.reels}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${Q.length?`<span class="small">${Q.length}</span>`:""}</button></div>` + body;
+  if (!a.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set this account's name and username</a></div>`);
 }
 function qRow(p){
   const f = p.files[0];
@@ -792,6 +959,21 @@ function qRow(p){
     <div class="info"><div>${esc(p.caption || (p.files.length+" "+(p.files.length===1?"file":"files")))}</div><div class="hint">${p.publishAt ? esc(until(p.publishAt)) : "Not scheduled"}</div></div>
     <button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button>
     <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button></div>`;
+}
+function accountSwitcher(){
+  sheet(`<h3>Your accounts</h3>
+    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
+    ${S.accounts.length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
+      const b = el.closest("[data-acc]"); if (!b) return;
+      closeSheet();
+      if (b.dataset.acc === "__new"){
+        const a = newAccount(S.accounts.length); S.accounts.push(a); S.current = a.id; await saveAccounts();
+        await rebalanceFor(a); await autoCaptions(); await ensureAvatars(); await autoStories();
+        toast("New account added. Give it a name and username."); go("#/edit"); return;
+      }
+      S.current = b.dataset.acc; await saveAccounts(); toast("Switched to @"+handleOf(A())); go("#/me");
+    });
+  hydrate($("#layer"));
 }
 
 function vUser(v, r){
@@ -818,34 +1000,36 @@ function vComments(v, r){
   const p = S.posts.find(x => x.id === r.a);
   setTop(`${backBtn}<h1>Comments</h1>`);
   if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
+  const owner = accountById(p.acct) || A();
   const vc = visibleComments(p);
   const e = engage(p);
   const extra = Math.max(0, e.comments - vc.length);
   v.innerHTML = `<div class="pad" style="padding-bottom:70px">
-    ${p.caption?`<div class="cmt" style="border-bottom:1px solid var(--line)">${myAv(32)}<div class="body"><div class="t"><b>${esc(myName())}</b> ${esc(p.caption)}</div><div class="meta">${esc(ago(p.publishAt))}</div></div></div>`:""}
+    ${p.caption?`<div class="cmt" style="border-bottom:1px solid var(--line)">${myAv(32, owner)}<div class="body"><div class="t"><b>${esc(handleOf(owner))}</b> ${esc(p.caption)}</div><div class="meta">${esc(ago(p.publishAt))}</div></div></div>`:""}
     ${vc.slice().reverse().map(c => {
       const a = c.mine ? null : acct(c.acct);
       const lk = (c.likes||0) + ((p.cLikes||{})[c.id] ? 1 : 0);
-      return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32)}<div class="body">
-        <div class="t"><a href="${a?"#/u/"+a.i:"#/me"}"><b>${esc(a?a.handle:myName())}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
+      return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32, owner)}<div class="body">
+        <div class="t"><a href="${a?"#/u/"+a.i:"#/me"}"><b>${esc(a?a.handle:handleOf(owner))}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
         <div class="meta"><span>${esc(ago(c.at))}</span>${lk?`<span>${fmt(lk)} ${lk===1?"like":"likes"}</span>`:""}<button type="button" data-reply="${esc(a?a.handle:"")}">Reply</button><button type="button" data-hidec="${esc(c.id)}" data-p="${esc(p.id)}">${c.mine?"Delete":"Hide"}</button></div>
       </div><button class="h" type="button" data-clike="${esc(c.id)}" data-p="${esc(p.id)}" style="${(p.cLikes||{})[c.id]?"color:var(--heart)":""}" aria-label="Like comment">${(p.cLikes||{})[c.id]?I.heartOn:I.heart}</button></div>`;
     }).join("")}
     ${extra?`<div class="hint" style="padding:12px 0">${full(extra)} more ${extra===1?"comment":"comments"}</div>`:""}
-    ${!vc.length?`<div class="empty"><h2>No comments yet</h2><p>They come in over the first few hours after posting.</p></div>`:""}
+    ${!vc.length?`<div class="empty"><h2>No comments yet</h2><p>They start coming in a few minutes after posting.</p></div>`:""}
   </div>
-  <div class="cbox"><div class="in pad">${myAv(32)}<input type="text" id="cin" placeholder="Add a comment…" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
+  <div class="cbox"><div class="in pad">${myAv(32, owner)}<input type="text" id="cin" placeholder="Add a comment…" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
 }
 
 function vList(v, r){
   const kind = r.a, id = r.b;
   let title = "", ids = [], total = 0;
   if (kind === "likes"){ const p = S.posts.find(x=>x.id===id); title = "Likes"; if (p){ total = engage(p).likes; ids = likerSample(p, Math.min(total, 60)); } }
+  else if (kind === "views"){ const p = S.posts.find(x=>x.id===id); title = "Viewers"; if (p){ total = storyStats(p).views; ids = likerSample(p, Math.min(total, 80)); } }
   else {
     const who = id === "me" ? null : acct(+id);
     title = kind === "followers" ? "Followers" : "Following";
     total = who ? (kind === "followers" ? who.followers : who.following) : (kind === "followers" ? followersNow() : followingCount());
-    const rr = rng(hashStr(kind+id+S.settings.seed)); const set = new Set();
+    const rr = rng(hashStr(kind+id+S.settings.seed+A().seed)); const set = new Set();
     if (!who && kind === "following"){ for (let i=0;i<POOL;i++) if (isFollowing(i)) set.add(i); }
     else if (!who && kind === "followers"){ for (let i=0;i<POOL;i++) if (followsYou(i)) set.add(i); }
     else while (set.size < Math.min(50, total)) set.add(Math.floor(rr()*POOL));
@@ -858,45 +1042,132 @@ function vList(v, r){
 }
 
 function events(){
-  const ev = [];
+  const a = A(); const ev = [];
   for (const p of live().slice(0, 15)){
     const e = engage(p); const f = p.files[0];
     for (const c of visibleComments(p).filter(c=>!c.mine).slice(-4)) ev.push({ at:c.at, acct:c.acct, html:`<b>${esc(acct(c.acct).handle)}</b> commented: ${esc(c.text)}`, p, f });
-    if (e.likes > 2){ const s = likerSample(p, 2); ev.push({ at: Math.min(now(), p.publishAt + 40*60e3), acct:s[0], html:`<b>${esc(acct(s[0]).handle)}</b>, <b>${esc(acct(s[1]).handle)}</b> and ${full(e.likes-2)} others liked your post.`, p, f }); }
+    { const fb = Math.round(followBump(p, a) * curve(now() - p.publishAt, 5*H)); if (fb > 0){ const rr = rng(p.seed ^ 0x51ed27); const i = Math.floor(rr()*POOL); ev.push({ at: Math.min(now(), p.publishAt + (20 + rr()*90)*60e3), acct:i, html: fb > 1 ? `<b>${esc(acct(i).handle)}</b> and ${full(fb-1)} others started following you after your ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.` : `<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); } }
+    if (e.likes > 2){ const s = likerSample(p, 2); ev.push({ at: Math.min(now(), p.publishAt + 25*60e3), acct:s[0], html:`<b>${esc(acct(s[0]).handle)}</b>, <b>${esc(acct(s[1]).handle)}</b> and ${full(e.likes-2)} others liked your ${isVideo(f.mime) && p.files.length===1 ? "reel" : "post"}.`, p, f }); }
   }
-  const days = 10, r = rng(hashStr("ev"+Math.floor(now()/D)+S.settings.seed));
-  for (let d=0; d<days; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (S.profile.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); }
-  return ev.filter(e => e.at <= now()).sort((a,b) => b.at - a.at).slice(0, 80);
+  for (const p of activeStories(a.id)){ const s = storyStats(p); if (s.likes > 1){ const l = likerSample(p, 1)[0]; ev.push({ at: Math.min(now(), p.publishAt + 15*60e3), acct:l, html:`<b>${esc(acct(l).handle)}</b> and ${full(s.likes-1)} others liked your story.`, p, f:p.files[0], story:true }); } }
+  const r = rng(hashStr("ev"+Math.floor(now()/D)+a.seed));
+  for (let d=0; d<10; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (a.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following you.`, follow:i }); }
+  return ev.filter(e => e.at <= now()).sort((x,y) => y.at - x.at).slice(0, 80);
 }
-const unseen = () => { const L = live(); return L.length && events().some(e => e.at > (S.seenAt||0)); };
+const unseen = () => live().length && events().some(e => e.at > (S.seenAt[A().id]||0));
 function vActivity(v){
   setTop(`<h1>Activity</h1>`);
   const ev = events();
-  const seen = S.seenAt || 0;
-  S.seenAt = now(); saveMisc();
+  const seen = S.seenAt[A().id] || 0;
+  S.seenAt[A().id] = now(); saveMisc();
   if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once you've posted.</p></div>`; return; }
   const groups = [["New", e => e.at > seen], ["Today", e => now()-e.at < D], ["This week", e => now()-e.at < 7*D], ["Earlier", () => true]];
   const used = new Set(); let html = "";
   for (const [label, test] of groups){
     const g = ev.filter(e => !used.has(e) && test(e)); g.forEach(e => used.add(e));
     if (!g.length) continue;
-    html += `<div class="sect">${label}</div>` + g.map(e => `<div class="act"><a href="#/u/${e.acct}">${acctAv(acct(e.acct),44)}</a><div class="t">${e.html} <span class="muted">${esc(ago(e.at))}</span></div>${e.p ? `<a class="thumb" href="#/p/${esc(e.p.id)}">${mediaTag(e.f,"",{poster:true})}</a>` : `<button class="btn ${isFollowing(e.follow)?"":"blue"}" style="width:auto;padding:6px 12px" type="button" data-follow="${e.follow}">${isFollowing(e.follow)?"Following":"Follow back"}</button>`}</div>`).join("");
+    html += `<div class="sect">${label}</div>` + g.map(e => `<div class="act"><a href="#/u/${e.acct}">${acctAv(acct(e.acct),44)}</a><div class="t">${e.html} <span class="muted">${esc(ago(e.at))}</span></div>${e.p ? `<${e.story?`button type="button" data-story="${esc(e.p.acct)}"`:`a href="#/p/${esc(e.p.id)}"`} class="thumb">${mediaTag(e.f,"",{poster:true})}</${e.story?"button":"a"}>` : `<button class="btn ${isFollowing(e.follow)?"":"blue"}" style="width:auto;padding:6px 12px" type="button" data-follow="${e.follow}">${isFollowing(e.follow)?"Following":"Follow back"}</button>`}</div>`).join("");
   }
   v.innerHTML = `<div class="pad">${html}</div>`;
 }
 
+/* ---------- reels ---------- */
+function vReelsTab(v, r){
+  setTop(`<h1>Reels</h1>`);
+  const R = S.accounts.flatMap(a => liveReels(a.id)).sort((x,y) => y.publishAt - x.publishAt);
+  if (!R.length){ v.innerHTML = `<div class="empty"><h2>No reels yet</h2><p>Put videos in your Drive folder. They post as reels and play here.</p></div>`; return; }
+  if (r.a) openReels(R, r.a);
+  v.innerHTML = `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>`;
+}
+async function openReels(list, startId){
+  const start = Math.max(0, list.findIndex(p => p.id === startId));
+  $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-closefull aria-label="Close">${I.back}</button>
+    ${list.map(p => { const a = accountById(p.acct) || A(); const e = engage(p); return `<section class="r" data-reel="${esc(p.id)}">
+      ${mediaTag(p.files[0],"",{auto:true})}<div class="shade"></div>
+      <div class="side">
+        <button type="button" data-rlike="${esc(p.id)}" class="${p.liked?"liked":""}">${p.liked?I.heartOn:I.heart}<span>${fmt(e.likes)}</span></button>
+        <a href="#/c/${esc(p.id)}" data-closefull>${I.comment}<span>${fmt(e.comments)}</span></a>
+        <button type="button" data-share>${I.share}</button>
+        <button type="button" data-rmute>${I.muted}</button>
+      </div>
+      <div class="info"><div class="u">${myAv(32, a)}<span>${esc(handleOf(a))}</span>${checkMark(a.verified)}</div><div class="clamp">${esc(p.caption||"")}</div><div class="small" style="opacity:.85;margin-top:4px">${full(e.views)} views · ${esc(ago(p.publishAt))}</div></div>
+    </section>`; }).join("")}</div>`;
+  const rv = $("#rv");
+  rv.scrollTop = start * rv.clientHeight;
+  await hydrate(rv);
+  // whichever reel fills the screen plays; the rest pause
+  const vids = [...rv.querySelectorAll(".r video")];
+  let current = -1;
+  const activate = () => {
+    const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
+    vids.forEach((vd, j) => { if (j === k){ vd.muted = reelsMuted; vd.currentTime = 0; vd.play().catch(()=>{}); } else vd.pause(); });
+  };
+  let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
+  activate();
+  rv.addEventListener("click", async e => {
+    const t = e.target.closest("button,a"); if (!t){ const vd = e.target.closest(".r")?.querySelector("video"); if (vd){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); } return; }
+    if ("closefull" in t.dataset){ closeFull(); if (t.tagName === "A") return; if (route().name === "reels" && route().a) history.back(); return; }
+    if (t.dataset.rlike){ const p = S.posts.find(x => x.id === t.dataset.rlike); p.liked = !p.liked; await savePost(p); t.className = p.liked ? "liked" : ""; t.innerHTML = (p.liked?I.heartOn:I.heart) + `<span>${fmt(engage(p).likes)}</span>`; return; }
+    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    if ("share" in t.dataset) toast("Shared");
+  });
+}
+let reelsMuted = true;
+function closeFull(){ $("#full").querySelectorAll("video").forEach(v => v.pause()); $("#full").innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF); }
+
+/* ---------- stories ---------- */
+let storyTimer = 0, storyRAF = 0;
+function openStories(aid){
+  const order = [aid, ...S.accounts.map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
+  let ai = 0, list = activeStories(order[0]);
+  if (!list.length) return;
+  let i = Math.max(0, list.findIndex(p => !S.storySeen[p.id]));
+  const show = async () => {
+    clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
+    const p = list[i]; const a = accountById(p.acct) || A(); const st = storyStats(p); const f = p.files[0];
+    S.storySeen[p.id] = true; saveMisc();
+    $("#full").innerHTML = `<div class="full sv" id="sv">
+      <div class="media">${isVideo(f.mime) ? `<video data-media="${esc(f.key)}" playsinline autoplay ${reelsMuted?"muted":""}></video>` : `<img data-media="${esc(f.key)}" alt="">`}</div><div class="shade"></div>
+      <div class="bars">${list.map((_,k) => `<div class="bar"><i style="width:${k<i?100:0}%"></i></div>`).join("")}</div>
+      <div class="hd">${myAv(32, a)}<b>${esc(handleOf(a))}</b><span style="opacity:.75">${esc(ago(p.publishAt))}</span><span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
+      ${p.storyText ? `<div class="txt"><span>${esc(p.storyText)}</span></div>` : ""}
+      <div class="taps"><button type="button" data-sprev aria-label="Previous"></button><button type="button" data-snext aria-label="Next"></button></div>
+      <div class="ft">${`<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
+    </div>`;
+    await hydrate($("#full"));
+    const bar = $("#full").querySelectorAll(".bar i")[i];
+    const vd = $("#full video");
+    const dur = vd ? await new Promise(res => { if (vd.readyState >= 1) res(vd.duration); vd.onloadedmetadata = () => res(vd.duration); setTimeout(() => res(15), 1500); }) * 1000 : 5500;
+    const t0 = performance.now(), len = Math.min(Math.max(dur || 5500, 3000), 30000);
+    const tick = () => { const k = (performance.now() - t0) / len; if (bar) bar.style.width = Math.min(100, k*100) + "%"; if (k < 1) storyRAF = requestAnimationFrame(tick); };
+    tick();
+    storyTimer = setTimeout(next, len);
+  };
+  const next = () => { if (i < list.length - 1){ i++; show(); } else if (ai < order.length - 1){ ai++; list = activeStories(order[ai]); i = 0; show(); } else { closeFull(); render(); } };
+  const prev = () => { if (i > 0){ i--; show(); } else if (ai > 0){ ai--; list = activeStories(order[ai]); i = list.length - 1; show(); } else show(); };
+  $("#full").onclick = async e => {
+    const t = e.target.closest("button"); if (!t) return;
+    if ("sclose" in t.dataset){ closeFull(); render(); return; }
+    if ("snext" in t.dataset) return next();
+    if ("sprev" in t.dataset) return prev();
+    if (t.dataset.sviews){ const id = t.dataset.sviews; closeFull(); go("#/list/views/"+id); return; }
+    if (t.dataset.stext){ const p = S.posts.find(x => x.id === t.dataset.stext); p.storyText = storyText(hashStr(uid("x"))); await savePost(p); show(); }
+  };
+  show();
+}
+
 let draft = { files: [], caption: "", mode: "now", at: "" };
 function vNew(v){
-  setTop(`${backBtn}<h1>New post</h1>`);
+  setTop(`${backBtn}<h1>New post on @${esc(handleOf(A()))}</h1>`);
   v.innerHTML = `<div class="pad form">
     <div class="field"><span class="lbl">Photos and videos</span>
-      <div class="thumbs">${draft.files.map((f,i)=>`<div class="th">${mediaTag(f,"",{poster:true})}</div>`).join("")}</div>
+      <div class="thumbs">${draft.files.map(f=>`<div class="th">${mediaTag(f,"",{poster:true})}</div>`).join("")}</div>
       <button class="btn" type="button" data-pick>${draft.files.length ? "Choose again" : "Choose from your phone"}</button></div>
-    <div class="field"><label for="ncap">Caption</label><textarea id="ncap" placeholder="Write a caption…">${esc(draft.caption)}</textarea></div>
+    <div class="field"><label for="ncap">Caption</label><textarea id="ncap" placeholder="Leave empty and the bot writes one">${esc(draft.caption)}</textarea></div>
     <div class="field"><span class="lbl">When</span><div class="seg" id="nmode">
       ${[["now","Now"],["queue","Bot queue"],["at","Pick time"],["back","Backdate"]].map(([m,l])=>`<button type="button" data-m="${m}" aria-pressed="${draft.mode===m}">${l}</button>`).join("")}</div>
       <input type="datetime-local" id="nat" value="${esc(draft.at)}" ${draft.mode==="at"||draft.mode==="back"?"":"hidden"}>
-      <div class="hint">${draft.mode==="queue" ? "Goes up "+esc(until(nextSlot())) : draft.mode==="back" ? "Pick a past date and it shows up as an older post" : draft.mode==="at" ? "Pick when it goes live" : "Goes up right away"}</div></div>
+      <div class="hint">${draft.mode==="queue" ? "Goes up "+esc(until(nextSlot(A()))) : draft.mode==="back" ? "Pick a past date and it shows up as an older post" : draft.mode==="at" ? "Pick when it goes live" : "Goes up right away"}</div></div>
     <button class="btn primary" type="button" data-publish>${draft.mode==="now"?"Share":"Schedule"}</button>
   </div>`;
   $("#ncap").addEventListener("input", e => draft.caption = e.target.value);
@@ -908,36 +1179,40 @@ function vEditPost(v, r){
   const p = S.posts.find(x => x.id === r.a);
   setTop(`${backBtn}<h1>Edit post</h1>`);
   if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
-  const e = engage(p);
+  const t = totals(p);
   const dt = p.publishAt ? new Date(p.publishAt - new Date().getTimezoneOffset()*60e3).toISOString().slice(0,16) : "";
   v.innerHTML = `<div class="pad form">
     <div class="thumbs">${p.files.map(f=>`<div class="th">${mediaTag(f,"",{poster:true})}</div>`).join("")}</div>
     <div class="field"><label for="ecap">Caption</label><textarea id="ecap">${esc(p.caption)}</textarea></div>
     <div class="field"><label for="eloc">Location</label><input type="text" id="eloc" value="${esc(p.location||"")}" placeholder="Optional"></div>
     <div class="field"><label for="ewhen">Posted at</label><input type="datetime-local" id="ewhen" value="${esc(dt)}"></div>
-    <div class="field"><label for="elikes">Likes it ends up with</label><input type="number" id="elikes" min="0" inputmode="numeric" value="${esc(p.likesTarget ?? "")}" placeholder="Auto (${full(e.totalL)})"></div>
-    <div class="field"><label for="ecom">Comments it ends up with</label><input type="number" id="ecom" min="0" inputmode="numeric" value="${esc(p.commentsTarget ?? "")}" placeholder="Auto (${full(e.totalC)})"></div>
-    <div class="hint">Likes and comments climb toward these numbers over the first day, like a real post.</div>
+    <div class="field"><label for="elikes">Likes it ends up with</label><input type="number" id="elikes" min="0" inputmode="numeric" value="${esc(p.likesTarget ?? "")}" placeholder="Auto (${full(t.totalL)})"></div>
+    <div class="field"><label for="ecom">Comments it ends up with</label><input type="number" id="ecom" min="0" inputmode="numeric" value="${esc(p.commentsTarget ?? "")}" placeholder="Auto (${full(t.totalC)})"></div>
+    <div class="hint">A burst lands in the first few minutes, then it keeps climbing toward these numbers over about a day.</div>
     <button class="btn primary" type="button" data-savepost="${esc(p.id)}">Save</button>
     <button class="btn danger" type="button" data-delpost="${esc(p.id)}">Delete post</button>
   </div>`;
 }
 
 function vEdit(v){
+  const P = A();
   setTop(`${backBtn}<h1>Edit profile</h1>`);
-  const P = S.profile;
   v.innerHTML = `<div class="pad form">
     <div style="display:flex;align-items:center;gap:14px">${myAv(86)}<button class="btn" type="button" data-avpick style="width:auto">Change photo</button></div>
-    <div class="hint">${S.profile.avatarAuto ? "The bot picked this one from your photos. " : ""}A file named avatar.jpg in your Drive folder always wins.</div>
+    <div class="hint">${P.avatarAuto ? "The bot picked this one from your photos. " : ""}avatar.jpg in this account's Drive folder always wins.</div>
     <div class="field"><label for="pn">Name</label><input type="text" id="pn" value="${esc(P.name)}"></div>
     <div class="field"><label for="ph">Username</label><input type="text" id="ph" value="${esc(P.handle)}" autocapitalize="off" autocorrect="off"></div>
     <div class="field"><label for="pb">Bio</label><textarea id="pb">${esc(P.bio)}</textarea></div>
     <div class="field"><label for="pl">Link</label><input type="text" id="pl" value="${esc(P.link)}" autocapitalize="off"></div>
+    <div class="field"><label for="pfolder">This account's own Drive folder (optional)</label><input type="text" id="pfolder" value="${esc(P.folderName)}" placeholder="Leave empty to share the main folder" autocapitalize="off" autocorrect="off"></div>
+    <div class="hint">Files in this folder only post on this account. Files in the main folder are split between all your accounts, never posted twice.</div>
     <div class="field"><label for="pf">Followers right now</label><input type="number" id="pf" inputmode="numeric" min="0" value="${followersNow()}"></div>
     <div class="field"><label for="pg">New followers per day</label><input type="number" id="pg" inputmode="numeric" min="0" value="${esc(P.growth)}"></div>
     <div class="field"><label for="pfo">Following</label><input type="number" id="pfo" inputmode="numeric" min="0" value="${esc(P.following)}"></div>
+    <div class="field"><span class="lbl">How popular this account is</span><div class="seg" id="plevel">${[["low","Small"],["normal","Normal"],["high","Big"],["viral","Huge"]].map(([k,l])=>`<button type="button" data-plevel="${k}" aria-pressed="${P.level===k}">${l}</button>`).join("")}</div></div>
     <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="pv" ${P.verified?"checked":""} style="width:auto"> Show a verified check</label>
     <button class="btn primary" type="button" data-saveprofile>Save</button>
+    ${S.accounts.length > 1 ? `<button class="btn danger" type="button" data-delacc>Remove this account</button><div class="hint">Its photos go back to the bot and get posted on your other accounts.</div>` : ""}
   </div>`;
 }
 
@@ -946,44 +1221,48 @@ function vSettings(v){
   const st = S.settings, signed = !!tokenOK();
   v.innerHTML = `<div class="pad form">
     <div class="card"><h3>Google Drive</h3>
-      <div class="field"><label for="sfolder">Folder name</label><input type="text" id="sfolder" value="${esc(st.folderName)}" placeholder="The exact name of your Drive folder" autocapitalize="off" autocorrect="off"></div>
-      <div class="hint">Photos and videos in the folder become posts. A subfolder becomes one post with several photos. A .txt file with the same name as a photo is its caption. avatar.jpg sets your profile photo and bio.txt sets your bio.</div>
-      <div class="field"><label for="sclient">Google client ID</label><input type="text" id="sclient" value="${esc(st.clientId)}" placeholder="…apps.googleusercontent.com" autocapitalize="off" autocorrect="off"></div>
-      <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div>
-      <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks the folder every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
+      <div class="field"><label for="sfolder">Main folder name</label><input type="text" id="sfolder" value="${esc(st.folderName)}" placeholder="The exact name of your Drive folder" autocapitalize="off" autocorrect="off"></div>
+      <div class="hint">Files here are split between your accounts with no repeats. Each account can also have its own folder (Edit profile). A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile.</div>
+      <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks your folders every time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
       <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
       <div class="progress"><i id="syncBar"></i></div><div class="status" id="syncStatus"></div>
+      <details><summary class="hint">Google connection details</summary>
+        <div class="field" style="margin-top:8px"><label for="sclient">Google client ID</label><input type="text" id="sclient" value="${esc(st.clientId)}" autocapitalize="off" autocorrect="off"></div>
+        <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
     <div class="card"><h3>The bot</h3>
-      <div class="field"><label for="sint">Posts per day</label><input type="number" id="sint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay())}"></div>
-      <div class="hint">Times vary a little each day, and nothing goes up between midnight and 9 AM.</div>
-      <div class="field"><label for="sstart">Already up on the first run</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
-      <div class="hint">The first time it reads your folder, this many files go up as older posts so your profile isn't empty. The rest are posted one at a time.</div></div>
+      <div class="field"><label for="sint">Posts per day on @${esc(handleOf(A()))}</label><input type="number" id="sint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(A()))}"></div>
+      <div class="hint">Times vary a little each day, and nothing goes up between midnight and 9 AM. Each account has its own pace.</div>
+      <div class="field"><label for="sstories">Stories per day, per account</label><input type="number" id="sstories" min="0" step="1" inputmode="numeric" value="${esc(st.storiesPerDay)}"></div>
+      <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
+      <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Captions</h3>
-      <div class="seg" id="scap">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-capstyle="${k}" aria-pressed="${(st.captionStyle||"off")===k}">${l}</button>`).join("")}</div>
-      <div class="field"><label for="smycap">Your own captions, one per line</label><textarea id="smycap" placeholder="these get mixed in, and used twice as often">${esc(st.myCaptions||"")}</textarea></div>
-      <div class="hint">Every post without a caption gets one automatically, and the bot avoids repeats. A .txt caption in Drive always wins. To swap one, tap ⋯ on the post, then New caption.</div>
+      <div class="seg">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-capstyle="${k}" aria-pressed="${st.captionStyle===k}">${l}</button>`).join("")}</div>
+      <div class="field"><label for="smycap">Your own captions, one per line</label><textarea id="smycap" placeholder="each line can become a caption">${esc(st.myCaptions||"")}</textarea></div>
+      <div class="hint">Your lines are picked three times as often as the built-in ones. Saving them rewrites every auto caption so yours show up right away. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-recapall>Redo all auto captions</button></div>
+    <div class="card"><h3>Story text</h3>
+      <div class="seg">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-storystyle="${k}" aria-pressed="${st.storyStyle===k}">${l}</button>`).join("")}</div>
+      <div class="field"><label for="smystory">Your own story text, one per line</label><textarea id="smystory" placeholder="short lines work best">${esc(st.myStoryTexts||"")}</textarea></div></div>
     <div class="card"><h3>Order new files</h3>
-      <div class="seg" id="sorder">${[["name","By name"],["date","Oldest first"],["random","Shuffle"]].map(([k,l])=>`<button type="button" data-order="${k}" aria-pressed="${st.order===k}">${l}</button>`).join("")}</div></div>
-    <div class="card"><h3>How popular you are</h3>
-      <div class="seg" id="slevel">${[["low","Small"],["normal","Normal"],["high","Big"],["viral","Huge"]].map(([k,l])=>`<button type="button" data-level="${k}" aria-pressed="${st.level===k}">${l}</button>`).join("")}</div>
-      <div class="hint">Changes how many likes and comments each post gets, compared with your follower count. Follower numbers are under Edit profile.</div></div>
+      <div class="seg">${[["name","By name"],["date","Oldest first"],["random","Shuffle"]].map(([k,l])=>`<button type="button" data-order="${k}" aria-pressed="${st.order===k}">${l}</button>`).join("")}</div></div>
     <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div>
       <a class="btn" href="#/new">Add photos from this phone instead</a>
       <button class="btn" type="button" data-newworld>Shuffle the fake accounts</button>
       <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
   </div>`;
-  const save = async () => { st.clientId = $("#sclient").value.trim(); const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
+  const save = async () => { st.clientId = $("#sclient").value.trim() || CLIENT_ID; const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
   $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
-  $("#smycap").addEventListener("change", async e => { S.settings.myCaptions = e.target.value; await saveSettings(); await autoCaptions(); toast("Captions saved"); });
-  $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); S.settings.interval = Math.round(1440/n); await saveSettings(); await respace(); toast(`The bot posts about ${perDay()} a day`); });
-  $("#sstart").addEventListener("change", async e => { S.settings.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
+  $("#smycap").addEventListener("change", async e => { st.myCaptions = e.target.value; await saveSettings(); await redoCaptions(); await autoCaptions(); toast("Captions saved and applied"); });
+  $("#smystory").addEventListener("change", async e => { st.myStoryTexts = e.target.value; await saveSettings(); for (const p of S.posts.filter(p => isStory(p) && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x"))); await savePost(p); } toast("Story text saved"); });
+  $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); A().interval = Math.round(1440/n); await saveAccounts(); await respace(A()); toast(`@${handleOf(A())} posts about ${perDay(A())} a day`); });
+  $("#sstories").addEventListener("change", async e => { st.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); await autoStories(); });
+  $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   v.querySelector("[data-sync]").addEventListener("click", save, { capture: true });
-  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.length} posts saved.`; });
+  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
 }
 
-/* ================= carousel + gestures ================= */
+/* ================= carousel, autoplay, gestures ================= */
 function wireCarousels(root){
   for (const c of root.querySelectorAll(".carousel")){
     const sl = c.querySelector(".slides"), cnt = c.querySelector(".count"), dots = c.parentElement.querySelectorAll(".dots i");
@@ -994,18 +1273,24 @@ function wireCarousels(root){
     }, { passive:true });
     let lastTap = 0;
     c.addEventListener("click", e => {
-      if (e.target.tagName === "VIDEO") return;
+      if (e.target.closest("[data-mute]")) return;
       const t = now();
       if (t - lastTap < 320){ likePost(c.dataset.dbl, true); const b = document.createElement("div"); b.className = "burst"; b.innerHTML = I.heartOn; c.appendChild(b); setTimeout(() => b.remove(), 900); }
       lastTap = t;
     });
   }
 }
+let feedMuted = true, autoIO = null;
+function wireAutoplay(root){
+  if (autoIO) autoIO.disconnect();
+  autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
+  root.querySelectorAll("video[data-auto]").forEach(v => autoIO.observe(v));
+}
 async function likePost(id, force){
   const p = S.posts.find(x => x.id === id); if (!p) return;
   p.liked = force ? true : !p.liked; await savePost(p);
   const el = document.querySelector(`[data-post="${CSS.escape(id)}"]`);
-  if (el){ el.outerHTML = postCard(p); const n = document.querySelector(`[data-post="${CSS.escape(id)}"]`); hydrate(n); wireCarousels(n); }
+  if (el){ el.outerHTML = postCard(p); const n = document.querySelector(`[data-post="${CSS.escape(id)}"]`); hydrate(n); wireCarousels(n); n.querySelectorAll("video[data-auto]").forEach(v => autoIO && autoIO.observe(v)); }
 }
 
 /* ================= sheets ================= */
@@ -1016,19 +1301,24 @@ function sheet(html, onClick){
 function closeSheet(){ $("#layer").innerHTML = ""; }
 function postMenu(id){
   const p = S.posts.find(x => x.id === id); if (!p) return;
-  sheet(`${p.publishAt && p.publishAt <= now() ? "" : `<button class="opt" data-o="now">Post now</button>`}
+  const isLive = p.publishAt && p.publishAt <= now();
+  const others = S.accounts.filter(a => a.id !== p.acct);
+  sheet(`${isLive ? "" : `<button class="opt" data-o="now">Post now</button>`}
     <button class="opt" data-o="edit">Edit caption, likes, comments, date</button>
-    ${p.publishAt && p.publishAt <= now() ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
+    ${isLive ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
     <button class="opt" data-o="recap">New caption</button>
+    ${others.map(a => `<button class="opt" data-o="move" data-to="${esc(a.id)}">Move to @${esc(handleOf(a))}</button>`).join("")}
     <button class="opt" data-o="copy">Copy caption</button>
     <button class="opt red" data-o="del">Delete</button>`, async el => {
       const b = el.closest("[data-o]"); if (!b) return;
       const o = b.dataset.o;
       if (o === "del"){ if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } closeSheet(); await deletePost(p); return; }
       closeSheet();
+      const a = accountById(p.acct) || A();
       if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
       if (o === "edit") go("#/editpost/"+p.id);
-      if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
+      if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(a); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
+      if (o === "move"){ const to = accountById(b.dataset.to); p.acct = to.id; p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(to); await savePost(p); toast("Moved to @"+handleOf(to)+"'s queue"); render(); }
       if (o === "recap"){ p.capTry = (p.capTry||0) + 1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; p.captionAuto = true; p.captionManual = false; await savePost(p); toast("New caption"); } else toast("Turn on captions in settings first"); render(); }
       if (o === "copy"){ try { await navigator.clipboard.writeText(p.caption||""); toast("Copied"); } catch(_){ toast("Couldn't copy"); } }
     });
@@ -1036,32 +1326,34 @@ function postMenu(id){
 async function deletePost(p){
   await DB.del("posts", p.id); S.posts = S.posts.filter(x => x.id !== p.id);
   if (p.driveKey){ S.settings.ignored = [...new Set([...(S.settings.ignored||[]), p.driveKey])]; await saveSettings(); }
-  else for (const f of p.files) await DB.del("media", f.key);
+  else if (p.source === "local") for (const f of p.files) await DB.del("media", f.key);
   toast("Deleted"); if (route().name === "editpost" || route().name === "p") history.back(); else render();
 }
 
 /* ================= clicks ================= */
 document.addEventListener("click", async e => {
-  const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim")) return;
+  const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim") || t.closest("#full")) return;
   const d = t.dataset;
+  if (d.story){ openStories(d.story); return; }
   if (d.href){ go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
-  if (d.tab){ if (d.tab === "add"){ draft = { files: [], caption:"", mode:"now", at:"" }; go("#/new"); } else go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if (d.tab){ go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
   if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
+  if ("switch" in d){ accountSwitcher(); return; }
+  if ("mute" in d){ feedMuted = !feedMuted; document.querySelectorAll("video[data-auto]").forEach(v => v.muted = feedMuted); document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); return; }
   if (d.like){ likePost(d.like); return; }
   if (d.save){ S.saved[d.save] = !S.saved[d.save]; await saveMisc(); t.innerHTML = S.saved[d.save] ? I.saveOn : I.save; return; }
   if ("share" in d){ toast("Shared"); return; }
   if ("msg" in d){ toast("Messages aren't part of this app"); return; }
   if (d.postmenu){ postMenu(d.postmenu); return; }
   if (d.postnow){ const p = S.posts.find(x=>x.id===d.postnow); p.publishAt = now(); await savePost(p); toast("Posted"); render(); return; }
-  if (d.follow !== undefined){ const i = +d.follow; S.follows[i] = !isFollowing(i); await saveMisc(); render(); return; }
-  if (d.interval){ S.settings.interval = +d.interval; await saveSettings(); await respace(); toast(perDay() >= 1 ? `The bot posts about ${perDay()} a day` : "The bot posts every 2 days"); render(); return; }
-  if ("respace" in d){ await respace(); toast("Queue re-spaced"); render(); return; }
-  if ("askwait" in d){ askSchedule(waiting()); return; }
-  if (d.capstyle){ S.settings.captionStyle = d.capstyle; await saveSettings(); genCache.clear(); await autoCaptions(); render(); return; }
-  if ("recapall" in d){ for (const p of S.posts) if (p.captionAuto){ p.caption = ""; await savePost(p); } for (const p of S.posts) if (!p.caption && !p.captionManual && p.captionAuto !== undefined){ p.capTry = (p.capTry||0)+1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; await savePost(p); } } toast("Captions redone"); render(); return; }
+  if (d.follow !== undefined){ const i = +d.follow; followMap()[i] = !isFollowing(i); await saveMisc(); render(); return; }
+  if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
+  if (d.capstyle){ S.settings.captionStyle = d.capstyle; await saveSettings(); genCache.clear(); await redoCaptions(); await autoCaptions(); render(); return; }
+  if (d.storystyle){ S.settings.storyStyle = d.storystyle; await saveSettings(); render(); return; }
+  if ("recapall" in d){ await redoCaptions(); toast("Captions redone"); render(); return; }
   if (d.order){ S.settings.order = d.order; await saveSettings(); render(); return; }
-  if (d.level){ S.settings.level = d.level; await saveSettings(); genCache.clear(); render(); return; }
+  if (d.plevel){ A().level = d.plevel; await saveAccounts(); genCache.clear(); render(); return; }
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
   if (d.hidec){ const p = S.posts.find(x=>x.id===d.p); if (d.hidec.startsWith("g")) p.hidden = [...(p.hidden||[]), d.hidec]; else p.myComments = (p.myComments||[]).filter(c=>c.id!==d.hidec); await savePost(p); render(); return; }
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
@@ -1070,35 +1362,47 @@ document.addEventListener("click", async e => {
   if ("avpick" in d){ avatarChooser(); return; }
   if ("publish" in d){
     if (!draft.files.length){ toast("Choose at least one photo or video"); return; }
-    let at = now();
-    if (draft.mode === "queue") at = nextSlot();
+    const a = A(); let at = now();
+    if (draft.mode === "queue") at = nextSlot(a);
     if (draft.mode === "at" || draft.mode === "back"){ at = new Date(draft.at).getTime(); if (!at){ toast("Pick a date and time"); return; } }
-    const p = { id: uid("p_"), source:"local", files: draft.files, caption: draft.caption.trim(), captionManual: !!draft.caption.trim(), createdAt: now(), publishAt: at, seed: hashStr(uid("s")), order: 0, myComments: [], hidden: [] };
-    await savePost(p);
-    if (at < (S.profile.startedAt || now())){ S.profile.startedAt = at - 3*D; await saveProfile(); }
+    const p = { id: uid("p_"), source:"local", acct:a.id, files: draft.files, caption: draft.caption.trim(), captionManual: !!draft.caption.trim(), createdAt: now(), publishAt: at, seed: hashStr(uid("s")), order: 0, myComments: [], hidden: [] };
+    await savePost(p); await autoCaptions();
+    if (at < (a.startedAt || now())){ a.startedAt = at - 3*D; await saveAccounts(); }
     draft = { files: [], caption:"", mode:"now", at:"" };
     toast(at <= now() ? "Shared" : "Queued for "+until(at));
     go(at <= now() ? "#/" : "#/me/queue"); return;
   }
   if (d.savepost){
-    const p = S.posts.find(x=>x.id===d.savepost);
+    const p = S.posts.find(x=>x.id===d.savepost); const a = accountById(p.acct) || A();
     const cap = $("#ecap").value.trim(); if (cap !== p.caption){ p.caption = cap; p.captionManual = true; p.captionAuto = false; } p.location = $("#eloc").value.trim();
     const w = new Date($("#ewhen").value).getTime(); if (w) p.publishAt = w;
     const l = $("#elikes").value, c = $("#ecom").value;
     p.likesTarget = l === "" ? undefined : Math.max(0, +l); p.commentsTarget = c === "" ? undefined : Math.max(0, +c);
-    if (p.publishAt && p.publishAt < (S.profile.startedAt||now())){ S.profile.startedAt = p.publishAt - 3*D; await saveProfile(); }
+    if (p.publishAt && p.publishAt < (a.startedAt||now())){ a.startedAt = p.publishAt - 3*D; await saveAccounts(); }
     await savePost(p); genCache.clear(); toast("Saved"); history.back(); return;
   }
   if (d.delpost){ if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again to delete"; return; } deletePost(S.posts.find(x=>x.id===d.delpost)); return; }
   if ("saveprofile" in d){
-    const P = S.profile;
+    const P = A();
     P.name = $("#pn").value.trim(); P.handle = $("#ph").value.trim().replace(/^@/,"").replace(/\s+/g,"").toLowerCase();
     P.bio = $("#pb").value; P.link = $("#pl").value.trim();
+    const fn = $("#pfolder").value.trim(); if (fn !== P.folderName){ P.folderName = fn; P.folderId = ""; }
     P.growth = Math.max(0, +$("#pg").value || 0); P.following = Math.max(0, +$("#pfo").value || 0); P.verified = $("#pv").checked;
     const want = Math.max(0, +$("#pf").value || 0);
-    if (!P.startedAt) P.startedAt = Math.min(now(), ...S.posts.map(p=>p.publishAt||now())) - 3*D;
-    P.followers = Math.round(P.followers + want - followersNow());
-    await saveProfile(); toast("Profile saved"); history.back(); return;
+    P.followers = Math.round(P.followers + want - followersNow(P));
+    await saveAccounts(); toast("Profile saved"); history.back();
+    if (fn) sync(true);
+    return;
+  }
+  if ("delacc" in d){
+    if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again to remove this account"; return; }
+    const gone = A();
+    for (const p of S.posts.filter(p => p.acct === gone.id)){
+      if (isStory(p) && p.source === "reshare"){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
+      p.acct = null; p.publishAt = 0; await savePost(p);
+    }
+    S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
+    await autoRun(); toast("Account removed"); go("#/me"); return;
   }
   if ("newworld" in d){ S.settings.seed = Math.floor(Math.random()*1e9); acctCache.clear(); genCache.clear(); S.follows = {}; await saveSettings(); await saveMisc(); toast("New set of fake accounts"); return; }
   if ("reset" in d){
@@ -1115,9 +1419,10 @@ $("#picker").addEventListener("change", async e => {
 });
 $("#avPicker").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  const key = uid("av_"); await DB.put("media", f, key); S.profile.avatar = key; S.profile.avatarAuto = false; await saveProfile(); render();
+  const key = uid("av_"); await DB.put("media", f, key); Object.assign(A(), { avatar:key, avatarAuto:false }); await saveAccounts(); render();
 });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape") closeSheet(); });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape"){ closeSheet(); if ($("#full").innerHTML){ closeFull(); render(); } } });
+window.addEventListener("hashchange", () => { const r = route(); if ($("#full").innerHTML && !(r.name === "reels" && r.a)) closeFull(); });
 
 /* ================= boot ================= */
 (async function boot(){
@@ -1125,10 +1430,22 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id
   S.settings = { ...DEFAULT_SETTINGS, ...(await DB.get("kv","settings") || {}) };
   if (!S.settings.clientId) S.settings.clientId = CLIENT_ID;
   if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
-  S.profile = { ...DEFAULT_PROFILE, ...(await DB.get("kv","profile") || {}) };
-  if (!S.profile.startedAt){ S.profile.startedAt = now() - 30*D; await saveProfile(); }
-  const misc = await DB.get("kv","misc") || {}; S.follows = misc.follows || {}; S.seenAt = misc.seenAt || 0; S.saved = misc.saved || {};
   S.posts = await DB.all("posts");
+  S.accounts = (await DB.get("kv","accounts")) || [];
+  if (!S.accounts.length){
+    // first run, or an older single-account version: carry the old profile over as account 1
+    const old = await DB.get("kv","profile");
+    const a = { ...newAccount(0), ...(old || {}), interval: S.settings.interval || 720, level: S.settings.level || "normal", folderName:"", folderId:"" };
+    if (!a.startedAt) a.startedAt = now() - 30*D;
+    S.accounts = [a];
+    for (const p of S.posts) if (!p.acct && p.publishAt){ p.acct = a.id; await savePost(p); }
+  }
+  S.current = (await DB.get("kv","current")) || S.accounts[0].id;
+  await saveAccounts();
+  const misc = await DB.get("kv","misc") || {};
+  S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
+  S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   const back = takeOAuthReturn();
   await autoRun();
@@ -1136,8 +1453,9 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
   if (back || now() - last > 20*60e3) sync(true);
   setInterval(() => sync(true), 30*60e3);
-  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible" && now() - l > 20*60e3) sync(true); });
-  setInterval(() => { const r = route().name; if (["home","me","activity"].includes(r) && !$("#layer").innerHTML && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") render(); }, 60e3);
+  setInterval(() => autoStories(), 30*60e3);
+  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
+  setInterval(() => { const r = route().name; if (["home","me","activity"].includes(r) && !$("#layer").innerHTML && !$("#full").innerHTML && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") render(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
 })();
 </script>
