@@ -338,13 +338,14 @@ const DB = {
 
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
-const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, order:"name", seed:0, ignored:[] };
+const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"" };
-const S = { settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
+async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
 async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ return { ...DEFAULT_ACCOUNT, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
@@ -487,7 +488,7 @@ function engage(p){
 }
 const genCache = new Map();
 function genComments(p){
-  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, S.settings.captionStyle, (accountById(p.acct)||{}).level].join("|");
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, S.settings.captionStyle, (accountById(p.acct)||{}).level, (p.aiComments||[]).length, p.aiComments?.[0]].join("|");
   if (genCache.has(key)) return genCache.get(key);
   const r = rng(p.seed ^ 0x9e3779b9);
   const { totalC, totalL } = totals(p);
@@ -497,7 +498,8 @@ function genComments(p){
   for (let k=0;k<n;k++){
     let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
-    const text = thirsty() ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
+    let text = thirsty() ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
+    if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
   genCache.set(key, out); return out;
@@ -677,7 +679,105 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); }
+async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); setTimeout(writerRun, 400); }
+
+/* ================= caption writer (Claude, with the owner's own API key) ================= */
+// The key is stored only on this phone and sent only to Anthropic. Photos go to Anthropic so each caption fits its picture.
+const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm";
+const MODEL = "claude-opus-5-5";
+let sdk = null, client = null, clientKey = "";
+async function getClient(){
+  if (!S.secret.key) return null;
+  if (!sdk) sdk = await import(SDK_URL);
+  if (!client || clientKey !== S.secret.key){ client = new sdk.default({ apiKey: S.secret.key, dangerouslyAllowBrowser: true, maxRetries: 2 }); clientKey = S.secret.key; }
+  return client;
+}
+async function ask(system, content, schema){
+  const c = await getClient(); if (!c) return null;
+  const r = await c.beta.messages.create({
+    model: MODEL, max_tokens: 4000, system,
+    messages: [{ role: "user", content }],
+    output_config: { effort: "low", ...(schema ? { format: { type: "json_schema", schema } } : {}) },
+    betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
+  });
+  if (r.stop_reason === "refusal") return null;
+  const text = r.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
+  if (!text) return null;
+  return schema ? JSON.parse(text) : text;
+}
+// A small JPEG of the photo, or of a frame from a video.
+async function frameB64(f){
+  const blob = await DB.get("media", f.key); if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    let el;
+    if (isVideo(f.mime)){
+      el = document.createElement("video"); el.muted = true; el.playsInline = true; el.preload = "auto"; el.src = url;
+      await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = rej; setTimeout(rej, 10000); });
+      el.currentTime = Math.min(1, (el.duration || 3) / 3);
+      await new Promise(res => { el.onseeked = res; setTimeout(res, 3000); });
+    } else { el = new Image(); el.src = url; await el.decode(); }
+    const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight; if (!w || !h) return null;
+    const k = Math.min(1, 768 / Math.max(w, h));
+    const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+    c.getContext("2d").drawImage(el, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", .8).split(",")[1];
+  } catch(e){ return null; } finally { URL.revokeObjectURL(url); }
+}
+const VOICE = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. The voice is a flirty, confident thirst trap: teasing, suggestive, playful, a little cocky. Innuendo is fine; keep it non-explicit, with no graphic sexual description.";
+const direction = d => d && d.trim() ? `\n\nThe owner's direction, which takes priority over the default style:\n${d.trim()}` : "";
+async function writeOne(j){
+  const p = j.p, a = accountById(p.acct) || A();
+  const img = await frameB64(p.files[0]);
+  const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
+  if (j.kind === "caption"){
+    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
+    const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them. Reply with the caption only, no quotes.${direction(S.settings.capDirection)}${recent ? `\n\nRecent captions on this account, which you must not repeat or closely echo:\n${recent}` : ""}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
+    if (out) p.caption = out.replace(/^["'“]+|["'”]+$/g, "").trim();
+    p.captionWritten = true;
+  } else if (j.kind === "comments"){
+    const n = Math.max(8, Math.min(30, totals(p).totalC));
+    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to what is actually in the photo and the caption. Each comment is from a different person. Never mention being an AI or a bot.${direction(S.settings.comDirection)}`,
+      withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: { type: "array", items: { type: "string" } } }, required: ["comments"], additionalProperties: false });
+    if (out && Array.isArray(out.comments)) p.aiComments = out.comments.map(c => String(c).trim()).filter(Boolean).slice(0, 60);
+    p.commentsWritten = true; genCache.clear();
+  } else {
+    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${direction(S.settings.storyDirection || S.settings.capDirection)}`, withImg("Write the story text."));
+    if (out) p.storyText = out.replace(/^["'“]+|["'”]+$/g, "").trim();
+    p.storyWritten = true;
+  }
+  await savePost(p);
+}
+let writing = false;
+function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; }
+async function writerRun(){
+  if (writing || !S.secret.key) return;
+  writing = true;
+  try {
+    const jobs = [];
+    for (const p of S.posts){
+      if (isStory(p)){ if (!p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
+      if (p.captionAuto && !p.captionWritten) jobs.push({ p, kind: "caption" });
+      if (!p.commentsWritten) jobs.push({ p, kind: "comments" });
+    }
+    // live and soon-to-post first; captions before comments so comments can react to them
+    const when = p => Math.abs((p.publishAt || now() + 30*D) - now());
+    jobs.sort((x, y) => when(x.p) - when(y.p) || (x.kind === "caption" ? -1 : 1));
+    const batch = jobs.slice(0, 15);
+    for (let i = 0; i < batch.length; i++){ setWriter(`Writing ${i+1} of ${jobs.length}…`); await writeOne(batch[i]); }
+    setWriter(jobs.length > batch.length ? `${jobs.length - batch.length} still to write. It carries on in a few minutes while the app is open.` : batch.length ? "Everything is written." : "");
+    if (batch.length) safeRender();
+  } catch(e){
+    const E = sdk && sdk.default;
+    if (E && e instanceof E.AuthenticationError) setWriter("That API key didn't work. Check it and paste it again.");
+    else if (E && e instanceof E.PermissionDeniedError) setWriter("This key isn't allowed to do that. Check the key's workspace in the Anthropic console.");
+    else if (E && e instanceof E.RateLimitError) setWriter("Anthropic asked the app to slow down. It tries again in a few minutes.");
+    else if (E && e instanceof E.BadRequestError && /credit/i.test(e.message)) setWriter("Your Anthropic account is out of credit. Add credit in the Anthropic console.");
+    else if (E && e instanceof E.APIConnectionError) setWriter("Couldn't reach Anthropic. It tries again when you're back online.");
+    else setWriter("Writing stopped: " + (e && e.message ? e.message.slice(0, 160) : "unknown error"));
+  } finally { writing = false; }
+}
+function safeRender(){ if (!$("#layer").innerHTML && !$("#full").innerHTML && !["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) render(); }
 
 /* ================= Google Drive ================= */
 const SCOPE = "https://www.googleapis.com/auth/drive.readonly";
@@ -1273,6 +1373,18 @@ function vSettings(v){
       <div class="field"><label for="smycap">Your own captions, one per line</label><textarea id="smycap" placeholder="each line can become a caption">${esc(st.myCaptions||"")}</textarea></div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Saving them rewrites every auto caption so yours show up right away. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-recapall>Redo all auto captions</button></div>
+    <div class="card"><h3>Caption writer</h3>
+      <div class="hint">Add your Anthropic API key and Claude writes every caption, comment and story text for the photo it's on, following your direction. Without a key, the built-in lines are used.</div>
+      <div class="field"><label for="skey">Anthropic API key</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
+      <div class="hint">Saved only on this phone. Your photos are sent to Anthropic to write about them. Each caption or batch of comments costs about 1 to 2 cents.</div>
+      <button class="btn" type="button" data-testkey>Test the key</button>
+      <div class="field"><label for="dcap">Direction for captions</label><textarea id="dcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(st.capDirection)}</textarea></div>
+      <div class="field"><label for="dcom">Direction for comments</label><textarea id="dcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(st.comDirection)}</textarea></div>
+      <div class="field"><label for="dstory">Direction for story text</label><textarea id="dstory" placeholder="Leave empty to use the caption direction">${esc(st.storyDirection)}</textarea></div>
+      <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
+      <button class="btn primary" type="button" data-rewrite="all">Rewrite everything with this direction</button>
+      <div class="seg"><button type="button" data-rewrite="caption">Captions</button><button type="button" data-rewrite="comments">Comments</button><button type="button" data-rewrite="story">Stories</button></div>
+      <div class="hint">Rewriting replaces auto captions, comments and story text, including on posts already up. Captions you typed yourself are kept.</div></div>
     <div class="card"><h3>Story text</h3>
       <div class="seg">${[["thirst","Thirst trap"],["off","Only mine"]].map(([k,l])=>`<button type="button" data-storystyle="${k}" aria-pressed="${st.storyStyle===k}">${l}</button>`).join("")}</div>
       <div class="field"><label for="smystory">Your own story text, one per line</label><textarea id="smystory" placeholder="short lines work best">${esc(st.myStoryTexts||"")}</textarea></div></div>
@@ -1286,6 +1398,8 @@ function vSettings(v){
   const save = async () => { st.clientId = $("#sclient").value.trim() || CLIENT_ID; const fn = $("#sfolder").value.trim(); if (fn !== st.folderName){ st.folderName = fn; st.folderId = ""; } await saveSettings(); };
   $("#sclient").addEventListener("change", save); $("#sfolder").addEventListener("change", save);
   v.querySelectorAll("[data-acctfolder]").forEach(inp => inp.addEventListener("change", async () => { const a = accountById(inp.dataset.acctfolder); const fn = inp.value.trim(); if (fn !== a.folderName){ a.folderName = fn; a.folderId = ""; await saveAccounts(); toast(`@${handleOf(a)} folder saved. Tap Re-read all folders to apply it.`); } }));
+  $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? "Key saved on this phone" : "Key removed"); if (S.secret.key) writerRun(); });
+  for (const [id, field] of [["dcap","capDirection"],["dcom","comDirection"],["dstory","storyDirection"]]) $("#"+id).addEventListener("change", async e => { st[field] = e.target.value; await saveSettings(); toast("Direction saved. Tap Rewrite to apply it to what's already written."); });
   $("#smycap").addEventListener("change", async e => { st.myCaptions = e.target.value; await saveSettings(); await redoCaptions(); await autoCaptions(); toast("Captions saved and applied"); });
   $("#smystory").addEventListener("change", async e => { st.myStoryTexts = e.target.value; await saveSettings(); for (const p of S.posts.filter(p => isStory(p) && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x"))); await savePost(p); } toast("Story text saved"); });
   $("#sint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); A().interval = Math.round(1440/n); await saveAccounts(); await respace(A()); toast(`@${handleOf(A())} posts about ${perDay(A())} a day`); });
@@ -1371,6 +1485,23 @@ document.addEventListener("click", async e => {
   if (d.href){ go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab){ go(d.tab === "home" ? "#/" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if ("testkey" in d){
+    const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
+    S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
+    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? "The key works" : "The key works, but Claude didn't answer"); setWriter(""); writerRun(); }
+    catch(err){ const E = sdk && sdk.default; toast(E && err instanceof E.AuthenticationError ? "That key didn't work" : E && err instanceof E.APIConnectionError ? "Couldn't reach Anthropic" : "Test failed: " + String(err.message || err).slice(0, 80)); }
+    t.textContent = "Test the key"; return;
+  }
+  if (d.rewrite){
+    if (!S.secret.key){ toast("Add your Anthropic API key first"); return; }
+    for (const p of S.posts){
+      if ((d.rewrite === "all" || d.rewrite === "caption") && !isStory(p) && p.captionAuto) p.captionWritten = false;
+      if ((d.rewrite === "all" || d.rewrite === "comments") && !isStory(p)) p.commentsWritten = false;
+      if ((d.rewrite === "all" || d.rewrite === "story") && isStory(p)) p.storyWritten = false;
+      await savePost(p);
+    }
+    toast("Rewriting. Newest and next-up posts go first."); writerRun(); return;
+  }
   if ("reread" in d){ if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: rebuilds the queue from your folders"; return; } t.textContent = "Re-reading…"; try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} await saveSettings(); sync(false, true); return; }
   if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
   if ("switch" in d){ accountSwitcher(); return; }
@@ -1465,6 +1596,7 @@ window.addEventListener("hashchange", () => { const r = route(); if ($("#full").
   if (!S.settings.clientId) S.settings.clientId = CLIENT_ID;
   if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
   S.posts = await DB.all("posts");
+  S.secret = { key: "", ...(await DB.get("kv","secret") || {}) };
   S.accounts = (await DB.get("kv","accounts")) || [];
   if (!S.accounts.length){
     // first run, or an older single-account version: carry the old profile over as account 1
@@ -1490,6 +1622,7 @@ window.addEventListener("hashchange", () => { const r = route(); if ($("#full").
   else if (back || now() - last > 20*60e3) sync(true);
   setInterval(() => sync(true), 30*60e3);
   setInterval(() => autoStories(), 30*60e3);
+  setInterval(writerRun, 4*60e3);
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
   setInterval(() => { const r = route().name; if (["home","me","activity"].includes(r) && !$("#layer").innerHTML && !$("#full").innerHTML && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") render(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
