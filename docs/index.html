@@ -278,7 +278,8 @@ const DB = {
 };
 
 /* ================= state ================= */
-const DEFAULT_SETTINGS = { clientId:"", folderName:"", folderId:"", interval:720, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
+const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
+const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", interval:720, starter:9, order:"name", level:"normal", seed:0, ignored:[] };
 const DEFAULT_PROFILE = { name:"", handle:"", bio:"", link:"", avatar:null, followers:2400, following:312, growth:35, verified:false, startedAt:0 };
 const S = { settings:{...DEFAULT_SETTINGS}, profile:{...DEFAULT_PROFILE}, posts:[], follows:{}, seenAt:0, saved:{} };
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
@@ -1066,6 +1067,7 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id
 (async function boot(){
   await DB.open();
   S.settings = { ...DEFAULT_SETTINGS, ...(await DB.get("kv","settings") || {}) };
+  if (!S.settings.clientId) S.settings.clientId = CLIENT_ID;
   if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
   S.profile = { ...DEFAULT_PROFILE, ...(await DB.get("kv","profile") || {}) };
   if (!S.profile.startedAt){ S.profile.startedAt = now() - 30*D; await saveProfile(); }
