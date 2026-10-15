@@ -253,6 +253,16 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .cmt.reply{padding:2px 0 8px 44px}
 .byc{display:inline-flex;align-items:center;gap:3px;color:var(--muted)}.byc svg{width:11px;height:11px;color:var(--heart)}
 .link{color:var(--link)}
+.hls{display:flex;gap:16px;overflow-x:auto;padding:14px 0 4px;scrollbar-width:none}
+.hlb{display:flex;flex-direction:column;align-items:center;gap:5px;width:66px;flex:none;font-size:12px}
+.hlc{width:64px;height:64px;border-radius:50%;overflow:hidden;border:1px solid var(--line);padding:2px;background:var(--bg)}
+.hlc img,.hlc video{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+.hlb .n{max-width:66px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins{color:var(--link);font-size:13px;font-weight:600;margin-top:6px;padding:0}
+.igrid{display:grid;grid-template-columns:repeat(4,1fr);text-align:center;margin:6px 0 14px}
+.igrid b{display:block;font-size:18px}.igrid span{font-size:12px;color:var(--muted)}
+.irow{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
+.ibar{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;margin:2px 0 4px}.ibar i{display:block;height:100%;background:var(--link)}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
@@ -297,6 +307,7 @@ const I = {
   playLine:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M7 4v16l13-8z"/></svg>',
   muted:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="m16 9 5 6M21 9l-5 6"/></svg>',
   sound:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-3 3 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 3-3z"/></svg>',
   eye:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   sync:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.5L20 16M20 20v-4h-4"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
@@ -392,6 +403,7 @@ function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))
 const urls = new Map();
 async function mediaURL(key){
   if (!key) return "";
+  if (String(key).startsWith("url:")) return key.slice(4);
   if (urls.has(key)) return urls.get(key);
   const blob = await DB.get("media", key);
   if (!blob) return "";
@@ -428,7 +440,7 @@ function videoThumb(key){
   return job;
 }
 async function hydrate(root){
-  for (const el of root.querySelectorAll("video[data-media]:not([data-th])")){
+  for (const el of root.querySelectorAll("video[data-media]:not([data-th]):not([data-media^='url:'])")){
     el.dataset.th = "1";
     videoThumb(el.dataset.media).then(async tk => {
       if (!tk || !el.isConnected) return;
@@ -630,6 +642,8 @@ function engage(p){
   return { likes, comments, views, ...t };
 }
 const genCache = new Map();
+// About 15 fans per account who show up again and again in the comments.
+const regularsOf = a => { const r = rng(hashStr("reg" + a.seed)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 function genComments(p){
   const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, acctOf(p).captionStyle, acctOf(p).level, (p.aiComments||[]).length, p.aiComments?.[0]].join("|");
   if (genCache.has(key)) return genCache.get(key);
@@ -639,7 +653,8 @@ function genComments(p){
   const out = [];
   const used = new Set();
   for (let k=0;k<n;k++){
-    let ai = Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
+    const reg = regularsOf(acctOf(p));
+    let ai = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
@@ -675,6 +690,100 @@ function ownerReply(p, c){
   const liked = r() < .3, replies = r() < (thirsty(acctOf(p)) ? .2 : .12);
   const at = c.at + (5 + r() * 180) * 60e3;
   return { liked: liked && at <= now(), reply: replies && at <= now() ? { text: pick(OWNER_CMT, r), at } : null };
+}
+
+/* ================= highlights ================= */
+const HL_NAMES = ["🔥","me","pics","late nights","gym","☁️","fits","🖤","summer","random","mood","✨","🌙","weekend"];
+function hlNamesOf(a){ const r = rng(hashStr("hln" + a.seed)); const pool = HL_NAMES.slice(); const out = []; const n = 3 + Math.floor(r()*2); while (out.length < n) out.push(pool.splice(Math.floor(r()*pool.length), 1)[0]); return out; }
+// The account saves some of its stories into highlights once they expire, like a real one does.
+async function autoHighlights(){
+  let changed = false;
+  for (const a of S.accounts){
+    a.highlights ||= [];
+    const names = hlNamesOf(a);
+    const put = (name, item) => { let h = a.highlights.find(x => x.name === name); if (!h){ h = { name, items: [] }; a.highlights.push(h); } if (!h.items.some(x => x.id === item.id)) h.items.push(item); if (h.items.length > 30) h.items.shift(); changed = true; };
+    if (!a.hlSeeded){
+      // a profile starts with a couple of highlights made from its older posts
+      const imgs = live(a.id).slice(3).flatMap(p => p.files.filter(f => isImage(f.mime)).map(f => ({ f, p })));
+      if (imgs.length >= 3){
+        const r = rng(hashStr("hls" + a.seed));
+        for (const { f, p } of imgs.slice(0, 8)) put(names[Math.floor(r()*Math.min(2, names.length))], { id: "seed_" + f.key, key: f.key, mime: f.mime, text: "", at: p.publishAt });
+        a.hlSeeded = true; changed = true;
+      }
+    }
+    for (const p of postsOf(a.id, "story").filter(p => !p.hlChecked && p.publishAt && p.publishAt + D < now())){
+      const r = rng(hashStr("hl" + p.id));
+      if (r() < .45 && p.files[0]) put(names[Math.floor(r()*names.length)], { id: p.id, key: p.files[0].key, mime: p.files[0].mime, text: p.storyText || "", at: p.publishAt });
+      p.hlChecked = true; await savePost(p);
+    }
+  }
+  if (changed) await saveAccounts();
+}
+const hlPosts = (a, h) => h.items.map(x => ({ id: "h_" + x.id, pseudo: "hl", hl: h.name, item: x.id, acct: a.id, files: [{ key: x.key, mime: x.mime }], publishAt: x.at, seed: hashStr(x.id), storyText: x.text }));
+function highlightsRow(a){
+  const H = (a.highlights || []).filter(h => h.items.length);
+  if (!H.length) return "";
+  return `<div class="hls">${H.map((h, k) => `<button type="button" class="hlb" data-hl="${esc(a.id)}|${k}"><span class="hlc">${mediaTag({ key: h.items[h.items.length-1].key, mime: h.items[h.items.length-1].mime }, "", { poster: true })}</span><span class="n">${esc(h.name)}</span></button>`).join("")}</div>`;
+}
+
+/* ================= pinned posts ================= */
+const pinnedFirst = L => [...L.filter(p => p.pinned).sort((x, y) => y.pinned - x.pinned), ...L.filter(p => !p.pinned)];
+// Once there's enough to choose from, the account pins its best post by itself (until you pin or unpin something yourself).
+async function autoPin(){
+  for (const a of S.accounts){
+    if (a.pinTouched) continue;
+    const L = live(a.id);
+    if (L.length < 6 || L.some(p => p.pinned)) continue;
+    const best = L.slice().sort((x, y) => totals(y).totalL - totals(x).totalL)[0];
+    best.pinned = now(); await savePost(best);
+  }
+}
+
+/* ================= insights ================= */
+function insights(p){
+  const a = acctOf(p), e = engage(p), r = rng(p.seed ^ 0x1b873593);
+  const g = curve(now() - p.publishAt, 5*H);
+  const reach = Math.max(e.likes, Math.round(e.totalL / (.08 + r()*.07) * g));
+  const impressions = Math.round(reach * (1.25 + r()*.6));
+  const nonFollowers = Math.round(20 + r()*45 * ((LEVEL[a.level] || 1) > 1.5 ? 1.3 : 1));
+  return { reach, impressions, likes: e.likes, comments: e.comments, saves: Math.round(e.likes * (.04 + r()*.08)), shares: Math.round(e.likes * (.02 + r()*.05)),
+    visits: Math.round(reach * (.02 + r()*.04)), follows: Math.round(followBump(p, a) * curve(now() - p.publishAt, 5*H)), nonFollowers: Math.min(85, nonFollowers), views: e.views };
+}
+function showInsights(id){
+  const p = S.posts.find(x => x.id === id); if (!p) return;
+  const x = insights(p), vid = p.files.length === 1 && isVideo(p.files[0].mime);
+  const row = (k, v) => `<div class="irow"><span>${k}</span><b>${full(v)}</b></div>`;
+  sheet(`<h3>Post insights</h3>
+    <div class="igrid"><div><b>${fmt(x.likes)}</b><span>Likes</span></div><div><b>${fmt(x.comments)}</b><span>Comments</span></div><div><b>${fmt(x.shares)}</b><span>Shares</span></div><div><b>${fmt(x.saves)}</b><span>Saves</span></div></div>
+    ${row("Accounts reached", x.reach)}<div class="ibar"><i style="width:${100 - x.nonFollowers}%"></i></div><div class="hint">${100 - x.nonFollowers}% followers · ${x.nonFollowers}% not following</div>
+    ${row(vid ? "Plays" : "Impressions", vid ? x.views : x.impressions)}${row("Profile visits", x.visits)}${row("Follows", x.follows)}`);
+}
+
+/* ================= fans' own posts and stories ================= */
+const FAN_CAPTIONS = ["sunday reset","golden hour hits different","weekend dump","new place who dis","outside for once","views","needed this","no thoughts just vibes","dump #4","core memory","☁️","🌊","city nights","road trip pt 2","took the long way home","ok one more","late again","recharging",""];
+function fanPhoto(a, k){ const P = pfpIndex && pfpIndex.photos; if (!P || !P.length) return null; return "url:pfp/" + P[hashStr("fp" + a.seed + "|" + k) % P.length]; }
+function fanPost(a, k){
+  const r = rng(hashStr("fpost" + a.seed + "|" + k));
+  const at = now() - (k * (2 + r()*4) + r()) * D;
+  return { k, key: fanPhoto(a, k), caption: pick(FAN_CAPTIONS, r), likes: Math.round(a.followers * (.04 + r()*.12)), comments: Math.round(a.followers * (.002 + r()*.006)), at, r };
+}
+function fanStory(a){
+  const day = Math.floor(now() / D);
+  const r = rng(hashStr("fs" + a.seed + "|" + day));
+  if (r() > .22 || !fanPhoto(a, 0)) return null;
+  const at = Math.min(now() - 10*60e3, day * D + r() * (now() - day * D));
+  return { id: "fs_" + a.i + "_" + day, pseudo: "fan", fan: a.i, files: [{ key: fanPhoto(a, 100 + day % 50), mime: "image/jpeg" }], publishAt: at, seed: hashStr("fs" + a.i + day), storyText: "" };
+}
+function vFanPost(v, r){
+  const a = acct(+r.a), x = fanPost(a, +r.b);
+  setTop(`${backBtn}<h1>Post</h1>`);
+  if (!x.key){ loadPfps(); v.innerHTML = `<div class="empty"><h2>Loading…</h2></div>`; return; }
+  const cr = rng(hashStr("fpc" + a.seed + r.b));
+  const cm = Array.from({ length: Math.min(3, x.comments) }, () => { const f = acct(Math.floor(cr()*POOL)); return `<div class="caption clamp"><a href="#/u/${f.i}"><b>${esc(f.handle)}</b></a> ${esc(pick(COMMENTS, cr))}</div>`; }).join("");
+  v.innerHTML = `<article class="post"><div class="phead pad"><a href="#/u/${a.i}">${acctAv(a, 32)}</a><div class="who"><a href="#/u/${a.i}"><b>${esc(a.handle)}</b></a>${checkMark(a.verified)}</div></div>
+    <div class="slide">${mediaTag({ key: x.key, mime: "image/jpeg" }, "", {})}</div>
+    <div class="pad"><div class="likes num">${full(x.likes)} likes</div>${x.caption ? `<div class="caption"><b>${esc(a.handle)}</b> ${esc(x.caption)}</div>` : ""}
+    ${x.comments ? `<div class="morec">View all ${full(x.comments)} comments</div>` : ""}${cm}<div class="when">${esc(ago(x.at, true))}</div></div></article>`;
 }
 
 /* ================= DMs ================= */
@@ -881,7 +990,7 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); setTimeout(writerRun, 400); }
+async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
 
 /* ================= caption writer (Claude, with the owner's own API key) ================= */
 // The key is stored only on this phone and sent only to Anthropic. Photos go to Anthropic so each caption fits its picture.
@@ -1195,7 +1304,7 @@ async function sync(auto, full){
     try { localStorage.setItem("reel-synced-at", String(now())); } catch(e){}
     if (full){
       // tidy up downloads nothing uses any more
-      const used = new Set([...S.posts.flatMap(p => p.files.map(f => f.key)), ...S.accounts.map(a => a.avatar), ...(S.settings.customPfps || [])]);
+      const used = new Set([...S.posts.flatMap(p => p.files.map(f => f.key)), ...S.accounts.map(a => a.avatar), ...S.accounts.flatMap(a => (a.highlights || []).flatMap(h => h.items.map(x => x.key))), ...(S.settings.customPfps || [])]);
       for (const k of await DB.keys("media")) if (String(k).startsWith("d_") && !used.has(k)){ await DB.del("media", k); urls.delete(k); }
       for (const a of S.accounts) if (a.avatarAuto && a.avatar && !used.has(a.avatar)) a.avatar = null;
     }
@@ -1265,7 +1374,7 @@ function render(){
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
-  const views = { dm: vDM, aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  const views = { fp: vFanPost, dm: vDM, aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); });
@@ -1305,7 +1414,8 @@ function postCard(p){
       ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
       ${vc.slice(-2).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
-      <div class="when">${esc(ago(p.publishAt, true))}</div>
+      <div class="when">${p.pinned ? "Pinned · " : ""}${esc(ago(p.publishAt, true))}</div>
+      ${p.publishAt <= now() ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
     </div>
   </article>`;
 }
@@ -1375,12 +1485,13 @@ function profileHeader(o){
     ${o.link?`<div class="plink">${esc(o.link)}</div>`:""}
     ${o.extra||""}
     <div class="pbtns">${o.buttons}</div>
+    ${o.after || ""}
   </div>`;
 }
 function tileFor(p, reel){
   const f = p.files[0];
   const views = reel ? `<span class="views">${I.playLine}${fmt(engage(p).views)}</span>` : "";
-  return `<a class="tile ${reel?"tall":""}" href="${reel ? "#/reels/"+esc(p.id) : "#/p/"+esc(p.id)+"/more"}">${mediaTag(f,"",{poster:true})}${!reel && p.files.length>1?`<span class="ic">${I.multi}</span>`:!reel && isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}${views}</a>`;
+  return `<a class="tile ${reel?"tall":""}" href="${reel ? "#/reels/"+esc(p.id) : "#/p/"+esc(p.id)+"/more"}">${mediaTag(f,"",{poster:true})}${!reel && p.pinned?`<span class="ic">${I.pin}</span>`:!reel && p.files.length>1?`<span class="ic">${I.multi}</span>`:!reel && isVideo(f.mime)?`<span class="ic">${I.play}</span>`:""}${views}</a>`;
 }
 function vMe(v, r){
   const a = A();
@@ -1389,7 +1500,7 @@ function vMe(v, r){
   const L = live(), Q = queued(), R = liveReels();
   let body;
   if (tab === "grid"){
-    body = L.length ? `<div class="grid">${L.map(p => tileFor(p,false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
+    body = L.length ? `<div class="grid">${pinnedFirst(L).map(p => tileFor(p,false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
   } else if (tab === "reels"){
     body = R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Videos in your Drive folder become reels.</p></div>`;
   } else {
@@ -1410,6 +1521,7 @@ function vMe(v, r){
     posts: L.length, followers: followersNow(), following: followingCount(),
     followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
     name: a.name, bio: a.bio, link: a.link,
+    after: highlightsRow(a),
     buttons: `<a class="btn" href="#/edit">Edit profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a><button class="btn" type="button" data-switch>${S.accounts.length > 1 ? "Switch account" : "Add account"}</button>`
   }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/reels" class="${tab==="reels"?"on":""}" aria-label="Reels">${I.reels}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${Q.length?`<span class="small">${Q.length}</span>`:""}</button></div>` + body;
   if (!a.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set this account's name and username</a></div>`);
@@ -1426,7 +1538,8 @@ function vAll(v){
       name: `@${handleOf(a)}${a.name ? " · " + a.name : ""}`, bio: a.bio, link: a.link,
       extra: `<div class="hint" style="margin-top:6px">${Q.length ? `Next post ${esc(until(Q[0].publishAt))} · ${Q.length} queued` : "Nothing queued"}</div><div class="hint">${esc(actionsLine(a))}</div>`,
       buttons: `<a class="btn" href="#/acct/${esc(a.id)}">Open profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a>`
-    }) + (L.length ? `<div class="grid">${L.slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
+      , after: highlightsRow(a)
+    }) + (L.length ? `<div class="grid">${pinnedFirst(L).slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
   }).join("");
 }
 async function vAcct(v, r){
@@ -1457,22 +1570,24 @@ function accountSwitcher(){
 
 function vUser(v, r){
   const a = acct(+r.a); const fol = isFollowing(a.i);
+  if (!pfpIndex) loadPfps();
+  const fs = fanStory(a);
   setTop(`${backBtn}<h1>${esc(a.handle)}${checkMark(a.verified)}</h1><button class="iconbtn" type="button" data-umenu="${a.i}" aria-label="Options">${I.dots}</button>`);
   v.innerHTML = profileHeader({
-    av: acctAv(a, 86), posts: a.posts, followers: a.followers + (fol?1:0), following: a.following,
+    av: fs ? `<button type="button" class="ring" data-fanstory="${a.i}">${acctAv(a, 86)}</button>` : `<span class="ring none">${acctAv(a, 86)}</span>`, posts: a.posts, followers: a.followers + (fol?1:0), following: a.following,
     followersHref:`#/list/followers/${a.i}`, followingHref:`#/list/following/${a.i}`,
     name: a.name, bio: a.bio,
     extra: (() => { const fy = S.accounts.filter(o => followsYou(a.i, o)); return fy.length ? `<div class="hint" style="margin-top:6px">Follows ${fy.map(o => "@"+esc(handleOf(o))).join(", ")}</div>` : ""; })(),
     buttons: `<button class="btn ${fol?"":"blue"}" type="button" data-follow="${a.i}">${fol?"Following":"Follow"}</button><a class="btn" href="#/dm/${esc(A().id)}/${a.i}">Message</a>`
   }) + `<div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on" aria-label="Posts">${I.grid}</button></div>
-    <div class="grid">${Array.from({length:a.tiles},(_,k)=>`<div class="tile" style="${tileArt(a,k)}"></div>`).join("")}</div>`;
+    <div class="grid">${Array.from({length:a.tiles},(_,k)=>{ const key = fanPhoto(a, k); return key ? `<a class="tile" href="#/fp/${a.i}/${k}">${mediaTag({ key, mime:"image/jpeg" }, "", {})}</a>` : `<div class="tile" style="${tileArt(a,k)}"></div>`; }).join("")}</div>`;
 }
 
 let postScrolled = "";
 function vPost(v, r){
   const p = S.posts.find(x => x.id === r.a);
   const owner = p && (accountById(p.acct) || A());
-  const list = p && r.b === "more" && p.publishAt <= now() ? live(owner.id) : p ? [p] : [];
+  const list = p && r.b === "more" && p.publishAt <= now() ? pinnedFirst(live(owner.id)) : p ? [p] : [];
   setTop(`${backBtn}<h1>${list.length > 1 ? `<span style="display:block;font-size:12px;font-weight:600;color:var(--muted)">${esc(handleOf(owner))}</span>Posts` : "Post"}</h1>`);
   v.innerHTML = list.length ? list.map(postCard).join("") : `<div class="empty"><h2>Post not found</h2></div>`;
   const card = p && v.querySelector(`[data-post="${CSS.escape(p.id)}"]`);
@@ -1606,22 +1721,23 @@ function closeFull(){ $("#full").querySelectorAll("video").forEach(v => v.pause(
 
 /* ---------- stories ---------- */
 let storyTimer = 0, storyRAF = 0;
-function openStories(aid){
-  const order = [aid, ...S.accounts.map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
-  let ai = 0, list = activeStories(order[0]);
+function openStories(aid, only){
+  const order = only ? [aid] : [aid, ...S.accounts.map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
+  let ai = 0, list = only || activeStories(order[0]);
   if (!list.length) return;
   let i = Math.max(0, list.findIndex(p => !S.storySeen[p.id]));
   const show = async () => {
     clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
-    const p = list[i]; const a = accountById(p.acct) || A(); const st = storyStats(p); const f = p.files[0];
-    S.storySeen[p.id] = true; saveMisc();
+    const p = list[i]; const a = accountById(p.acct) || A(); const st = p.pseudo === "fan" ? null : storyStats(p); const f = p.files[0];
+    const fan = p.pseudo === "fan" ? acct(p.fan) : null;
+    if (!p.pseudo){ S.storySeen[p.id] = true; saveMisc(); }
     $("#full").innerHTML = `<div class="full sv" id="sv">
       <div class="media">${isVideo(f.mime) ? `<video data-media="${esc(f.key)}" playsinline autoplay ${reelsMuted?"muted":""}></video>` : `<img data-media="${esc(f.key)}" alt="">`}</div><div class="shade"></div>
       <div class="bars">${list.map((_,k) => `<div class="bar"><i style="width:${k<i?100:0}%"></i></div>`).join("")}</div>
-      <div class="hd"><button type="button" data-sprof="${esc(a.id)}" style="display:flex;align-items:center;gap:8px;color:inherit">${myAv(32, a)}<b>${esc(handleOf(a))}</b></button><span style="opacity:.75">${esc(ago(p.publishAt))}</span><span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
+      <div class="hd"><button type="button" ${fan ? `data-sfan="${fan.i}"` : `data-sprof="${esc(a.id)}"`} style="display:flex;align-items:center;gap:8px;color:inherit">${fan ? acctAv(fan, 32) : myAv(32, a)}<b>${esc(fan ? fan.handle : handleOf(a))}</b></button>${p.pseudo === "hl" ? `<span style="opacity:.75">${esc(p.hl)}</span>` : `<span style="opacity:.75">${esc(ago(p.publishAt))}</span>`}<span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
       ${p.storyText ? `<div class="txt"><span>${esc(p.storyText)}</span></div>` : ""}
       <div class="taps"><button type="button" data-sprev aria-label="Previous"></button><button type="button" data-snext aria-label="Next"></button></div>
-      <div class="ft">${`<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
+      <div class="ft">${fan ? "" : p.pseudo === "hl" ? `<span class="seen">${I.eye}<span>${fmt(st.views)} views</span></span><span class="sp" style="flex:1"></span><button type="button" data-hlrm="${esc(p.acct)}|${esc(p.hl)}|${esc(p.item)}" style="font-weight:600">Remove from highlight</button>` : `<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
     </div>`;
     await hydrate($("#full"));
     const bar = $("#full").querySelectorAll(".bar i")[i];
@@ -1638,6 +1754,8 @@ function openStories(aid){
     const t = e.target.closest("button"); if (!t) return;
     if ("sclose" in t.dataset){ closeFull(); render(); return; }
     if (t.dataset.sprof){ closeFull(); go("#/acct/" + t.dataset.sprof); return; }
+    if (t.dataset.sfan){ closeFull(); go("#/u/" + t.dataset.sfan); return; }
+    if (t.dataset.hlrm){ const [aid, name, item] = t.dataset.hlrm.split("|"); const a = accountById(aid); const h = a && (a.highlights || []).find(x => x.name === name); if (h){ h.items = h.items.filter(x => x.id !== item); if (!h.items.length) a.highlights = a.highlights.filter(x => x !== h); await saveAccounts(); } list.splice(i, 1); if (!list.length){ closeFull(); render(); return; } if (i >= list.length) i = list.length - 1; show(); return; }
     if ("snext" in t.dataset) return next();
     if ("sprev" in t.dataset) return prev();
     if (t.dataset.sviews){ const id = t.dataset.sviews; closeFull(); go("#/list/views/"+id); return; }
@@ -1866,6 +1984,7 @@ function postMenu(id){
   const isLive = p.publishAt && p.publishAt <= now();
   const others = S.accounts.filter(a => a.id !== p.acct);
   sheet(`${isLive ? "" : `<button class="opt" data-o="now">Post now</button>`}
+    ${isLive ? `<button class="opt" data-o="pin">${p.pinned ? "Unpin from profile" : "Pin to profile"}</button><button class="opt" data-o="ins">View insights</button>` : ""}
     <button class="opt" data-o="edit">Edit caption, likes, comments, date</button>
     ${isLive ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
     <button class="opt" data-o="recap">New caption</button>
@@ -1879,6 +1998,13 @@ function postMenu(id){
       const a = accountById(p.acct) || A();
       if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
       if (o === "edit") go("#/editpost/"+p.id);
+      if (o === "ins"){ setTimeout(() => showInsights(p.id), 50); return; }
+      if (o === "pin"){
+        a.pinTouched = true; await saveAccounts();
+        if (p.pinned){ p.pinned = 0; await savePost(p); toast("Unpinned"); }
+        else { const pins = live(a.id).filter(x => x.pinned).sort((x, y) => x.pinned - y.pinned); if (pins.length >= 3){ pins[0].pinned = 0; await savePost(pins[0]); } p.pinned = now(); await savePost(p); toast("Pinned to @" + handleOf(a) + "'s profile"); }
+        render();
+      }
       if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(a); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
       if (o === "move"){ const to = accountById(b.dataset.to); p.acct = to.id; p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(to); await savePost(p); toast("Moved to @"+handleOf(to)+"'s queue"); render(); }
       if (o === "recap"){ p.capTry = (p.capTry||0) + 1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; p.captionAuto = true; p.captionManual = false; await savePost(p); toast("New caption"); } else toast("Turn on captions in settings first"); render(); }
@@ -1897,6 +2023,9 @@ document.addEventListener("click", async e => {
   const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim") || t.closest("#full")) return;
   const d = t.dataset;
   if (d.story){ openStories(d.story); return; }
+  if (d.hl){ const [aid, k] = d.hl.split("|"); const a = accountById(aid); const h = a && (a.highlights || []).filter(h => h.items.length)[+k]; if (h) openStories(aid, hlPosts(a, h)); return; }
+  if (d.fanstory !== undefined){ const st = fanStory(acct(+d.fanstory)); if (st) openStories(A().id, [st]); return; }
+  if (d.insights){ showInsights(d.insights); return; }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab){ go(d.tab === "home" ? "#/" : d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
@@ -2058,6 +2187,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
   S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
+  loadPfps();
   const back = takeOAuthReturn();
   await autoRun();
   render();
