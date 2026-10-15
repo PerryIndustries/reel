@@ -263,6 +263,15 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .igrid b{display:block;font-size:18px}.igrid span{font-size:12px;color:var(--muted)}
 .irow{display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)}
 .ibar{height:6px;border-radius:3px;background:var(--soft);overflow:hidden;margin:2px 0 4px}.ibar i{display:block;height:100%;background:var(--link)}
+.dmpost{display:block;margin-bottom:4px}
+.dmcard{width:200px;border-radius:14px;overflow:hidden;background:var(--soft);margin-top:3px}
+.dmch{display:flex;align-items:center;gap:6px;padding:7px 9px;font-size:13px}
+.dmcard img,.dmcard video{width:200px;height:240px;object-fit:cover;display:block}
+.dmcap{font-size:12px;padding:6px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vstrip{display:flex;gap:4px;overflow-x:auto;padding:0 16px 6px;scrollbar-width:none}
+.vtile{flex:none;width:96px;height:170px;border-radius:8px;overflow:hidden;background:var(--soft)}
+.vtile img,.vtile video{width:100%;height:100%;object-fit:cover;display:block}
+[data-vault] svg{width:18px;height:18px;vertical-align:-3px;margin-right:4px}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
@@ -390,13 +399,13 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { savedVids:{}, dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead, savedVids:S.savedVids}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
@@ -790,17 +799,19 @@ function vFanPost(v, r){
 const DM_OPEN = ["hey 👀","hiii","you're actually so fine","ok i have to say it… wow","can we talk?","been following a while and wow","you up?","ur pics are dangerous","be honest are you single","heyyy stranger","not me sliding in rn 🙈","you don't know how long i've wanted to message you","hey cutie","i'm shy but hi","your last post?? 😮‍💨","we should hang out fr","how are you this attractive","hey :)","marry me","ok you win","is it weird i saved your last post","do you ever reply 🥺","hi from your biggest fan","ok but how tall are you","you have no idea what that post did to me","teach me your ways","what's your gym routine","free this weekend? 👀","you're my favorite account fr","i think about your pics way too much"];
 const DM_FOLLOW = ["hello??","😳","sorry that was forward","ok ignore me then 😔","pls notice me","just saying hi again","still thinking about that post","?","👀👀","no pressure lol"];
 const DM_STORY = ["🔥","😍","😮‍💨","stoppp","wow","omg","not fair","ok hi 👋","the view 😳","i'm screaming","come here","WHERE is this","you're unreal","this is a lot 😭","❤️‍🔥","ok i'm awake now"];
+const DM_POST = ["this one 😮‍💨","ok THIS pic","why'd you post this 😭","saved this one","the fit in this","can't stop looking at this","you know what you did here","this angle tho","explain yourself 😳","been staring at this for 10 min","10/10","be fr this is unfair","this one lives in my head now"];
 const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐"];
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
 const dmCache = new Map();
 // Fans message each account every day; the account answers some of them, and they answer back.
 function dmThreads(a){
-  const key = a.id + "|" + Math.floor(now() / 60e3) + "|" + JSON.stringify(S.dms[a.id] || {}).length;
+  const key = a.id + "|" + Math.floor(now() / 60e3) + "|" + S.posts.length + "|" + JSON.stringify(S.dms[a.id] || {}).length;
   if (dmCache.has(key)) return dmCache.get(key);
   const T = new Map();
   const add = (i, m) => { if (m.at > now()) return; if (!T.has(i)) T.set(i, { i, msgs: [] }); T.get(i).msgs.push(m); };
   const perDay = Math.max(2, Math.min(25, Math.round((2 + followersNow(a) / 1500) * (LEVEL[a.level] || 1))));
   const stories = postsOf(a.id, "story");
+  const posted = live(a.id);
   const start = Math.max(a.startedAt || now() - 14*D, now() - 14*D);
   for (let d = Math.floor(start / D); d <= Math.floor(now() / D); d++){
     const r = rng(hashStr("dm" + a.seed + "|" + d));
@@ -808,7 +819,10 @@ function dmThreads(a){
     for (let k = 0; k < n; k++){
       const t = d * D + r() * D; const i = Math.floor(r() * POOL);
       const st = stories.find(x => x.publishAt <= t && t < x.publishAt + D);
+      const rp = rng(hashStr("dmp" + a.seed + "|" + d + "|" + k));
+      const recent = posted.filter(x => x.publishAt <= t && t - x.publishAt < 7*D);
       if (st && r() < .35) add(i, { me:false, text: pick(DM_STORY, r), at: t, story: st.id });
+      else if (recent.length && rp() < .4) add(i, { me:false, text: pick(DM_POST, rp), at: t, post: recent[Math.floor(rp() * Math.min(3, recent.length))].id });
       else add(i, { me:false, text: pick(DM_OPEN, r), at: t });
       if (r() < .35) add(i, { me:false, text: pick(DM_FOLLOW, r), at: t + (1 + r() * 40) * 60e3 });
       if (r() < .3){
@@ -1433,7 +1447,7 @@ function vDM(v, r){
   const all = dmThreads(a);
   const list = all.filter(t => (tab === "primary") === dmPrimary(a, t.i));
   const reqN = all.filter(t => !dmPrimary(a, t.i) && dmUnread(a, t)).length;
-  const preview = t => { const m = t.last; const st = m.story && !m.me ? "Replied to your story: " : ""; return (m.me ? "You: " : st) + m.text; };
+  const preview = t => { const m = t.last; const st = m.me ? "You: " : m.story ? "Replied to your story: " : m.post ? "Replied to your post: " : ""; return st + m.text; };
   v.innerHTML = (S.accounts.length > 1 ? `<div class="chips pad">${S.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/dm/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
     `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/dm/${esc(a.id)}" class="${tab==="primary"?"on":""}">Primary</button><button type="button" data-href="#/dm/${esc(a.id)}//requests" class="${tab==="requests"?"on":""}">Requests${reqN ? ` (${reqN})` : ""}</button></div>` +
     `<div class="pad list">${list.length ? list.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="row dmrow" href="#/dm/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages</h2><p>${tab === "primary" ? "Messages from people this account follows show up here." : "Messages from everyone else land here first."}</p></div>`}</div>`;
@@ -1443,10 +1457,11 @@ function vDMThread(v, a, i){
   const t = dmThreads(a).find(x => x.i === i) || { i, msgs: [] };
   (S.dmRead[a.id] ||= {})[i] = now(); saveMisc();
   setTop(`${backBtn}<a href="#/u/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">${esc(f.handle)}</h1></a>`);
+  const postRef = id => { const sp = S.posts.find(x => x.id === id); if (!sp) return ""; return `<a class="dmpost" href="#/p/${esc(sp.id)}"><div class="hint">Replied to ${esc(handleOf(a))}'s post</div><div class="dmcard"><div class="dmch">${myAv(24, a)}<b>${esc(handleOf(a))}</b></div>${mediaTag(sp.files[0], "", { poster: true })}${sp.caption ? `<div class="dmcap"><b>${esc(handleOf(a))}</b> ${esc(sp.caption)}</div>` : ""}</div></a>`; };
   const story = id => { const sp = S.posts.find(x => x.id === id); return sp ? `<div class="dmstory"><div class="hint">Replied to ${esc(handleOf(a))}'s story</div>${mediaTag(sp.files[0], "", { poster: true })}</div>` : ""; };
   v.innerHTML = `<div class="pad dm" style="padding-bottom:80px">
     <div class="dmhead">${acctAv(f, 86)}<b>${esc(f.handle)}</b><div class="hint">${esc(f.name)} · ${fmt(f.followers)} followers</div><a class="btn" style="width:auto;display:inline-block;margin-top:8px" href="#/u/${i}">View profile</a></div>
-    ${t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > 60*60e3; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.story && !m.me ? story(m.story) : ""}<span>${esc(m.text)}</span></div>`; }).join("")}
+    ${t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > 60*60e3; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.story && !m.me ? story(m.story) : ""}${m.post && !m.me ? postRef(m.post) : ""}<span>${esc(m.text)}</span></div>`; }).join("")}
   </div>
   <div class="cbox"><div class="in pad">${myAv(32, a)}<input type="text" id="dmin" placeholder="Message…" autocomplete="off"><button type="button" data-dmsend="${i}" data-acct="${esc(a.id)}">Send</button></div></div>`;
   setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
@@ -1676,12 +1691,76 @@ function vActivity(v){
 }
 
 /* ---------- reels ---------- */
+// Every video file in every account's folder, posted or still queued, once each.
+function allVideos(){
+  const seen = new Set(), out = [];
+  for (const p of S.posts) for (const f of p.files || []) if (isVideo(f.mime) && !seen.has(f.key) && !String(f.key).startsWith("url:")){ seen.add(f.key); out.push({ key: f.key, mime: f.mime, post: p }); }
+  return out;
+}
 function vReelsTab(v, r){
   setTop(`<h1>Reels</h1>`);
   const R = S.accounts.flatMap(a => liveReels(a.id)).sort((x,y) => y.publishAt - x.publishAt);
-  if (!R.length){ v.innerHTML = `<div class="empty"><h2>No reels yet</h2><p>Put videos in your Drive folder. They post as reels and play here.</p></div>`; return; }
+  const V = allVideos();
+  const saved = Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean);
   if (r.a) openReels(R, r.a);
-  v.innerHTML = `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>`;
+  v.innerHTML = `<div class="pad" style="padding-top:12px">
+      <button class="btn primary" type="button" data-vault="all" ${V.length ? "" : "disabled"}>${I.reels} Shuffle all videos${V.length ? ` (${V.length})` : ""}</button>
+      <div class="hint" style="margin-top:6px">Every video in your Drive folders, posted or not, in a new random order each time.</div>
+    </div>
+    ${saved.length ? `<div class="sect pad">Saved (${saved.length})</div><div class="vstrip">${saved.map(x => `<button type="button" class="vtile" data-vault="saved" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}</button>`).join("")}</div>` : ""}
+    <div class="sect pad">Posted reels</div>
+    ${R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Put videos in your Drive folders. They post as reels and play here.</p></div>`}`;
+}
+// Full-screen player for the shuffled library. Only the video on screen and its neighbours are loaded.
+async function openVault(list, startKey){
+  if (!list.length) return;
+  let start = Math.max(0, list.findIndex(x => x.key === startKey));
+  $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-vclose aria-label="Close">${I.back}</button>
+    ${list.map((x, k) => { const a = accountById(x.post.acct); const up = x.post.publishAt && x.post.publishAt <= now(); return `<section class="r" data-k="${k}">
+      <video playsinline loop ${reelsMuted ? "muted" : ""} preload="none" data-vkey="${esc(x.key)}"></video><div class="shade"></div>
+      <div class="side">
+        <button type="button" data-vsave="${esc(x.key)}" class="${(S.savedVids||{})[x.key] ? "liked" : ""}">${(S.savedVids||{})[x.key] ? I.saveOn : I.save}<span>${(S.savedVids||{})[x.key] ? "Saved" : "Save"}</span></button>
+        <button type="button" data-vphone="${esc(x.key)}">${I.share}<span>To phone</span></button>
+        <button type="button" data-rmute>${reelsMuted ? I.muted : I.sound}</button>
+      </div>
+      <div class="info"><div class="u">${a ? myAv(32, a) : ""}<span>${a ? esc(handleOf(a)) : "Not on an account"}</span></div><div class="small" style="opacity:.85">${k + 1} of ${list.length} · ${up ? "posted " + esc(ago(x.post.publishAt)) : x.post.publishAt ? "goes up " + esc(until(x.post.publishAt)) : "in the queue"}</div></div>
+    </section>`; }).join("")}</div>`;
+  const rv = $("#rv");
+  rv.scrollTop = start * rv.clientHeight;
+  const vids = [...rv.querySelectorAll("video[data-vkey]")];
+  const files = new Map();
+  let current = -1;
+  const activate = async () => {
+    const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
+    for (let j = 0; j < vids.length; j++){
+      const vd = vids[j];
+      if (Math.abs(j - k) <= 1){ if (!vd.getAttribute("src")){ const u = await mediaURL(vd.dataset.vkey); if (u) vd.src = u; } }
+      else if (vd.getAttribute("src")){ vd.pause(); vd.removeAttribute("src"); vd.load(); }
+    }
+    vids.forEach((vd, j) => { if (j === k){ vd.muted = reelsMuted; vd.currentTime = 0; vd.play().catch(()=>{}); } else vd.pause(); });
+    // get the file ready so "To phone" can open the share sheet straight from the tap
+    const x = list[k]; if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
+  };
+  let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
+  activate();
+  rv.addEventListener("click", async e => {
+    const t = e.target.closest("button"); if (!t){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    if ("vclose" in t.dataset){ closeFull(); render(); return; }
+    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    if (t.dataset.vsave){
+      const key = t.dataset.vsave; S.savedVids ||= {};
+      if (S.savedVids[key]) delete S.savedVids[key]; else S.savedVids[key] = now();
+      const on = !!S.savedVids[key]; t.className = on ? "liked" : ""; t.innerHTML = (on ? I.saveOn : I.save) + `<span>${on ? "Saved" : "Save"}</span>`;
+      saveMisc(); toast(on ? "Saved to your Reels tab" : "Removed from saved"); return;
+    }
+    if (t.dataset.vphone){
+      const file = files.get(t.dataset.vphone);
+      if (!file){ toast("Getting it ready, tap again"); return; }
+      if (navigator.canShare && navigator.canShare({ files: [file] })){ try { await navigator.share({ files: [file] }); } catch(_){} }
+      else { const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); }
+      return;
+    }
+  });
 }
 async function openReels(list, startId){
   const start = Math.max(0, list.findIndex(p => p.id === startId));
@@ -2026,6 +2105,11 @@ document.addEventListener("click", async e => {
   if (d.hl){ const [aid, k] = d.hl.split("|"); const a = accountById(aid); const h = a && (a.highlights || []).filter(h => h.items.length)[+k]; if (h) openStories(aid, hlPosts(a, h)); return; }
   if (d.fanstory !== undefined){ const st = fanStory(acct(+d.fanstory)); if (st) openStories(A().id, [st]); return; }
   if (d.insights){ showInsights(d.insights); return; }
+  if (d.vault){
+    const V = allVideos();
+    const list = d.vault === "saved" ? Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean) : shuffleInPlace(V.slice());
+    openVault(list, d.vstart); return;
+  }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab){ go(d.tab === "home" ? "#/" : d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
@@ -2185,7 +2269,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   loadPfps();
   const back = takeOAuthReturn();
