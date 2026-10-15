@@ -63,7 +63,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 /* avatars */
 .av{border-radius:50%;overflow:hidden;display:grid;place-items:center;flex:none;color:#fff;font-weight:700;background:var(--soft)}
 .av img{width:100%;height:100%;object-fit:cover}
-.av.s28{width:28px;height:28px;font-size:12px}.av.s32{width:32px;height:32px;font-size:13px}.av.s44{width:44px;height:44px;font-size:17px}.av.s62{width:62px;height:62px;font-size:24px}.av.s86{width:86px;height:86px;font-size:34px}
+.av.s24{width:24px;height:24px;font-size:11px}.av.s28{width:28px;height:28px;font-size:12px}.av.s32{width:32px;height:32px;font-size:13px}.av.s44{width:44px;height:44px;font-size:17px}.av.s62{width:62px;height:62px;font-size:24px}.av.s86{width:86px;height:86px;font-size:34px}
 .ring{padding:2px;border-radius:50%;background:conic-gradient(from 200deg,#ffb23f,#ff5a36,#d6249f,#6a5cff,#ffb23f);display:inline-block;line-height:0}
 .ring.seen{background:var(--line)}
 .ring.none{background:transparent}
@@ -118,7 +118,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .pname{font-weight:600;margin-top:12px}
 .pbio{white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px}
 .plink{color:var(--link);font-weight:500}
-.pbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:12px}
+.pbtns{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px;margin-top:12px}
 .btn{background:var(--soft);border-radius:9px;padding:8px 12px;font-weight:600;font-size:14px;text-align:center;display:block;width:100%}
 .btn.primary{background:var(--accent);color:var(--accent-fg)}
 .btn.blue{background:#3b8cf6;color:#fff}
@@ -232,6 +232,27 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .close svg{width:28px;height:28px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
 .spec{border-bottom:8px solid var(--line)}
+.dmicon{position:relative}.dmicon svg{width:24px;height:24px}
+.cnt{position:absolute;top:0;right:-2px;background:var(--heart);color:#fff;font-size:10px;line-height:16px;min-width:16px;padding:0 4px;border-radius:999px;text-align:center}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
+.chip{position:relative;display:flex;align-items:center;gap:6px;padding:5px 12px 5px 5px;border:1px solid var(--line);border-radius:999px;flex:none;font-size:14px;font-weight:600}
+.chip.on{border-color:var(--fg)}
+.chip .cnt{position:static;margin-left:2px}
+.dmrow{display:flex;align-items:center;gap:12px;padding:8px 0}
+.dmrow .who{flex:1;min-width:0}
+.dmrow .un{font-weight:700;color:var(--fg)}
+.clamp1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.udot{width:9px;height:9px;border-radius:50%;background:var(--link);flex:none}
+.dmhead{display:flex;flex-direction:column;align-items:center;gap:4px;padding:18px 0 22px;text-align:center}
+.dmtime{text-align:center;color:var(--muted);font-size:12px;margin:14px 0 6px}
+.bub{max-width:75%;margin:3px 0;display:flex;flex-direction:column;align-items:flex-start}
+.bub span{background:var(--soft);padding:9px 13px;border-radius:20px;white-space:pre-wrap;overflow-wrap:anywhere}
+.bub.me{margin-left:auto;align-items:flex-end}
+.bub.me span{background:#3d5afe;color:#fff}
+.dmstory{margin-bottom:4px}.dmstory img,.dmstory video{width:120px;height:200px;object-fit:cover;border-radius:12px;display:block;margin-top:3px}
+.cmt.reply{padding:2px 0 8px 44px}
+.byc{display:inline-flex;align-items:center;gap:3px;color:var(--muted)}.byc svg{width:11px;height:11px;color:var(--heart)}
+.link{color:var(--link)}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
@@ -358,13 +379,13 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
@@ -641,7 +662,77 @@ const followMap = () => (S.follows[A().id] ||= {});
 function baseFollowing(i){ return rng(hashStr("fol"+i+A().seed))() < .35; }
 function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
 function followsYou(i, o){ return rng(hashStr("fy"+i+(o || A()).seed))() < .8; }
-function followingCount(){ let n = A().following; for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n; }
+// The account follows a few fans back every day.
+const followBackPerDay = a => .6 + (LEVEL[a.level] || 1) * .4;
+const followBackGain = a => Math.floor(Math.max(0, (now() - (a.startedAt || now())) / D) * followBackPerDay(a));
+function followingCount(){ let n = A().following + followBackGain(A()); for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n; }
+
+const OWNER_CMT = ["😏","stop 😭","thank youu","❤️","haha","you're sweet","maybe 👀","🫣","ok you win","lol","appreciate you","😌","you're trouble","shhh 🤫","say less","🙈"];
+// Some comments get an answer from the account, and some get a like from it.
+function ownerReply(p, c){
+  if (c.mine || !c.id) return null;
+  const r = rng(hashStr("or" + p.id + c.id));
+  const liked = r() < .3, replies = r() < (thirsty(acctOf(p)) ? .2 : .12);
+  const at = c.at + (5 + r() * 180) * 60e3;
+  return { liked: liked && at <= now(), reply: replies && at <= now() ? { text: pick(OWNER_CMT, r), at } : null };
+}
+
+/* ================= DMs ================= */
+const DM_OPEN = ["hey 👀","hiii","you're actually so fine","ok i have to say it… wow","can we talk?","been following a while and wow","you up?","ur pics are dangerous","be honest are you single","heyyy stranger","not me sliding in rn 🙈","you don't know how long i've wanted to message you","hey cutie","i'm shy but hi","your last post?? 😮‍💨","we should hang out fr","how are you this attractive","hey :)","marry me","ok you win","is it weird i saved your last post","do you ever reply 🥺","hi from your biggest fan","ok but how tall are you","you have no idea what that post did to me","teach me your ways","what's your gym routine","free this weekend? 👀","you're my favorite account fr","i think about your pics way too much"];
+const DM_FOLLOW = ["hello??","😳","sorry that was forward","ok ignore me then 😔","pls notice me","just saying hi again","still thinking about that post","?","👀👀","no pressure lol"];
+const DM_STORY = ["🔥","😍","😮‍💨","stoppp","wow","omg","not fair","ok hi 👋","the view 😳","i'm screaming","come here","WHERE is this","you're unreal","this is a lot 😭","❤️‍🔥","ok i'm awake now"];
+const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐"];
+const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
+const dmCache = new Map();
+// Fans message each account every day; the account answers some of them, and they answer back.
+function dmThreads(a){
+  const key = a.id + "|" + Math.floor(now() / 60e3) + "|" + JSON.stringify(S.dms[a.id] || {}).length;
+  if (dmCache.has(key)) return dmCache.get(key);
+  const T = new Map();
+  const add = (i, m) => { if (m.at > now()) return; if (!T.has(i)) T.set(i, { i, msgs: [] }); T.get(i).msgs.push(m); };
+  const perDay = Math.max(2, Math.min(25, Math.round((2 + followersNow(a) / 1500) * (LEVEL[a.level] || 1))));
+  const stories = postsOf(a.id, "story");
+  const start = Math.max(a.startedAt || now() - 14*D, now() - 14*D);
+  for (let d = Math.floor(start / D); d <= Math.floor(now() / D); d++){
+    const r = rng(hashStr("dm" + a.seed + "|" + d));
+    const n = Math.round(perDay * (.6 + r() * .8));
+    for (let k = 0; k < n; k++){
+      const t = d * D + r() * D; const i = Math.floor(r() * POOL);
+      const st = stories.find(x => x.publishAt <= t && t < x.publishAt + D);
+      if (st && r() < .35) add(i, { me:false, text: pick(DM_STORY, r), at: t, story: st.id });
+      else add(i, { me:false, text: pick(DM_OPEN, r), at: t });
+      if (r() < .35) add(i, { me:false, text: pick(DM_FOLLOW, r), at: t + (1 + r() * 40) * 60e3 });
+      if (r() < .3){
+        const t2 = t + (10 + r() * 170) * 60e3; add(i, { me:true, text: pick(DM_OWNER, r), at: t2 });
+        if (r() < .6) add(i, { me:false, text: pick(DM_BACK, r), at: t2 + (2 + r() * 25) * 60e3 });
+      }
+    }
+  }
+  for (const [i, list] of Object.entries(S.dms[a.id] || {})) for (const m of list) add(+i, { me:true, text: m.text, at: m.at });
+  const out = [...T.values()].map(t => { t.msgs.sort((x, y) => x.at - y.at); t.last = t.msgs[t.msgs.length - 1]; return t; }).sort((x, y) => y.last.at - x.last.at);
+  if (dmCache.size > 30) dmCache.clear(); dmCache.set(key, out);
+  return out;
+}
+// the first time an account's inbox is counted, only the last few hours start out unread
+const dmReadAt = (a, i) => { const m = (S.dmRead[a.id] ||= { __base: now() - 6*H }); return m[i] || m.__base || 0; };
+const dmUnread = (a, t) => !t.last.me && t.last.at > dmReadAt(a, t.i);
+const dmUnreadCount = a => dmThreads(a).filter(t => dmUnread(a, t)).length;
+const dmPrimary = (a, i) => rng(hashStr("fb" + i + a.seed))() < .3;
+// What each account did on its own lately.
+function accountActions(a, since){
+  const posts = live(a.id).filter(p => p.publishAt > since).length;
+  const stories = postsOf(a.id, "story").filter(p => p.publishAt > since && p.publishAt <= now()).length;
+  let replies = 0, likes = 0;
+  for (const p of live(a.id).slice(0, 12)) for (const c of visibleComments(p)){ const o = ownerReply(p, c); if (!o) continue; if (o.reply && o.reply.at > since) replies++; if (o.liked && c.at > since) likes++; }
+  const dms = dmThreads(a).reduce((n, t) => n + t.msgs.filter(m => m.me && m.at > since).length, 0);
+  const follows = Math.round((now() - since) / D * followBackPerDay(a));
+  return { posts, stories, replies, likes, dms, follows };
+}
+function actionsLine(a){
+  const x = accountActions(a, now() - D);
+  const bits = [x.posts && `${x.posts} ${x.posts===1?"post":"posts"}`, x.stories && `${x.stories} ${x.stories===1?"story":"stories"}`, x.replies && `replied to ${x.replies} ${x.replies===1?"comment":"comments"}`, x.likes && `liked ${x.likes} ${x.likes===1?"comment":"comments"}`, x.dms && `sent ${x.dms} ${x.dms===1?"DM":"DMs"}`, x.follows && `followed ${x.follows} back`].filter(Boolean);
+  return bits.length ? "Last 24h: " + bits.join(" · ") : "Quiet in the last 24h";
+}
 
 /* ================= posts + bot ================= */
 const isStory = p => p.kind === "story";
@@ -1128,7 +1219,7 @@ function setSync(label, frac){
 
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
-function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b] = h.split("/"); return { name: name || "home", a, b }; }
+function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b, c] = h.split("/"); return { name: name || "home", a, b, c }; }
 // Each history entry gets a number, so going back can be told apart from opening a new page.
 const scrollMem = {}; let curHash = location.hash, navN = (history.state && history.state.n) || 0;
 if (!history.state || typeof history.state.n !== "number") history.replaceState({ n: navN }, "");
@@ -1174,7 +1265,7 @@ function render(){
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
-  const views = { aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
+  const views = { dm: vDM, aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); });
@@ -1224,9 +1315,37 @@ function storyTray(){
   if (!items.length) return "";
   return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
+function vDM(v, r){
+  const a = accountById(r.a) || A();
+  if (r.b !== undefined && r.b !== ""){ vDMThread(v, a, +r.b); return; }
+  setTop(`${backBtn}<h1>${esc(handleOf(a))}</h1>`);
+  const tab = r.c === "requests" ? "requests" : "primary";
+  const all = dmThreads(a);
+  const list = all.filter(t => (tab === "primary") === dmPrimary(a, t.i));
+  const reqN = all.filter(t => !dmPrimary(a, t.i) && dmUnread(a, t)).length;
+  const preview = t => { const m = t.last; const st = m.story && !m.me ? "Replied to your story: " : ""; return (m.me ? "You: " : st) + m.text; };
+  v.innerHTML = (S.accounts.length > 1 ? `<div class="chips pad">${S.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/dm/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+    `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/dm/${esc(a.id)}" class="${tab==="primary"?"on":""}">Primary</button><button type="button" data-href="#/dm/${esc(a.id)}//requests" class="${tab==="requests"?"on":""}">Requests${reqN ? ` (${reqN})` : ""}</button></div>` +
+    `<div class="pad list">${list.length ? list.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="row dmrow" href="#/dm/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages</h2><p>${tab === "primary" ? "Messages from people this account follows show up here." : "Messages from everyone else land here first."}</p></div>`}</div>`;
+}
+function vDMThread(v, a, i){
+  const f = acct(i);
+  const t = dmThreads(a).find(x => x.i === i) || { i, msgs: [] };
+  (S.dmRead[a.id] ||= {})[i] = now(); saveMisc();
+  setTop(`${backBtn}<a href="#/u/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">${esc(f.handle)}</h1></a>`);
+  const story = id => { const sp = S.posts.find(x => x.id === id); return sp ? `<div class="dmstory"><div class="hint">Replied to ${esc(handleOf(a))}'s story</div>${mediaTag(sp.files[0], "", { poster: true })}</div>` : ""; };
+  v.innerHTML = `<div class="pad dm" style="padding-bottom:80px">
+    <div class="dmhead">${acctAv(f, 86)}<b>${esc(f.handle)}</b><div class="hint">${esc(f.name)} · ${fmt(f.followers)} followers</div><a class="btn" style="width:auto;display:inline-block;margin-top:8px" href="#/u/${i}">View profile</a></div>
+    ${t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > 60*60e3; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.story && !m.me ? story(m.story) : ""}<span>${esc(m.text)}</span></div>`; }).join("")}
+  </div>
+  <div class="cbox"><div class="in pad">${myAv(32, a)}<input type="text" id="dmin" placeholder="Message…" autocomplete="off"><button type="button" data-dmsend="${i}" data-acct="${esc(a.id)}">Send</button></div></div>`;
+  setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
+}
 let homeOrder = null;
 function vHome(v){
-  setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button>`);
+  const dmN = S.accounts.reduce((n, a) => n + dmUnreadCount(a), 0);
+  const firstUnread = S.accounts.find(a => dmUnreadCount(a)) || A();
+  setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/dm/${esc(firstUnread.id)}" aria-label="Messages">${I.share}${dmN ? `<b class="cnt">${dmN > 99 ? "99+" : dmN}</b>` : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id])].map(p => p.id), fresh: fresh.length }; }
   const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
@@ -1291,7 +1410,7 @@ function vMe(v, r){
     posts: L.length, followers: followersNow(), following: followingCount(),
     followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
     name: a.name, bio: a.bio, link: a.link,
-    buttons: `<a class="btn" href="#/edit">Edit profile</a><button class="btn" type="button" data-switch>${S.accounts.length > 1 ? "Switch account" : "Add account"}</button>`
+    buttons: `<a class="btn" href="#/edit">Edit profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a><button class="btn" type="button" data-switch>${S.accounts.length > 1 ? "Switch account" : "Add account"}</button>`
   }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/reels" class="${tab==="reels"?"on":""}" aria-label="Reels">${I.reels}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${Q.length?`<span class="small">${Q.length}</span>`:""}</button></div>` + body;
   if (!a.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set this account's name and username</a></div>`);
 }
@@ -1302,11 +1421,11 @@ function vAll(v){
     const hasStory = activeStories(a.id).length;
     return `<section class="spec">` + profileHeader({
       av: hasStory ? `<button type="button" class="ring ${storyUnseen(a.id)?"":"seen"}" data-story="${esc(a.id)}">${myAv(86, a)}</button>` : `<span class="ring none">${myAv(86, a)}</span>`,
-      posts: L.length, followers: followersNow(a), following: a.id === S.current ? followingCount() : a.following,
+      posts: L.length, followers: followersNow(a), following: a.id === S.current ? followingCount() : a.following + followBackGain(a),
       followersHref:`#/acct/${esc(a.id)}/followers`, followingHref:`#/acct/${esc(a.id)}/following`,
       name: `@${handleOf(a)}${a.name ? " · " + a.name : ""}`, bio: a.bio, link: a.link,
-      extra: `<div class="hint" style="margin-top:6px">${Q.length ? `Next post ${esc(until(Q[0].publishAt))} · ${Q.length} queued` : "Nothing queued"}</div>`,
-      buttons: `<a class="btn" href="#/acct/${esc(a.id)}">Open profile</a>`
+      extra: `<div class="hint" style="margin-top:6px">${Q.length ? `Next post ${esc(until(Q[0].publishAt))} · ${Q.length} queued` : "Nothing queued"}</div><div class="hint">${esc(actionsLine(a))}</div>`,
+      buttons: `<a class="btn" href="#/acct/${esc(a.id)}">Open profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a>`
     }) + (L.length ? `<div class="grid">${L.slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
   }).join("");
 }
@@ -1344,7 +1463,7 @@ function vUser(v, r){
     followersHref:`#/list/followers/${a.i}`, followingHref:`#/list/following/${a.i}`,
     name: a.name, bio: a.bio,
     extra: (() => { const fy = S.accounts.filter(o => followsYou(a.i, o)); return fy.length ? `<div class="hint" style="margin-top:6px">Follows ${fy.map(o => "@"+esc(handleOf(o))).join(", ")}</div>` : ""; })(),
-    buttons: `<button class="btn ${fol?"":"blue"}" type="button" data-follow="${a.i}">${fol?"Following":"Follow"}</button><button class="btn" type="button" data-msg>Message</button>`
+    buttons: `<button class="btn ${fol?"":"blue"}" type="button" data-follow="${a.i}">${fol?"Following":"Follow"}</button><a class="btn" href="#/dm/${esc(A().id)}/${a.i}">Message</a>`
   }) + `<div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on" aria-label="Posts">${I.grid}</button></div>
     <div class="grid">${Array.from({length:a.tiles},(_,k)=>`<div class="tile" style="${tileArt(a,k)}"></div>`).join("")}</div>`;
 }
@@ -1377,10 +1496,11 @@ function vComments(v, r){
     ${vc.slice().reverse().map(c => {
       const a = c.mine ? null : acct(c.acct);
       const lk = (c.likes||0) + ((p.cLikes||{})[c.id] ? 1 : 0);
+      const own = ownerReply(p, c);
       return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32, owner)}<div class="body">
         <div class="t"><a href="${a?"#/u/"+a.i:"#/me"}"><b>${esc(a?a.handle:handleOf(owner))}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
-        <div class="meta"><span>${esc(ago(c.at))}</span>${lk?`<span>${fmt(lk)} ${lk===1?"like":"likes"}</span>`:""}<button type="button" data-reply="${esc(a?a.handle:"")}">Reply</button><button type="button" data-hidec="${esc(c.id)}" data-p="${esc(p.id)}">${c.mine?"Delete":"Hide"}</button></div>
-      </div><button class="h" type="button" data-clike="${esc(c.id)}" data-p="${esc(p.id)}" style="${(p.cLikes||{})[c.id]?"color:var(--heart)":""}" aria-label="Like comment">${(p.cLikes||{})[c.id]?I.heartOn:I.heart}</button></div>`;
+        <div class="meta"><span>${esc(ago(c.at))}</span>${lk?`<span>${fmt(lk)} ${lk===1?"like":"likes"}</span>`:""}<button type="button" data-reply="${esc(a?a.handle:"")}">Reply</button><button type="button" data-hidec="${esc(c.id)}" data-p="${esc(p.id)}">${c.mine?"Delete":"Hide"}</button>${own && own.liked ? `<span class="byc">${I.heartOn} by ${esc(handleOf(owner))}</span>` : ""}</div>
+      </div><button class="h" type="button" data-clike="${esc(c.id)}" data-p="${esc(p.id)}" style="${(p.cLikes||{})[c.id]?"color:var(--heart)":""}" aria-label="Like comment">${(p.cLikes||{})[c.id]?I.heartOn:I.heart}</button></div>${own && own.reply ? `<div class="cmt reply">${myAv(24, owner)}<div class="body"><div class="t"><a href="#/acct/${esc(owner.id)}"><b>${esc(handleOf(owner))}</b></a> <span class="link">@${esc(a ? a.handle : "")}</span> ${esc(own.reply.text)}</div><div class="meta"><span>${esc(ago(own.reply.at))}</span></div></div></div>` : ""}`;
     }).join("")}
     ${extra?`<div class="hint" style="padding:12px 0">${full(extra)} more ${extra===1?"comment":"comments"}</div>`:""}
     ${!vc.length?`<div class="empty"><h2>No comments yet</h2><p>They start coming in a few minutes after posting.</p></div>`:""}
@@ -1819,6 +1939,7 @@ document.addEventListener("click", async e => {
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
   if (d.hidec){ const p = S.posts.find(x=>x.id===d.p); if (d.hidec.startsWith("g")) p.hidden = [...(p.hidden||[]), d.hidec]; else p.myComments = (p.myComments||[]).filter(c=>c.id!==d.hidec); await savePost(p); render(); return; }
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
+  if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp.value.trim(); if (!text) return; const box = ((S.dms[d.acct] ||= {})[d.dmsend] ||= []); box.push({ text, at: now() }); await saveMisc(); render(); return; }
   if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
   if ("pick" in d){ $("#picker").click(); return; }
   if ("avpick" in d){ avatarChooser(); return; }
@@ -1892,7 +2013,7 @@ $("#avPicker").addEventListener("change", async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   const key = uid("av_"); await DB.put("media", f, key); Object.assign(A(), { avatar:key, avatarAuto:false }); await saveAccounts(); render();
 });
-document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Escape"){ closeSheet(); if ($("#full").innerHTML){ closeFull(); render(); } } });
+document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "cin"){ document.querySelector("[data-addc]")?.click(); } if (e.key === "Enter" && e.target.id === "dmin"){ document.querySelector("[data-dmsend]")?.click(); } if (e.key === "Escape"){ closeSheet(); if ($("#full").innerHTML){ closeFull(); render(); } } });
 window.addEventListener("hashchange", () => { const r = route(); if ($("#full").innerHTML && !(r.name === "reels" && r.a)) closeFull(); });
 
 /* no zooming: pinch and double-tap stay with the app */
@@ -1935,7 +2056,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   const back = takeOAuthReturn();
   await autoRun();
