@@ -272,6 +272,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .vtile{flex:none;width:96px;height:170px;border-radius:8px;overflow:hidden;background:var(--soft)}
 .vtile img,.vtile video{width:100%;height:100%;object-fit:cover;display:block}
 [data-vault] svg{width:18px;height:18px;vertical-align:-3px;margin-right:4px}
+.verr{position:absolute;left:16px;right:16px;top:45%;text-align:center;color:#fff;background:rgba(0,0,0,.6);padding:10px 12px;border-radius:12px;font-size:14px;z-index:1}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
@@ -418,6 +419,22 @@ async function mediaURL(key){
   if (!blob) return "";
   const u = URL.createObjectURL(blob); urls.set(key, u); return u;
 }
+async function playableBlob(blob, mime){ return new Blob([await blob.arrayBuffer()], { type: blob.type || mime || "video/mp4" }); }
+// If a stored video won't play, try again from an in-memory copy; if that fails too, say so on the video.
+function wireVideoFallback(vd, key, mime){
+  if (vd.dataset.fb) return; vd.dataset.fb = "1";
+  vd.addEventListener("error", async () => {
+    if (vd.dataset.fb === "2"){
+      const box = vd.parentElement; if (box && !box.querySelector(".verr")) box.insertAdjacentHTML("beforeend", `<div class="verr">This video can't play here${vd.error ? " (error " + vd.error.code + ")" : ""}</div>`);
+      return;
+    }
+    vd.dataset.fb = "2";
+    const blob = await DB.get("media", key); if (!blob) return;
+    const u = URL.createObjectURL(await playableBlob(blob, mime));
+    urls.set(key, u);
+    vd.src = u; vd.load(); if (vd.dataset.want === "1") vd.play().catch(() => {});
+  });
+}
 // iPhone shows a black box for a video that hasn't played, so every video gets a still frame.
 let thumbChain = Promise.resolve();
 const thumbJobs = new Map();
@@ -429,7 +446,7 @@ function videoThumb(key){
     // decoding video is heavy, so wait for a pause in scrolling
     while (Date.now() - lastInteract < 1500) await new Promise(r => setTimeout(r, 500));
     const blob = await DB.get("media", key); if (!blob) return "";
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(await playableBlob(blob));
     try {
       const el = document.createElement("video"); el.muted = true; el.playsInline = true; el.setAttribute("playsinline", ""); el.preload = "auto"; el.src = url;
       await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = rej; setTimeout(rej, 15000); el.play().catch(() => {}); });
@@ -463,10 +480,11 @@ async function hydrate(root){
     const u = await mediaURL(el.dataset.media);
     if (!u || el.getAttribute("src")) continue;
     el.src = (el.tagName === "VIDEO" && el.dataset.poster) ? u + "#t=0.1" : u;
+    if (el.tagName === "VIDEO") wireVideoFallback(el, el.dataset.media, el.dataset.mime);
   }
 }
 function mediaTag(f, cls, opts={}){
-  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
+  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" data-mime="${esc(f.mime)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
   return `<img class="${cls||""}" data-media="${esc(f.key)}" alt="" ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
 
@@ -1033,7 +1051,7 @@ async function ask(system, content, schema){
 // A small JPEG of the photo, or of a frame from a video.
 async function frameB64(f){
   const blob = await DB.get("media", f.key); if (!blob) return null;
-  const url = URL.createObjectURL(blob);
+  const url = URL.createObjectURL(isVideo(f.mime) ? await playableBlob(blob, f.mime) : blob);
   try {
     let el;
     if (isVideo(f.mime)){
@@ -1717,7 +1735,7 @@ async function openVault(list, startKey){
   let start = Math.max(0, list.findIndex(x => x.key === startKey));
   $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-vclose aria-label="Close">${I.back}</button>
     ${list.map((x, k) => { const a = accountById(x.post.acct); const up = x.post.publishAt && x.post.publishAt <= now(); return `<section class="r" data-k="${k}">
-      <video playsinline loop ${reelsMuted ? "muted" : ""} preload="none" data-vkey="${esc(x.key)}"></video><div class="shade"></div>
+      <video playsinline loop ${reelsMuted ? "muted" : ""} preload="auto" data-vkey="${esc(x.key)}" data-vmime="${esc(x.mime)}"></video><div class="shade"></div>
       <div class="side">
         <button type="button" data-vsave="${esc(x.key)}" class="${(S.savedVids||{})[x.key] ? "liked" : ""}">${(S.savedVids||{})[x.key] ? I.saveOn : I.save}<span>${(S.savedVids||{})[x.key] ? "Saved" : "Save"}</span></button>
         <button type="button" data-vphone="${esc(x.key)}">${I.share}<span>To phone</span></button>
@@ -1734,10 +1752,10 @@ async function openVault(list, startKey){
     const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
     for (let j = 0; j < vids.length; j++){
       const vd = vids[j];
-      if (Math.abs(j - k) <= 1){ if (!vd.getAttribute("src")){ const u = await mediaURL(vd.dataset.vkey); if (u) vd.src = u; } }
+      if (Math.abs(j - k) <= 1){ if (!vd.getAttribute("src")){ const u = await mediaURL(vd.dataset.vkey); if (u){ wireVideoFallback(vd, vd.dataset.vkey, vd.dataset.vmime); vd.src = u; } } }
       else if (vd.getAttribute("src")){ vd.pause(); vd.removeAttribute("src"); vd.load(); }
     }
-    vids.forEach((vd, j) => { if (j === k){ vd.muted = reelsMuted; vd.currentTime = 0; vd.play().catch(()=>{}); } else vd.pause(); });
+    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} vd.play().catch(()=>{}); } else vd.pause(); });
     // get the file ready so "To phone" can open the share sheet straight from the tap
     const x = list[k]; if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
   };
@@ -1783,7 +1801,7 @@ async function openReels(list, startId){
   let current = -1;
   const activate = () => {
     const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
-    vids.forEach((vd, j) => { if (j === k){ vd.muted = reelsMuted; vd.currentTime = 0; vd.play().catch(()=>{}); } else vd.pause(); });
+    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} vd.play().catch(()=>{}); } else vd.pause(); });
   };
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
   activate();
@@ -2042,7 +2060,7 @@ function wireSeen(root){
 }
 function wireAutoplay(root){
   if (autoIO) autoIO.disconnect();
-  autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
+  autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; v.dataset.want = en.isIntersecting ? "1" : "0"; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
   root.querySelectorAll("video[data-auto]").forEach(v => autoIO.observe(v));
 }
 async function likePost(id, force){
@@ -2112,7 +2130,13 @@ document.addEventListener("click", async e => {
   }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
-  if (d.tab){ go(d.tab === "home" ? "#/" : d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); if (d.tab==="home") window.scrollTo({top:0,behavior:"smooth"}); return; }
+  if (d.tab === "home"){
+    homeOrder = null;
+    if (route().name === "home"){ window.scrollTo({ top: 0, behavior: "smooth" }); await autoRun(); render(); sync(true); toast("Feed refreshed"); }
+    else go("#/");
+    return;
+  }
+  if (d.tab){ go(d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); return; }
   if ("testkey" in d){
     const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
     S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
