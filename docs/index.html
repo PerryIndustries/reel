@@ -1040,11 +1040,17 @@ function avatarChooser(){
 
 async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
 
-/* ================= caption writer (Claude, with the owner's own API key) ================= */
-// The key is stored only on this phone and sent only to Anthropic. Photos go to Anthropic so each caption fits its picture.
+/* ================= caption writer (Claude or ChatGPT, with the owner's own API key) ================= */
+// The key is stored only on this phone and sent only to the company that issued it (sk-ant-… is Anthropic, any other sk-… is OpenAI).
+// Photos go along only for accounts set to "Sees photos", so each caption fits its picture.
 const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm";
 // Small and fast: captions, comments and story text are short.
 const MODEL = "claude-haiku-5-5";
+const OPENAI_MODEL = "gpt-5-mini";
+const isOpenAI = (k = S.secret.key) => !!k && !k.startsWith("sk-ant-");
+const AI = () => isOpenAI() ? "ChatGPT" : "Claude";
+const CO = () => isOpenAI() ? "OpenAI" : "Anthropic";
+const KEY_RE = /^sk-\S{20,}$/;
 let sdk = null, client = null, clientKey = "";
 async function getClient(){
   if (!S.secret.key) return null;
@@ -1052,7 +1058,51 @@ async function getClient(){
   if (!client || clientKey !== S.secret.key){ client = new sdk.default({ apiKey: S.secret.key, dangerouslyAllowBrowser: true, maxRetries: 2 }); clientKey = S.secret.key; }
   return client;
 }
+// One error shape for both companies: e.kind is auth | perm | rate | credit | conn.
+function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
+function errKind(e){
+  if (e && e.kind) return e.kind;
+  const E = sdk && sdk.default; if (!E) return "";
+  if (e instanceof E.AuthenticationError) return "auth";
+  if (e instanceof E.PermissionDeniedError) return "perm";
+  if (e instanceof E.RateLimitError) return "rate";
+  if (e instanceof E.BadRequestError && /credit/i.test(e.message)) return "credit";
+  if (e instanceof E.APIConnectionError) return "conn";
+  return "";
+}
+async function askOpenAI(system, content, schema){
+  const parts = content.map(b => b.type === "image" ? { type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } } : { type: "text", text: b.text });
+  const body = {
+    model: OPENAI_MODEL, reasoning_effort: "minimal", max_completion_tokens: 3000,
+    messages: [{ role: "system", content: system }, { role: "user", content: parts }],
+    ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema } } } : {}),
+  };
+  let res;
+  for (let attempt = 0; ; attempt++){
+    try { res = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.secret.key}` }, body: JSON.stringify(body) }); }
+    catch(e){ throw aiError("conn", "Couldn't reach OpenAI"); }
+    if ((res.status === 429 || res.status >= 500) && attempt < 2){
+      const peek = await res.clone().json().catch(() => ({}));
+      if (peek.error?.code !== "insufficient_quota"){ await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
+    }
+    break;
+  }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok){
+    const msg = j.error?.message || `OpenAI error ${res.status}`;
+    if (res.status === 401) throw aiError("auth", msg);
+    if (res.status === 403) throw aiError("perm", msg);
+    if (res.status === 429) throw aiError(j.error?.code === "insufficient_quota" ? "credit" : "rate", msg);
+    throw aiError("", msg);
+  }
+  const m = j.choices?.[0];
+  if (!m || m.message?.refusal || m.finish_reason === "content_filter") return null;
+  const text = String(m.message?.content || "").trim();
+  if (!text) return null;
+  return schema ? JSON.parse(text) : text;
+}
 async function ask(system, content, schema){
+  if (isOpenAI()) return S.secret.key ? askOpenAI(system, content, schema) : null;
   const c = await getClient(); if (!c) return null;
   const r = await c.messages.create({
     model: MODEL, max_tokens: 1500, system,
@@ -1153,12 +1203,12 @@ async function writerRun(){
     setWriter(jobs.length ? "Everything is written." : "");
     if (jobs.length) safeRender();
   } catch(e){
-    const E = sdk && sdk.default;
-    if (E && e instanceof E.AuthenticationError) setWriter("That API key didn't work. Check it and paste it again.");
-    else if (E && e instanceof E.PermissionDeniedError) setWriter("This key isn't allowed to do that. Check the key's workspace in the Anthropic console.");
-    else if (E && e instanceof E.RateLimitError) setWriter("Anthropic asked the app to slow down. It tries again in a few minutes.");
-    else if (E && e instanceof E.BadRequestError && /credit/i.test(e.message)) setWriter("Your Anthropic account is out of credit. Add credit in the Anthropic console.");
-    else if (E && e instanceof E.APIConnectionError) setWriter("Couldn't reach Anthropic. It tries again when you're back online.");
+    const k = errKind(e), co = CO();
+    if (k === "auth") setWriter("That API key didn't work. Check it and paste it again.");
+    else if (k === "perm") setWriter(`This key isn't allowed to do that. Check the key's project in the ${co} console.`);
+    else if (k === "rate") setWriter(`${co} asked the app to slow down. It tries again in a few minutes.`);
+    else if (k === "credit") setWriter(`Your ${co} account is out of credit. Add credit in the ${co} console.`);
+    else if (k === "conn") setWriter(`Couldn't reach ${co}. It tries again when you're back online.`);
     else setWriter("Writing stopped: " + (e && e.message ? e.message.slice(0, 160) : "unknown error"));
   } finally { writing = false; }
 }
@@ -1250,12 +1300,12 @@ async function sync(auto, full){
   }
   syncing = true; setSync("Finding your folders…", 0);
   try {
-    // A text file named reel-key.txt anywhere in your Drive hands the caption writer its Anthropic key.
+    // A text file named reel-key.txt anywhere in your Drive hands the caption writer its API key (Anthropic or OpenAI).
     try {
       const kf = (await gapi(`files?q=${encodeURIComponent("name='reel-key.txt' and trashed=false")}&orderBy=modifiedTime desc&fields=files(id,modifiedTime)&pageSize=1`, token)).files[0];
       if (kf && kf.modifiedTime !== S.secret.keyFrom){
         const k = (await (await gapi(`files/${kf.id}?alt=media`, token, true)).text()).trim();
-        if (/^sk-ant-\S{20,}$/.test(k)){ S.secret.key = k; S.secret.keyFrom = kf.modifiedTime; await saveSecret(); client = null; setWriter(""); toast("Caption writer connected"); setTimeout(writerRun, 1500); }
+        if (KEY_RE.test(k)){ S.secret.key = k; S.secret.keyFrom = kf.modifiedTime; await saveSecret(); client = null; setWriter(""); toast("Caption writer connected"); setTimeout(writerRun, 1500); }
       }
     } catch(e){ if (e.message === "signin") throw e; }
     // every account reads only its own folder
@@ -1648,7 +1698,7 @@ function qRow(p){
 }
 function accountSwitcher(){
   sheet(`<h3>Accounts</h3>
-    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued · Claude: ${({off:"off",text:"text only",photos:"sees photos"})[a.writer || "text"]}</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
+    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued · ${AI()}: ${({off:"off",text:"text only",photos:"sees photos"})[a.writer || "text"]}</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
     ${S.accounts.length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
       const b = el.closest("[data-acc]"); if (!b) return;
       closeSheet();
@@ -2001,9 +2051,9 @@ function vSettings(v){
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
     <div class="card"><h3>Caption writer</h3>
-      <div class="hint">With your Anthropic API key, Claude writes every caption, comment and story text for the photo it's on, following each account's direction. Each account's page sets whether Claude is off, writes from text only, or sees the photos. Without a key, the built-in lines are used.</div>
-      <div class="field"><label for="skey">Anthropic API key</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="hint">Saved only on this phone. Photos are only sent to Anthropic for accounts set to "Sees photos". Each caption or batch of comments costs about 1 to 2 cents.</div>
+      <div class="hint">With an API key from Anthropic (Claude) or OpenAI (ChatGPT), the AI writes every caption, comment and story text for the photo it's on, following each account's direction. Each account's page sets whether it's off, writes from text only, or sees the photos. Without a key, the built-in lines are used.</div>
+      <div class="field"><label for="skey">API key (Anthropic or OpenAI)</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-… or sk-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
+      <div class="hint">${S.secret.key ? `This key is for ${CO()}, so ${AI()} writes. ` : ""}Saved only on this phone. Photos are only sent for accounts set to "Sees photos". Each caption or batch of comments costs about 1 to 2 cents or less.</div>
       <button class="btn" type="button" data-testkey>Test the key</button>
       <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
       <button class="btn" type="button" data-rewrite="all">Rewrite every account</button></div>
@@ -2019,7 +2069,7 @@ function vSettings(v){
       <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
-  $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? "Key saved on this phone" : "Key removed"); if (S.secret.key) writerRun(); });
+  $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? `${CO()} key saved on this phone` : "Key removed"); render(); if (S.secret.key) writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
 }
@@ -2037,9 +2087,9 @@ function vAset(v, r){
       <button class="btn" type="button" data-pickfolder="${id}">Pick from Drive</button>
       <div class="hint">Only this account posts from this folder, and nothing is posted twice. A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile. A link works for folders other Google accounts have shared with you.</div>
     </div>
-    <div class="card"><h3>Claude</h3>
+    <div class="card"><h3>${AI()}</h3>
       ${seg("writer", a.writer || "text", [["off","Off"],["text","Text only"],["photos","Sees photos"]])}
-      <div class="hint">${a.writer === "off" ? "Claude doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to Anthropic." : a.writer === "photos" ? "Claude sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to Anthropic." : "Claude writes from your direction boxes only. No photos or videos from this account are sent to Anthropic."}</div></div>
+      <div class="hint">${a.writer === "off" ? `${AI()} doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to ${CO()}.` : a.writer === "photos" ? `${AI()} sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to ${CO()}.` : `${AI()} writes from your direction boxes only. No photos or videos from this account are sent to ${CO()}.`}</div></div>
     <div class="card"><h3>Posting</h3>
       <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
       <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
@@ -2049,16 +2099,16 @@ function vAset(v, r){
     <div class="card"><h3>Captions</h3>
       ${seg("capstyle", a.captionStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amycap">Your own captions, one per line</label><textarea id="amycap" placeholder="each line can become a caption">${esc(a.myCaptions||"")}</textarea></div>
-      <div class="field"><label for="adcap">Direction for Claude</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
+      <div class="field"><label for="adcap">Direction for ${AI()}</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-recapall="${id}">Redo this account's auto captions</button></div>
     <div class="card"><h3>Comments</h3>
-      <div class="field"><label for="adcom">Direction for Claude</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div></div>
+      <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div></div>
     <div class="card"><h3>Story text</h3>
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
-      <div class="field"><label for="adstory">Direction for Claude</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
-    <div class="card"><h3>Rewrite with Claude</h3>
+      <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
+    <div class="card"><h3>Rewrite with ${AI()}</h3>
       <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Rewrite this account</button>
       <div class="seg"><button type="button" data-rewrite="caption" data-acct="${id}">Captions</button><button type="button" data-rewrite="comments" data-acct="${id}">Comments</button><button type="button" data-rewrite="story" data-acct="${id}">Stories</button></div>
       <div class="hint">Replaces this account's auto captions, comments and story text, including on posts already up. Captions you typed yourself are kept.</div></div>
@@ -2201,12 +2251,12 @@ document.addEventListener("click", async e => {
   if ("testkey" in d){
     const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
     S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
-    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? "The key works" : "The key works, but Claude didn't answer"); setWriter(""); writerRun(); }
-    catch(err){ const E = sdk && sdk.default; toast(E && err instanceof E.AuthenticationError ? "That key didn't work" : E && err instanceof E.APIConnectionError ? "Couldn't reach Anthropic" : "Test failed: " + String(err.message || err).slice(0, 80)); }
+    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? `The ${CO()} key works` : `The key works, but ${AI()} didn't answer`); setWriter(""); writerRun(); }
+    catch(err){ const k = errKind(err); toast(k === "auth" ? "That key didn't work" : k === "conn" ? `Couldn't reach ${CO()}` : k === "credit" ? `The key works, but the ${CO()} account has no credit` : "Test failed: " + String(err.message || err).slice(0, 80)); }
     t.textContent = "Test the key"; return;
   }
   if (d.rewrite){
-    if (!S.secret.key){ toast("Add your Anthropic API key first"); return; }
+    if (!S.secret.key){ toast("Add an Anthropic or OpenAI API key first"); return; }
     for (const p of S.posts.filter(p => !d.acct || p.acct === d.acct)){
       if ((d.rewrite === "all" || d.rewrite === "caption") && !isStory(p) && p.captionAuto) p.captionWritten = false;
       if ((d.rewrite === "all" || d.rewrite === "comments") && !isStory(p)) p.commentsWritten = false;
@@ -2228,7 +2278,7 @@ document.addEventListener("click", async e => {
   if (d.follow !== undefined){ const i = +d.follow; followMap()[i] = !isFollowing(i); await saveMisc(); render(); return; }
   if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
   if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
-  if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `Claude sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `Claude is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
+  if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `${AI()} sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `${AI()} is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
