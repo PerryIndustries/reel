@@ -416,13 +416,13 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { savedVids:{}, dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { savedVids:{}, vidSeen:{}, dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead, savedVids:S.savedVids}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
@@ -1134,7 +1134,16 @@ async function frameB64(f){
   } catch(e){ return null; } finally { URL.revokeObjectURL(url); }
 }
 const VOICE = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. The voice is a flirty, confident thirst trap: teasing, suggestive, playful, a little cocky. Innuendo is fine; keep it non-explicit, with no graphic sexual description.";
-const direction = d => d && d.trim() ? `\n\nThe owner's direction, which takes priority over the default style:\n${d.trim()}` : "";
+// The owner's direction and their own lines lead the prompt, so they outrank the default style instead of trailing after it.
+function ownerFirst(dirs, mine){
+  const d = dirs.filter(([, t]) => t && t.trim()).map(([what, t]) => `${what}: ${t.trim()}`);
+  const own = (mine || "").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 25);
+  let s = "";
+  if (d.length) s += `THE OWNER'S DIRECTION. Follow it exactly, every time. Where it disagrees with any default rule further down, the direction wins.\n${d.join("\n")}\n\n`;
+  if (own.length) s += `Lines the owner wrote themselves. Match their style, length, slang, punctuation and emoji use closely (write new ones in that voice; don't copy them word for word):\n${own.map(x => "- " + x).join("\n")}\n\n`;
+  return s;
+}
+const remind = dirs => { const d = dirs.filter(([, t]) => t && t.trim()).map(([what, t]) => `${what}: ${t.trim()}`); return d.length ? `\n\nRemember the owner's direction:\n${d.join("\n")}` : ""; };
 const CAPTION_RULES = "One short line, lowercase is fine, at most one or two emoji, no hashtags unless the direction asks for them.";
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. Each comment is from a different person. Never mention being an AI or a bot.";
 const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
@@ -1147,27 +1156,28 @@ async function writeOne(j){
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
   const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
+  const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
   if (j.kind === "story"){
-    const out = await ask(`${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${blind}${direction(a.storyDirection || a.capDirection)}`, withImg("Write the story text."));
+    const out = await ask(`${ownerFirst([storyDir], a.myStoryTexts || a.myCaptions)}${VOICE}\n\nWrite the text that sits over this Instagram story: very short (2 to 8 words), the kind of line that makes followers reply. Reply with the text only, no quotes.${blind}`, withImg(`Write the story text.${remind([storyDir])}`));
     if (out) p.storyText = cleanLine(out);
     p.storyWritten = true;
   } else if (j.cap){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
     const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
     if (j.com){
-      const out = await ask(`${VOICE}\n\nWrite this post's caption and the comments different followers leave on it.\nCaption: ${CAPTION_RULES}${direction(a.capDirection)}\n\nComments: ${COMMENT_RULES} They react to the caption you wrote.${blind}${direction(a.comDirection)}${avoid}`,
-        withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
+      const out = await ask(`${ownerFirst([capDir, comDir], a.myCaptions)}${VOICE}\n\nWrite this post's caption and the comments different followers leave on it.\nCaption: ${CAPTION_RULES}\n\nComments: ${COMMENT_RULES} They react to the caption you wrote.${blind}${avoid}`,
+        withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.${remind([capDir, comDir])}`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
       if (out && out.caption) p.caption = cleanLine(out.caption);
       p.captionWritten = true;
       if (out) setComments(out.comments); else p.commentsWritten = true;
     } else {
-      const out = await ask(`${VOICE}\n\nWrite one Instagram caption for the photo. ${CAPTION_RULES} Reply with the caption only, no quotes.${blind}${direction(a.capDirection)}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.`));
+      const out = await ask(`${ownerFirst([capDir], a.myCaptions)}${VOICE}\n\nWrite one Instagram caption for the photo. ${CAPTION_RULES} Reply with the caption only, no quotes.${blind}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.${remind([capDir])}`));
       if (out) p.caption = cleanLine(out);
       p.captionWritten = true;
     }
   } else {
-    const out = await ask(`${VOICE}\n\nWrite the comments that different followers leave on this post. ${COMMENT_RULES}${blind}${direction(a.comDirection)}`,
-      withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
+    const out = await ask(`${ownerFirst([comDir])}${VOICE}\n\nWrite the comments that different followers leave on this post. ${COMMENT_RULES}${blind}`,
+      withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.${remind([comDir])}`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
     if (out) setComments(out.comments); else p.commentsWritten = true;
   }
   await savePost(p);
@@ -1182,9 +1192,11 @@ async function writerRun(){
   try {
     const jobs = [];
     for (const p of S.posts){
-      if (acctOf(p).writer === "off") continue;
-      if (isStory(p)){ if (!p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
-      const cap = !!(p.captionAuto && !p.captionWritten), com = !p.commentsWritten;
+      const a = acctOf(p);
+      if (a.writer === "off") continue;
+      // "Only mine" keeps the owner's own captions and story text; the AI still writes the comments.
+      if (isStory(p)){ if (a.storyStyle !== "off" && !p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
+      const cap = !!(p.captionAuto && !p.captionWritten && a.captionStyle !== "off"), com = !p.commentsWritten;
       if (cap || com) jobs.push({ p, kind: "post", cap, com });
     }
     const when = p => Math.abs((p.publishAt || now() + 30*D) - now());
@@ -1600,7 +1612,8 @@ function vHome(v){
   const firstUnread = S.accounts.find(a => dmUnreadCount(a)) || A();
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/dm/${esc(firstUnread.id)}" aria-label="Messages">${I.share}${dmN ? `<b class="cnt">${dmN > 99 ? "99+" : dmN}</b>` : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
-  if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id])].map(p => p.id), fresh: fresh.length }; }
+  // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
+  if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: fresh.length }; }
   const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
   const added = all.filter(p => !pos.has(p.id));
   const L = [...added, ...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean)];
@@ -1833,12 +1846,18 @@ function vReelsTab(v, r){
   if (r.a) openReels(R, r.a);
   v.innerHTML = `<div class="pad" style="padding-top:12px">
       <button class="btn primary" type="button" data-vault="all" ${V.length ? "" : "disabled"}>${I.reels} Shuffle all videos${V.length ? ` (${V.length})` : ""}</button>
-      <div class="hint" style="margin-top:6px">Every video in your Drive folders, posted or not, in a new random order each time.</div>
+      <div class="hint" style="margin-top:6px">Every video in your Drive folders, posted or not, ones you haven't watched first, then the ones you watched longest ago.</div>
     </div>
     ${saved.length ? `<div class="sect pad">Saved (${saved.length})</div><div class="vstrip">${saved.map(x => `<button type="button" class="vtile" data-vault="saved" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}</button>`).join("")}</div>` : ""}
     <div class="sect pad">Posted reels</div>
     ${R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Put videos in your Drive folders. They post as reels and play here.</p></div>`}`;
 }
+// Videos never watched come first in a random order, then watched ones, the ones watched longest ago first.
+function recycleOrder(V){
+  const unseen = shuffleInPlace(V.filter(x => !S.vidSeen[x.key]));
+  return [...unseen, ...V.filter(x => S.vidSeen[x.key]).sort((x, y) => S.vidSeen[x.key] - S.vidSeen[y.key])];
+}
+let vidSave = 0;
 // Full-screen player for the shuffled library. Only the video on screen and its neighbours are loaded.
 async function openVault(list, startKey){
   if (!list.length) return;
@@ -1867,7 +1886,8 @@ async function openVault(list, startKey){
     }
     vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} vd.play().catch(()=>{}); } else vd.pause(); });
     // get the file ready so "To phone" can open the share sheet straight from the tap
-    const x = list[k]; if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
+    const x = list[k]; if (x){ S.vidSeen[x.key] = now(); clearTimeout(vidSave); vidSave = setTimeout(saveMisc, 1500); }
+    if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
   };
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
   activate();
@@ -2117,8 +2137,30 @@ function vAset(v, r){
   $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
   $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
-  for (const [el, field] of [["adcap","capDirection"],["adcom","comDirection"],["adstory","storyDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Direction saved. Tap Rewrite to apply it to what's already written."); });
-  $("#amycap").addEventListener("change", async e => { a.myCaptions = e.target.value; await saveAccounts(); await redoCaptions(a); await autoCaptions(); toast("Captions saved and applied"); });
+  // A new direction (or new own lines) rewrites everything of this account's that isn't up yet; Rewrite covers what's already posted.
+  const aiOn = () => !!S.secret.key && a.writer !== "off";
+  const requeue = async what => {
+    let n = 0;
+    for (const p of S.posts.filter(p => p.acct === a.id && p.publishAt > now())){
+      if (isStory(p)){ if (what.story && p.storyWritten){ p.storyWritten = false; n++; } }
+      else {
+        if (what.cap && p.captionAuto && p.captionWritten){ p.captionWritten = false; n++; }
+        if (what.com && p.commentsWritten){ p.commentsWritten = false; n++; }
+      }
+      await savePost(p);
+    }
+    if (n) writerRun();
+  };
+  for (const [el, field, what] of [["adcap","capDirection",{ cap: 1, story: 1 }],["adcom","comDirection",{ com: 1 }],["adstory","storyDirection",{ story: 1 }]]) $("#"+el).addEventListener("change", async e => {
+    a[field] = e.target.value; await saveAccounts();
+    if (aiOn()){ await requeue(what); toast("Direction saved. Upcoming posts are being rewritten; tap Rewrite for ones already up."); }
+    else toast("Direction saved");
+  });
+  $("#amycap").addEventListener("change", async e => {
+    a.myCaptions = e.target.value; await saveAccounts();
+    if (aiOn() && a.captionStyle !== "off"){ await requeue({ cap: 1 }); toast(`Captions saved. ${AI()} copies their style on upcoming posts.`); }
+    else { await redoCaptions(a); await autoCaptions(); toast("Captions saved and applied"); }
+  });
   $("#amystory").addEventListener("change", async e => { a.myStoryTexts = e.target.value; await saveAccounts(); for (const p of S.posts.filter(p => isStory(p) && p.acct === a.id && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x")), a); await savePost(p); } toast("Story text saved"); });
 }
 async function pickFolder(a){
@@ -2156,13 +2198,14 @@ function wireCarousels(root){
   }
 }
 let feedMuted = true, autoIO = null;
-// A post counts as seen once it has been mostly on screen for a second.
+// A post counts as seen once it has been mostly on screen for a second. The time is refreshed on every
+// later look, so the home feed can recycle the posts seen longest ago instead of always opening on the same ones.
 let seenIO = null, seenSave = 0;
 function wireSeen(root){
   if (seenIO) seenIO.disconnect();
   const timers = new Map();
   seenIO = new IntersectionObserver(es => es.forEach(en => {
-    const id = en.target.dataset.post; if (!id || S.postSeen[id]) return;
+    const id = en.target.dataset.post; if (!id || now() - (S.postSeen[id] || 0) < 10*60e3) return;
     if (en.isIntersecting) timers.set(id, setTimeout(() => { S.postSeen[id] = now(); clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500); }, 1000));
     else { clearTimeout(timers.get(id)); timers.delete(id); }
   }), { threshold: .5 });
@@ -2235,7 +2278,7 @@ document.addEventListener("click", async e => {
   if (d.insights){ showInsights(d.insights); return; }
   if (d.vault){
     const V = allVideos();
-    const list = d.vault === "saved" ? Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean) : shuffleInPlace(V.slice());
+    const list = d.vault === "saved" ? Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean) : recycleOrder(V);
     openVault(list, d.vstart); return;
   }
   if (d.href){ e.preventDefault(); go(d.href); return; }
@@ -2404,7 +2447,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {}; S.vidSeen = misc.vidSeen || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   loadPfps();
   const back = takeOAuthReturn();
