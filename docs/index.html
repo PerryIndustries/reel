@@ -76,6 +76,12 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .tray::-webkit-scrollbar{display:none}
 .st{display:flex;flex-direction:column;align-items:center;gap:4px;width:72px;flex:none;font-size:12px}
 .st span.n{max-width:72px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astrip .st{width:60px}
+.astrip .ring{padding:2px;background:transparent;border:2px solid transparent}
+.astrip .st.on .ring{border-color:#3897f0}
+.astrip .st.on .n{font-weight:700}
+.astrip .allav{width:44px;height:44px;border:2px solid var(--bg);box-shadow:0 0 0 1px var(--line);border-radius:50%;display:grid;place-items:center}
+.astrip .allav svg{width:22px;height:22px}
 
 /* feed post */
 .post{border-bottom:1px solid var(--line);padding-bottom:10px}
@@ -1677,7 +1683,7 @@ function vMe(v, r){
     </div>`;
   }
   const hasStory = activeStories(a.id).length;
-  v.innerHTML = profileHeader({
+  v.innerHTML = acctStrip(false) + profileHeader({
     av: hasStory ? `<button type="button" class="ring ${storyUnseen(a.id)?"":"seen"}" data-story="${esc(a.id)}">${myAv(86)}</button>` : `<span class="ring none">${myAv(86)}</span>`,
     posts: L.length, followers: followersNow(), following: followingCount(),
     followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
@@ -1689,7 +1695,7 @@ function vMe(v, r){
 }
 function vAll(v){
   setTop(`<h1>All accounts</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  v.innerHTML = S.accounts.map(a => {
+  v.innerHTML = acctStrip(true) + S.accounts.map(a => {
     const L = live(a.id), Q = queued(a.id);
     const hasStory = activeStories(a.id).length;
     return `<section class="spec">` + profileHeader({
@@ -1713,6 +1719,11 @@ function qRow(p){
     <div class="info"><div>${esc(p.caption || (p.files.length+" "+(p.files.length===1?"file":"files")))}</div><div class="hint">${p.publishAt ? esc(until(p.publishAt)) : "Not scheduled"}</div></div>
     <button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button>
     <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button></div>`;
+}
+// One-tap switching: every account across the top of the profile pages, plus "All" for the overview.
+function acctStrip(onAll){
+  if (S.accounts.length < 2) return "";
+  return `<div class="tray pad astrip"><button type="button" class="st ${onAll ? "on" : ""}" data-href="#/all"><span class="ring"><span class="allav">${I.grid}</span></span><span class="n">All</span></button>${S.accounts.map(a => `<button type="button" class="st ${!onAll && a.id === S.current ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
 function accountSwitcher(){
   sheet(`<h3>Accounts</h3>
@@ -2295,7 +2306,8 @@ document.addEventListener("click", async e => {
     return;
   }
   if (d.tab === "explore" && route().name === "explore"){ exploreSeed = 0; window.scrollTo({ top: 0, behavior: "smooth" }); render(); return; }
-  if (d.tab){ go(d.tab === "me" && S.accounts.length > 1 ? "#/all" : "#/"+d.tab); return; }
+  if (d.tab){ go("#/"+d.tab); return; }
+  if (d.accgo){ if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
   if ("testkey" in d){
     const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
     S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
