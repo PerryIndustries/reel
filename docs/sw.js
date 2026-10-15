@@ -1,5 +1,5 @@
 // Offline support for the app shell. Your photos live in the app's own storage, not here.
-const CACHE = "reel-v30";
+const CACHE = "reel-v31";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -24,8 +24,9 @@ self.addEventListener("fetch", (e) => {
   }
   // Otherwise only the app's own files. Google sign-in, Drive and Anthropic go straight to the network.
   if (new URL(req.url).origin !== location.origin) return;
+  // no-cache: always ask GitHub whether the file changed, instead of reusing the browser's 10-minute copy.
   e.respondWith(
-    fetch(req)
+    fetch(req, { cache: "no-cache" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy));

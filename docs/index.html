@@ -407,6 +407,8 @@ const DB = {
 
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
+// Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
+const APP_VERSION = 31;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
@@ -2103,6 +2105,7 @@ function vSettings(v){
       <button class="btn" type="button" data-newworld>Start over with new fake accounts</button>
       <div class="hint">New names and new pictures keep everything else. Starting over also resets who you follow.</div>
       <button class="btn danger" type="button" data-reset>Erase everything on this phone</button></div>
+    <div class="hint" style="text-align:center;padding:4px 0 18px">Version ${APP_VERSION}</div>
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
   $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? `${CO()} key saved on this phone` : "Key removed"); render(); if (S.secret.key) writerRun(); });
@@ -2480,7 +2483,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") homeOrder = null; });
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
   setInterval(() => { if (["home","me","activity","all"].includes(route().name)) safeRender(); }, 60e3);
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(()=>{}); })).catch(()=>{});
 })();
 </script>
 </body>
