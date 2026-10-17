@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 62;
+const APP_VERSION = 63;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1262,14 +1262,16 @@ function lifeOf(p){
   return x < .15 ? (.5 + r() * 7.5) * H : x < .6 ? (12 + r() * 60) * H : (3 + r() * 5) * D;
 }
 const keeps = p => !!(p.liked || p.kept || p.pinned || S.saved[p.id]);
-async function cyclePosts(){
+// force: how many of the oldest posts (that you haven't kept) come down now even if their time isn't up, per account.
+async function cyclePosts(force = {}){
   for (const a of S.accounts){
     const L = live(a.id);
-    let up = L.length;
+    let up = L.length, forced = 0;
     const back = [];
     for (const p of L.slice().reverse()){
       if (up <= CYCLE_KEEP_MIN) break;
-      if (keeps(p) || now() - p.publishAt < lifeOf(p)) continue;
+      if (keeps(p)) continue;
+      if (now() - p.publishAt < lifeOf(p)){ if (forced >= (force[a.id] || 0)) continue; forced++; }
       await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); up--;
       const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
         myComments: [], hidden: [], cLikes: {}, aiComments: undefined, commentsWritten: false, likesTarget: undefined, commentsTarget: undefined };
@@ -1881,12 +1883,28 @@ window.addEventListener("hashchange", () => {
 // Swipe sideways on any page you opened (a post, comments, a profile, a list) to go back.
 // Like Instagram: pull the feed down from the top (or tap Home) and it reloads with whatever is new.
 let refreshing = false, pull = null;
+// Refreshing changes the feed like it would on a real app: a few of the next queued posts go up now, and as many
+// older posts you haven't liked, saved or pinned come down (back to the queue, to return later remixed).
+let lastAdvance = 0;
+async function refreshAdvance(){
+  if (Date.now() - lastAdvance < 20e3) return 0;
+  lastAdvance = Date.now();
+  const next = S.accounts.flatMap(a => queued(a.id)).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
+  const n = Math.min(next.length, 1 + Math.floor(Math.random() * 3));
+  const force = {};
+  for (const p of next.slice(0, n)){
+    p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p);
+    force[p.acct] = (force[p.acct] || 0) + 1;
+  }
+  await cyclePosts(force);
+  return n;
+}
 async function refreshFeed(){
   if (refreshing) return; refreshing = true;
   const ptr = $("#ptr"); ptr.classList.add("spin"); ptr.style.transition = "opacity .15s, transform .15s"; ptr.style.opacity = "1"; ptr.style.transform = "scale(1)";
   window.scrollTo({ top: 0, behavior: "smooth" });
   const started = Date.now();
-  try { homeOrder = null; await autoRun(); await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); if (route().name === "home") render(); }
+  try { await refreshAdvance(); homeOrder = null; await autoRun(); await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); if (route().name === "home") render(); }
   finally { refreshing = false; ptr.style.opacity = "0"; ptr.style.transform = "scale(.6)"; setTimeout(() => { if (!refreshing) ptr.classList.remove("spin"); }, 200); }
   sync(true);
 }
