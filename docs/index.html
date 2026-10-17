@@ -423,7 +423,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 42;
+const APP_VERSION = 43;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1279,7 +1279,8 @@ async function autoRun(){ await autoSchedule(); await cyclePosts(); await autoCa
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
 // Photos go along only for accounts set to "Sees photos", so each caption fits its picture; that needs a model that sees images.
-const DEFAULT_MODEL = "gemma3:27b";
+// 12b sees photos too and is about twice as fast as 27b on the owner's RTX 3090 (four posts in ~35s).
+const DEFAULT_MODEL = "gemma3:12b";
 const AI = () => "Ollama";
 const CO = () => "your PC";
 const ollamaURL = () => (S.secret.url || "").trim().replace(/\/+$/, "");
