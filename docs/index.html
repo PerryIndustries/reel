@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1229,6 +1229,7 @@ async function cyclePosts(){
   for (const a of S.accounts){
     const L = live(a.id);
     let up = L.length;
+    const back = [];
     for (const p of L.slice().reverse()){
       if (up <= CYCLE_KEEP_MIN) break;
       if (keeps(p) || now() - p.publishAt < lifeOf(p)) continue;
@@ -1236,8 +1237,15 @@ async function cyclePosts(){
       const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
         myComments: [], hidden: [], cLikes: {}, aiComments: undefined, commentsWritten: false, likesTarget: undefined, commentsTarget: undefined };
       if (p.captionAuto && !p.captionManual){ again.caption = ""; again.captionWritten = false; }
-      await enqueue([again], a);
+      delete again.grouped;
+      // A post the bot made from loose photos comes back as loose photos, so they get mixed into new combos
+      // (a different first photo, different neighbours) instead of the same post again. Subfolder posts stay as they are.
+      if (p.driveKeys && p.driveKeys.length === p.files.length){
+        p.files.forEach((f, i) => back.push({ ...again, id: uid("p_"), seed: hashStr(p.id + "again" + i + now()), files: [f], driveKey: p.driveKeys[i], driveKeys: undefined,
+          caption: i === 0 ? again.caption : "", captionManual: i === 0 && !!p.captionManual, captionAuto: i === 0 ? again.captionAuto : false, captionWritten: false }));
+      } else back.push(again);
     }
+    if (back.length) await enqueue(await groupPosts(shuffleInPlace(back), a), a);
   }
 }
 /* ================= stories ================= */
@@ -2023,6 +2031,7 @@ function vMe(v, r){
     const rw = runway(a);
     body = `<div class="pad">
       <div class="card" style="margin-top:14px"><h3>The bot</h3>
+        ${(() => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} return needsGoogle() ? `<div class="hint"><b>Google signed you out</b>, so new Drive photos aren't coming in. <button class="btn" type="button" data-sync>Sign in to Google</button></div>` : `<div class="hint">Drive last checked ${l ? esc(ago(l, true).toLowerCase()) : "never"}. New photos you add to the folder post before any reposts.</div>`; })()}
         <div class="hint">New files join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. That's about <b>${Math.max(1, Math.round(rw))} ${Math.max(1, Math.round(rw))===1?"day":"days"}</b> of posts. After that, posts you haven't liked come back around, so it keeps going.` : "Nothing queued right now. Posts you haven't liked come back around after 3 days, and new Drive files join by themselves."}</div>
         <span class="lbl">Posts per day</span>
         <div class="seg">${[[720,"2"],[288,"5"],[180,"8"],[120,"12"],[60,"24"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
