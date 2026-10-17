@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 54;
+const APP_VERSION = 55;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -435,6 +435,14 @@ const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avat
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
 function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
+// Photos that have never been up go before reposts: same posting times, the new ones take the earliest.
+// Reposts follow, the ones reposted least (then the longest waiting) first.
+async function freshFirst(a){
+  const Q = queued(a.id); if (Q.length < 2) return;
+  const times = Q.map(p => p.publishAt);
+  const order = [...Q.filter(p => !p.cycled), ...Q.filter(p => p.cycled).sort((x, y) => x.cycled - y.cycled || x.publishAt - y.publishAt)];
+  for (let i = 0; i < order.length; i++) if (order[i].publishAt !== times[i]){ order[i].publishAt = times[i]; await savePost(order[i]); }
+}
 // Mixes up what an account has queued: same posting times, different files in them.
 async function shuffleQueue(a){
   const Q = queued(a.id), times = Q.map(p => p.publishAt);
@@ -1206,6 +1214,7 @@ async function autoSchedule(){
     mine = [...mine.slice(0, n), ...await groupPosts(mine.slice(n), a)];
     await enqueue(mine.slice(n), a);
   }
+  for (const a of S.accounts) await freshFirst(a);
 }
 // Posts the owner liked, saved, pinned or opened the comments on stay up for good. Everything else comes
 // down after a random while and goes to the back of the queue to be posted again, fresh, later: some get deleted
@@ -2018,7 +2027,7 @@ function vMe(v, r){
         <span class="lbl">Posts per day</span>
         <div class="seg">${[[720,"2"],[288,"5"],[180,"8"],[120,"12"],[60,"24"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
       </div>
-      <div class="sect">Queued (${Q.length})</div>
+      <div class="sect">Queued (${Q.length}: ${Q.filter(p => !p.cycled).length} new, ${Q.filter(p => p.cycled).length} reposts)</div>
       ${Q.length ? Q.map(qRow).join("") : `<div class="hint">Empty. Add photos to your Drive folder to give the bot something to post.</div>`}
     </div>`;
   }
@@ -2056,7 +2065,7 @@ async function vAcct(v, r){
 function qRow(p){
   const f = p.files[0];
   return `<div class="qrow"><div class="th">${mediaTag(f,"",{poster:true})}</div>
-    <div class="info"><div>${esc(p.caption || (p.files.length+" "+(p.files.length===1?"file":"files")))}</div><div class="hint">${p.publishAt ? esc(until(p.publishAt)) : "Not scheduled"}</div></div>
+    <div class="info"><div>${esc(p.caption || (p.files.length+" "+(p.files.length===1?"file":"files")))}</div><div class="hint">${p.publishAt ? esc(until(p.publishAt)) : "Not scheduled"}${p.cycled ? " · repost" : " · new"}</div></div>
     <button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button>
     <button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button></div>`;
 }
