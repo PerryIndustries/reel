@@ -465,6 +465,52 @@ async function sendExportToPC(){
   if (!r.ok || !j.ok) throw new Error(j.error || `the PC said ${r.status}`);
   return j.bytes;
 }
+// The resumable move through the PC: each photo and video goes up on its own (the PC keeps what it already has, so a
+// stopped upload carries on where it was), then everything else in one small piece last. A whole phone can be GBs.
+const pcApi = p => { const base = ollamaURL(); if (!base) throw new Error("this phone doesn't know your PC's address (Settings → Ollama address)"); return `${base}/reel/backup/${p}`; };
+async function pcJSON(p){ const r = await fetch(pcApi(p), { cache: "no-store" }); const j = await r.json().catch(() => null); if (!r.ok || !j) throw new Error((j && j.error) || `the PC said ${r.status}`); return j; }
+async function sendToPC(progress){
+  const have = await pcJSON("have");
+  const keys = await DB.keys("media"), media = [];
+  let sent = 0, mb = 0;
+  for (let i = 0; i < keys.length; i++){
+    const b = await DB.get("media", keys[i]); if (!(b instanceof Blob)) continue;
+    media.push({ key: keys[i], type: b.type || "", size: b.size });
+    if (have[keys[i]] !== b.size){
+      for (let attempt = 0; ; attempt++){
+        try {
+          const r = await fetch(pcApi("media/" + encodeURIComponent(keys[i])), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: b });
+          if (r.ok) break; throw new Error(`the PC said ${r.status}`);
+        } catch(e){ if (attempt >= 3) throw e; await new Promise(res => setTimeout(res, 3000 * (attempt + 1))); }
+      }
+      sent++; mb += b.size / 1048576;
+    }
+    progress && progress(i + 1, keys.length, Math.round(mb));
+  }
+  const kv = {}; for (const k of await DB.keys("kv")) kv[k] = await DB.get("kv", k);
+  const local = {}; try { for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (k.startsWith("reel-")) local[k] = localStorage.getItem(k); } } catch(e){}
+  const r = await fetch(pcApi("manifest"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ v: 2, at: Date.now(), app: APP_VERSION, kv, posts: await DB.all("posts"), local, media }) });
+  if (!r.ok) throw new Error(`the PC said ${r.status} to the last piece`);
+  return { files: media.length, sent };
+}
+// Replaces everything at this address with what's on the PC, after checking every photo and video made it there.
+async function importFromPC(progress){
+  const man = await pcJSON("manifest"), have = await pcJSON("have");
+  const missing = man.media.filter(x => have[x.key] !== x.size).length;
+  if (missing) throw new Error(`${missing} of ${man.media.length} photos and videos aren't on the PC yet. Send them again from the old app`);
+  await DB.clear("media"); await DB.clear("posts"); await DB.clear("kv");
+  for (let i = 0; i < man.media.length; i++){
+    const x = man.media[i];
+    const r = await fetch(pcApi("media/" + encodeURIComponent(x.key)), { cache: "no-store" });
+    if (!r.ok) throw new Error(`the PC said ${r.status} for a photo`);
+    await DB.put("media", new Blob([await r.blob()], { type: x.type }), x.key);
+    if (progress && i % 5 === 0) progress(i, man.media.length);
+  }
+  for (const p of man.posts) await DB.put("posts", p);
+  for (const [k, v] of Object.entries(man.kv)) await DB.put("kv", v, k);
+  try { for (const [k, v] of Object.entries(man.local || {})) localStorage.setItem(k, v); } catch(e){}
+  return man;
+}
 // Reads [start, start + n) of the copy on the PC.
 function pcReader(){
   const base = ollamaURL(); if (!base) throw new Error("this phone doesn't know your PC's address");
@@ -502,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 87;
+const APP_VERSION = 88;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -3017,8 +3063,10 @@ function vSettings(v){
       <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Move to another address</h3>
       <div class="hint">Export packs everything on this phone (accounts, posts, chats, settings and every photo and video) into one file. Send it to your PC, then in Reel at the new address tap Load from my PC, and everything carries on where you left off.</div>
-      <button class="btn" type="button" data-exportprep>Export everything</button>
-      <button class="btn primary" type="button" data-exportpc id="exportpc" hidden>Send to my PC</button>
+      <button class="btn primary" type="button" data-sendpc>Send everything to my PC</button>
+      <div class="hint">Keep Reel open with the screen on until it says it's done. If it stops, tap it again: it carries on where it left off.</div>
+      <button class="btn" type="button" data-exportprep>Export to a file instead</button>
+      <button class="btn" type="button" data-exportpc id="exportpc" hidden>Send to my PC</button>
       <button class="btn" type="button" data-exportsave id="exportsave" hidden>Save the file</button>
       <button class="btn primary" type="button" data-importpc>Load from my PC</button>
       <button class="btn" type="button" data-importpick>Import from a file</button>
@@ -3421,6 +3469,14 @@ document.addEventListener("click", async e => {
     return;
   }
   if ("exportsave" in d){ await saveExport(); return; }
+  if ("sendpc" in d){
+    if (t.disabled) return; t.disabled = true; t.textContent = "Sending to your PC…";
+    try {
+      const out = await sendToPC((i, n, mb) => { t.textContent = `Sending… ${i} of ${n} photos and videos (${mb} MB sent)`; });
+      t.textContent = `All ${out.files} on your PC ✓`; toast("Done. Now open Reel at your PC's address and tap Load from my PC.");
+    } catch(err){ t.disabled = false; t.textContent = "Send everything to my PC (carries on where it stopped)"; toast("Stopped: " + err.message + ". Tap it again to carry on."); }
+    return;
+  }
   if ("exportpc" in d){
     if (t.disabled) return; const label = t.textContent; t.disabled = true; t.textContent = "Sending to your PC…";
     try { const n = await sendExportToPC(); t.textContent = `On your PC (${Math.round(n / 1048576)} MB) ✓`; toast("Sent. Now open Reel at your PC's address and tap Load from my PC."); }
@@ -3430,7 +3486,7 @@ document.addEventListener("click", async e => {
   if ("importpc" in d){
     if (t.disabled) return; t.disabled = true; t.textContent = "Loading from your PC…";
     try {
-      const man = await importAll(pcReader(), (i, n) => { t.textContent = `Importing… ${i} of ${n} photos and videos`; });
+      const man = await importFromPC((i, n) => { t.textContent = `Importing… ${i} of ${n} photos and videos`; });
       toast(`Imported ${man.posts.length} posts. Reloading…`); setTimeout(() => location.reload(), 900);
     } catch(err){ t.disabled = false; t.textContent = "Load from my PC"; toast("Couldn't load it: " + err.message); }
     return;
