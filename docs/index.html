@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 50;
+const APP_VERSION = 52;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1154,6 +1154,37 @@ async function respace(a){
   const Q = queued(a.id); for (const p of Q){ p.publishAt = 0; await savePost(p); }
   await enqueue(Q, a);
 }
+// Like a real account, some posts are several photos at once: the bot folds a few loose photos into one post
+// (usually 2 or 3, now and then up to 6). The post keeps every file's Drive id so syncing still follows them.
+const MULTI = { off: 0, some: .3, lots: .6 };
+const groupable = p => !isStory(p) && p.source === "drive" && p.driveKey && p.files.length === 1 && isImage(p.files[0].mime) && !p.liked && !p.pinned;
+async function groupPosts(list, a){
+  const prob = MULTI[a.multi || "some"] || 0; if (!prob) return list;
+  const out = [], gone = new Set();
+  for (let i = 0; i < list.length; i++){
+    const p = list[i]; if (gone.has(p)) continue;
+    out.push(p);
+    if (!groupable(p) || p.grouped) continue;
+    p.grouped = true;
+    const r = rng(hashStr("mg" + p.id)); if (r() >= prob){ await savePost(p); continue; }
+    const x = r(), size = x < .45 ? 2 : x < .8 ? 3 : x < .93 ? 4 : 5 + Math.floor(r() * 2);
+    for (let j = i + 1; j < list.length && p.files.length < size; j++){
+      const q = list[j]; if (gone.has(q) || !groupable(q) || q.captionManual || q.grouped) continue;
+      p.files.push(...q.files); p.driveKeys = [...(p.driveKeys || [p.driveKey]), q.driveKey];
+      gone.add(q); await DB.del("posts", q.id); S.posts = S.posts.filter(y => y !== q);
+    }
+    if (p.files.length > 1){ p.caption = p.captionManual ? p.caption : ""; p.captionWritten = false; p.aiComments = undefined; p.commentsWritten = false; genCache.clear(); }
+    await savePost(p);
+  }
+  return out;
+}
+// Groups what's already queued (after the setting changes, or the first time this version runs) and re-spaces it.
+async function regroupQueue(a){
+  for (const p of queued(a.id)) delete p.grouped;
+  const before = queued(a.id).length;
+  await groupPosts(queued(a.id), a);
+  if (queued(a.id).length !== before) await respace(a);
+}
 // Each file is queued on the account whose folder it came from.
 async function autoSchedule(){
   if (!S.accounts.length) return;
@@ -1168,10 +1199,11 @@ async function autoSchedule(){
     p.acct = a.id; await savePost(p);
   }
   for (const a of S.accounts){
-    const mine = W.filter(p => p.acct === a.id); if (!mine.length) continue;
+    let mine = W.filter(p => p.acct === a.id); if (!mine.length) continue;
     const firstRun = !live(a.id).length && !queued(a.id).length;
     const n = firstRun ? Math.min(Math.ceil(mine.length/2), Math.max(0, +S.settings.starter || 0)) : 0;
     if (n) await backdate(mine.slice(0, n), a);
+    mine = [...mine.slice(0, n), ...await groupPosts(mine.slice(n), a)];
     await enqueue(mine.slice(n), a);
   }
 }
@@ -1293,7 +1325,8 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
+async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
+  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
@@ -1561,7 +1594,7 @@ async function sync(auto, full){
     if (full) for (const a of S.accounts) if (!a.folderLink) a.folderId = "";
     const failed = new Set(), problems = [];
     const isUp = p => p.publishAt && p.publishAt <= now();
-    const known = new Set(S.posts.filter(p => !full || isUp(p)).map(p => p.driveKey).filter(Boolean));
+    const known = new Set(S.posts.filter(p => !full || isUp(p)).flatMap(p => p.driveKeys || [p.driveKey]).filter(Boolean));
     const seen = new Map();
     const ignored = new Set(S.settings.ignored || []);
     const jobs = [], pfpJobs = [];
@@ -1614,6 +1647,8 @@ async function sync(auto, full){
     let moved = 0, dropped = 0;
     for (const p of S.posts.filter(p => p.source === "drive" && p.driveKey && !isUp(p))){
       if (failed.has(p.acct) && !seen.has(p.driveKey)) continue;
+      // a grouped post whose photos were moved or removed is taken apart; its other photos come back as posts on the next sync
+      if (p.driveKeys && p.driveKeys.some(k => seen.get(k) !== seen.get(p.driveKey) || !seen.has(k))){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
       if (full || !seen.has(p.driveKey)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); if (!seen.has(p.driveKey)) dropped++; continue; }
       const owner = seen.get(p.driveKey);
       const wasOwner = p.shared === false ? p.acct : null;
@@ -2458,6 +2493,9 @@ function vAset(v, r){
     <div class="card"><h3>Posting</h3>
       <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
       <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
+      <span class="lbl">Several photos in one post</span>
+      ${seg("multi", a.multi || "some", [["off","Never"],["some","Sometimes"],["lots","Often"]])}
+      <div class="hint">The bot groups loose photos into posts of 2 or 3, sometimes up to 6. A subfolder is always one post with all its photos.</div>
       <span class="lbl">Which file goes next</span>
       ${seg("order", a.order || "random", [["random","Random"],["name","By name"],["date","Oldest first"]])}
       <div class="hint">Random picks files from the folder in a mixed-up order. Choosing Random again reshuffles what's already queued.</div></div>
@@ -2686,6 +2724,7 @@ document.addEventListener("click", async e => {
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
+  if (d.multi){ const a = accountById(d.acct) || A(); a.multi = d.multi; await saveAccounts(); if (d.multi !== "off") await regroupQueue(a); render(); toast(d.multi === "off" ? "One photo per post from now on" : "Queue regrouped: some posts now have several photos"); return; }
   if (d.order){ const a = accountById(d.acct) || A(); a.order = d.order; await saveAccounts(); if (d.order === "random"){ await shuffleQueue(a); toast("Queue shuffled"); } render(); return; }
   if (d.plevel){ A().level = d.plevel; await saveAccounts(); genCache.clear(); render(); return; }
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
