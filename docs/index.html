@@ -213,7 +213,9 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 /* full-screen viewers (stories, reels) */
 .full{position:fixed;inset:0;background:#000;color:#fff;z-index:50}
 .sv .media{position:absolute;inset:0}
-.sv .media img,.sv .media video{width:100%;height:100%;object-fit:cover}
+.sv .media img,.sv .media video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.sv .media .bg{object-fit:cover;filter:blur(28px) brightness(.6);transform:scale(1.15)}
+.sv .media.fill .fg{object-fit:cover}
 .sv .shade{position:absolute;inset:0;background:linear-gradient(rgba(0,0,0,.45),transparent 18%,transparent 75%,rgba(0,0,0,.5));pointer-events:none}
 .sv .bars{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;display:flex;gap:3px}
 .sv .bar{flex:1;height:2.5px;background:rgba(255,255,255,.35);border-radius:2px;overflow:hidden}
@@ -223,6 +225,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .sv .hd .x{width:36px;height:36px;display:grid;place-items:center;color:#fff}
 .sv .hd .x svg{width:26px;height:26px}
 .sv .txt{position:absolute;left:20px;right:20px;top:60%;text-align:center;pointer-events:none}
+.sv .txt.l{text-align:left}.sv .txt.r{text-align:right}
 .sv .txt span{font:800 25px/1.55 var(--display);background:#fff;color:#000;padding:2px 10px;-webkit-box-decoration-break:clone;box-decoration-break:clone;border-radius:6px}
 .sv .taps{position:absolute;inset:80px 0 90px;display:grid;grid-template-columns:1fr 2fr}
 .sv .ft{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);display:flex;gap:10px;align-items:center}
@@ -416,7 +419,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
@@ -1095,77 +1098,38 @@ function avatarChooser(){
 
 async function autoRun(){ await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
 
-/* ================= caption writer (Claude or ChatGPT, with the owner's own API key) ================= */
-// The key is stored only on this phone and sent only to the company that issued it (sk-ant-… is Anthropic, any other sk-… is OpenAI).
-// Photos go along only for accounts set to "Sees photos", so each caption fits its picture.
-const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.128.0/+esm";
-// Small and fast: captions, comments and story text are short.
-const MODEL = "claude-haiku-5-5";
-const OPENAI_MODEL = "gpt-5-mini";
-const isOpenAI = (k = S.secret.key) => !!k && !k.startsWith("sk-ant-");
-const AI = () => isOpenAI() ? "ChatGPT" : "Claude";
-const CO = () => isOpenAI() ? "OpenAI" : "Anthropic";
-const KEY_RE = /^sk-\S{20,}$/;
-let sdk = null, client = null, clientKey = "";
-async function getClient(){
-  if (!S.secret.key) return null;
-  if (!sdk) sdk = await import(SDK_URL);
-  if (!client || clientKey !== S.secret.key){ client = new sdk.default({ apiKey: S.secret.key, dangerouslyAllowBrowser: true, maxRetries: 2 }); clientKey = S.secret.key; }
-  return client;
-}
-// One error shape for both companies: e.kind is auth | perm | rate | credit | conn.
+/* ================= caption writer (Ollama, running on the owner's own PC) ================= */
+// The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
+// Photos go along only for accounts set to "Sees photos", so each caption fits its picture; that needs a model that sees images.
+const DEFAULT_MODEL = "gemma3:27b";
+const AI = () => "Ollama";
+const CO = () => "your PC";
+const ollamaURL = () => (S.secret.url || "").trim().replace(/\/+$/, "");
+const ollamaModel = () => (S.secret.model || "").trim() || DEFAULT_MODEL;
+// e.kind is conn | model.
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
-function errKind(e){
-  if (e && e.kind) return e.kind;
-  const E = sdk && sdk.default; if (!E) return "";
-  if (e instanceof E.AuthenticationError) return "auth";
-  if (e instanceof E.PermissionDeniedError) return "perm";
-  if (e instanceof E.RateLimitError) return "rate";
-  if (e instanceof E.BadRequestError && /credit/i.test(e.message)) return "credit";
-  if (e instanceof E.APIConnectionError) return "conn";
-  return "";
-}
-async function askOpenAI(system, content, schema){
-  const parts = content.map(b => b.type === "image" ? { type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } } : { type: "text", text: b.text });
+const errKind = e => (e && e.kind) || "";
+async function ask(system, content, schema){
+  const base = ollamaURL(); if (!base) return null;
+  const images = content.filter(b => b.type === "image").map(b => b.source.data);
   const body = {
-    model: OPENAI_MODEL, reasoning_effort: "minimal", max_completion_tokens: 3000,
-    messages: [{ role: "system", content: system }, { role: "user", content: parts }],
-    ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema } } } : {}),
+    model: ollamaModel(), stream: false,
+    messages: [{ role: "system", content: system }, { role: "user", content: content.filter(b => b.type === "text").map(b => b.text).join("\n\n"), ...(images.length ? { images } : {}) }],
+    ...(schema ? { format: schema } : {}),
   };
   let res;
   for (let attempt = 0; ; attempt++){
-    try { res = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.secret.key}` }, body: JSON.stringify(body) }); }
-    catch(e){ throw aiError("conn", "Couldn't reach OpenAI"); }
-    if ((res.status === 429 || res.status >= 500) && attempt < 2){
-      const peek = await res.clone().json().catch(() => ({}));
-      if (peek.error?.code !== "insufficient_quota"){ await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
-    }
+    try { res = await fetch(`${base}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+    catch(e){ throw aiError("conn", "Couldn't reach Ollama"); }
+    if (res.status >= 500 && attempt < 2){ await new Promise(r => setTimeout(r, 2000 * (attempt + 1))); continue; }
     break;
   }
   const j = await res.json().catch(() => ({}));
   if (!res.ok){
-    const msg = j.error?.message || `OpenAI error ${res.status}`;
-    if (res.status === 401) throw aiError("auth", msg);
-    if (res.status === 403) throw aiError("perm", msg);
-    if (res.status === 429) throw aiError(j.error?.code === "insufficient_quota" ? "credit" : "rate", msg);
-    throw aiError("", msg);
+    const msg = j.error || `Ollama error ${res.status}`;
+    throw aiError(res.status === 404 && /model/i.test(msg) ? "model" : "", msg);
   }
-  const m = j.choices?.[0];
-  if (!m || m.message?.refusal || m.finish_reason === "content_filter") return null;
-  const text = String(m.message?.content || "").trim();
-  if (!text) return null;
-  return schema ? JSON.parse(text) : text;
-}
-async function ask(system, content, schema){
-  if (isOpenAI()) return S.secret.key ? askOpenAI(system, content, schema) : null;
-  const c = await getClient(); if (!c) return null;
-  const r = await c.messages.create({
-    model: MODEL, max_tokens: 1500, system,
-    messages: [{ role: "user", content }],
-    output_config: { effort: "low", ...(schema ? { format: { type: "json_schema", schema } } : {}) },
-  });
-  if (r.stop_reason === "refusal") return null;
-  const text = r.content.filter(b => b.type === "text").map(b => b.text).join("").trim();
+  const text = String(j.message?.content || "").trim();
   if (!text) return null;
   return schema ? JSON.parse(text) : text;
 }
@@ -1247,7 +1211,7 @@ const WRITERS = 4;
 function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; }
 // Writes everything that's waiting, a few at a time, live and next-up posts first.
 async function writerRun(){
-  if (writing || !S.secret.key) return;
+  if (writing || !ollamaURL()) return;
   writing = true;
   try {
     const jobs = [];
@@ -1275,12 +1239,9 @@ async function writerRun(){
     setWriter(jobs.length ? "Everything is written." : "");
     if (jobs.length) safeRender();
   } catch(e){
-    const k = errKind(e), co = CO();
-    if (k === "auth") setWriter("That API key didn't work. Check it and paste it again.");
-    else if (k === "perm") setWriter(`This key isn't allowed to do that. Check the key's project in the ${co} console.`);
-    else if (k === "rate") setWriter(`${co} asked the app to slow down. It tries again in a few minutes.`);
-    else if (k === "credit") setWriter(`Your ${co} account is out of credit. Add credit in the ${co} console.`);
-    else if (k === "conn") setWriter(`Couldn't reach ${co}. It tries again when you're back online.`);
+    const k = errKind(e);
+    if (k === "conn") setWriter("Couldn't reach Ollama. Check that your PC is on and Tailscale is connected on this phone. It tries again next time you open the app.");
+    else if (k === "model") setWriter(`Ollama doesn't have ${ollamaModel()} yet. On the PC, run: ollama pull ${ollamaModel()}`);
     else setWriter("Writing stopped: " + (e && e.message ? e.message.slice(0, 160) : "unknown error"));
   } finally { writing = false; }
 }
@@ -1372,14 +1333,6 @@ async function sync(auto, full){
   }
   syncing = true; setSync("Finding your folders…", 0);
   try {
-    // A text file named reel-key.txt anywhere in your Drive hands the caption writer its API key (Anthropic or OpenAI).
-    try {
-      const kf = (await gapi(`files?q=${encodeURIComponent("name='reel-key.txt' and trashed=false")}&orderBy=modifiedTime desc&fields=files(id,modifiedTime)&pageSize=1`, token)).files[0];
-      if (kf && kf.modifiedTime !== S.secret.keyFrom){
-        const k = (await (await gapi(`files/${kf.id}?alt=media`, token, true)).text()).trim();
-        if (KEY_RE.test(k)){ S.secret.key = k; S.secret.keyFrom = kf.modifiedTime; await saveSecret(); client = null; setWriter(""); toast("Caption writer connected"); setTimeout(writerRun, 1500); }
-      }
-    } catch(e){ if (e.message === "signin") throw e; }
     // every account reads only its own folder
     const sources = S.accounts.filter(hasFolder).map(a => ({ owner: a.id, holder: a }));
     if (full) for (const a of S.accounts) if (!a.folderLink) a.folderId = "";
@@ -2059,6 +2012,26 @@ function closeFull(){ $("#full").querySelectorAll("video").forEach(v => v.pause(
 
 /* ---------- stories ---------- */
 let storyTimer = 0, storyRAF = 0;
+// Fill the screen only when that crops little; otherwise show the whole photo over a blurred copy of itself.
+function fitStoryMedia(box){
+  const el = box && box.querySelector(".fg"); if (!el) return;
+  const fit = () => {
+    const w = el.naturalWidth || el.videoWidth, h = el.naturalHeight || el.videoHeight;
+    if (!w || !h || !box.clientWidth) return;
+    const m = w / h, sc = box.clientWidth / box.clientHeight;
+    box.classList.toggle("fill", Math.min(m, sc) / Math.max(m, sc) > 0.85);
+  };
+  if (el.tagName === "VIDEO") el.addEventListener("loadedmetadata", fit); else if (el.complete) fit(); else el.addEventListener("load", fit);
+  fit();
+}
+// Each story keeps its own text spot (from its seed): high, middle or low, sometimes off to one side, slightly tilted.
+function storyTextTag(p){
+  const r = rng(hashStr("txtpos" + p.id));
+  const top = [16, 26, 38, 50, 62, 70][Math.floor(r()*6)];
+  const side = r(); const cls = side < .2 ? " l" : side > .8 ? " r" : "";
+  const tilt = (r() < .5 ? 0 : (r()*8 - 4)).toFixed(1);
+  return `<div class="txt${cls}" style="top:${top}%;transform:rotate(${tilt}deg)"><span>${esc(p.storyText)}</span></div>`;
+}
 function openStories(aid, only){
   const order = only ? [aid] : [aid, ...S.accounts.map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
   let ai = 0, list = only || activeStories(order[0]);
@@ -2070,16 +2043,17 @@ function openStories(aid, only){
     const fan = p.pseudo === "fan" ? acct(p.fan) : null;
     if (!p.pseudo){ S.storySeen[p.id] = true; saveMisc(); }
     $("#full").innerHTML = `<div class="full sv" id="sv">
-      <div class="media">${isVideo(f.mime) ? `<video data-media="${esc(f.key)}" playsinline autoplay ${reelsMuted?"muted":""}></video>` : `<img data-media="${esc(f.key)}" alt="">`}</div><div class="shade"></div>
+      <div class="media">${isVideo(f.mime) ? `<video class="bg" data-media="${esc(f.key)}" data-poster="1"></video><video class="fg" data-media="${esc(f.key)}" playsinline autoplay ${reelsMuted?"muted":""}></video>` : `<img class="bg" data-media="${esc(f.key)}" alt=""><img class="fg" data-media="${esc(f.key)}" alt="">`}</div><div class="shade"></div>
       <div class="bars">${list.map((_,k) => `<div class="bar"><i style="width:${k<i?100:0}%"></i></div>`).join("")}</div>
       <div class="hd"><button type="button" ${fan ? `data-sfan="${fan.i}"` : `data-sprof="${esc(a.id)}"`} style="display:flex;align-items:center;gap:8px;color:inherit">${fan ? acctAv(fan, 32) : myAv(32, a)}<b>${esc(fan ? fan.handle : handleOf(a))}</b></button>${p.pseudo === "hl" ? `<span style="opacity:.75">${esc(p.hl)}</span>` : `<span style="opacity:.75">${esc(ago(p.publishAt))}</span>`}<span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
-      ${p.storyText ? `<div class="txt"><span>${esc(p.storyText)}</span></div>` : ""}
+      ${p.storyText ? storyTextTag(p) : ""}
       <div class="taps"><button type="button" data-sprev aria-label="Previous"></button><button type="button" data-snext aria-label="Next"></button></div>
       <div class="ft">${fan ? "" : p.pseudo === "hl" ? `<span class="seen">${I.eye}<span>${fmt(st.views)} views</span></span><span class="sp" style="flex:1"></span><button type="button" data-hlrm="${esc(p.acct)}|${esc(p.hl)}|${esc(p.item)}" style="font-weight:600">Remove from highlight</button>` : `<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
     </div>`;
     await hydrate($("#full"));
+    fitStoryMedia($("#full .media"));
     const bar = $("#full").querySelectorAll(".bar i")[i];
-    const vd = $("#full video");
+    const vd = $("#full video.fg");
     const dur = vd ? await new Promise(res => { if (vd.readyState >= 1) res(vd.duration); vd.onloadedmetadata = () => res(vd.duration); setTimeout(() => res(15), 1500); }) * 1000 : 5500;
     const t0 = performance.now(), len = Math.min(Math.max(dur || 5500, 3000), 30000);
     const tick = () => { const k = (performance.now() - t0) / len; if (bar) bar.style.width = Math.min(100, k*100) + "%"; if (k < 1) storyRAF = requestAnimationFrame(tick); };
@@ -2182,10 +2156,11 @@ function vSettings(v){
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
     <div class="card"><h3>Caption writer</h3>
-      <div class="hint">With an API key from Anthropic (Claude) or OpenAI (ChatGPT), the AI writes every caption, comment and story text for the photo it's on, following each account's direction. Each account's page sets whether it's off, writes from text only, or sees the photos. Without a key, the built-in lines are used.</div>
-      <div class="field"><label for="skey">API key (Anthropic or OpenAI)</label><input type="password" id="skey" value="${esc(S.secret.key)}" placeholder="sk-ant-… or sk-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="hint">${S.secret.key ? `This key is for ${CO()}, so ${AI()} writes. ` : ""}Saved only on this phone. Photos are only sent for accounts set to "Sees photos". Each caption or batch of comments costs about 1 to 2 cents or less.</div>
-      <button class="btn" type="button" data-testkey>Test the key</button>
+      <div class="hint">Ollama on your PC writes every caption, comment and story text, following each account's direction. Each account's page sets whether it's off, writes from text only, or sees the photos. Without an address, or when the PC can't be reached, the built-in lines are used.</div>
+      <div class="field"><label for="surl">Ollama address</label><input type="url" id="surl" value="${esc(S.secret.url || "")}" placeholder="https://your-pc.tailnet.ts.net" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
+      <div class="field"><label for="smodel">Model</label><input type="text" id="smodel" value="${esc(S.secret.model || "")}" placeholder="${esc(DEFAULT_MODEL)}" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
+      <div class="hint">Saved only on this phone. Nothing goes to an AI company and nothing costs money. "Sees photos" needs a model that can see images, like gemma3.</div>
+      <button class="btn" type="button" data-testai>Test the connection</button>
       <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
       <button class="btn" type="button" data-rewrite="all">Rewrite every account</button></div>
     <div class="card"><h3>New accounts</h3>
@@ -2201,7 +2176,8 @@ function vSettings(v){
     <div class="hint" style="text-align:center;padding:4px 0 18px">Version ${APP_VERSION}</div>
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
-  $("#skey").addEventListener("change", async e => { S.secret.key = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.key ? `${CO()} key saved on this phone` : "Key removed"); render(); if (S.secret.key) writerRun(); });
+  $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
+  $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}`); writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
 }
@@ -2250,7 +2226,7 @@ function vAset(v, r){
   $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
   // A new direction (or new own lines) rewrites everything of this account's that isn't up yet; Rewrite covers what's already posted.
-  const aiOn = () => !!S.secret.key && a.writer !== "off";
+  const aiOn = () => !!ollamaURL() && a.writer !== "off";
   const requeue = async what => {
     let n = 0;
     for (const p of S.posts.filter(p => p.acct === a.id && p.publishAt > now())){
@@ -2403,15 +2379,15 @@ document.addEventListener("click", async e => {
   if (d.tab === "explore" && route().name === "explore"){ exploreSeed = 0; window.scrollTo({ top: 0, behavior: "smooth" }); render(); return; }
   if (d.tab){ go("#/"+d.tab); return; }
   if (d.accgo){ if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
-  if ("testkey" in d){
-    const k = $("#skey").value.trim(); if (!k){ toast("Paste your key first"); return; }
-    S.secret.key = k; await saveSecret(); t.textContent = "Testing…";
-    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? `The ${CO()} key works` : `The key works, but ${AI()} didn't answer`); setWriter(""); writerRun(); }
-    catch(err){ const k = errKind(err); toast(k === "auth" ? "That key didn't work" : k === "conn" ? `Couldn't reach ${CO()}` : k === "credit" ? `The key works, but the ${CO()} account has no credit` : "Test failed: " + String(err.message || err).slice(0, 80)); }
-    t.textContent = "Test the key"; return;
+  if ("testai" in d){
+    const u = $("#surl").value.trim(); if (!u){ toast("Type your Ollama address first"); return; }
+    S.secret.url = u; await saveSecret(); t.textContent = "Testing…";
+    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? `Ollama answered with ${ollamaModel()}` : "Ollama connected but didn't answer"); setWriter(""); writerRun(); }
+    catch(err){ const k = errKind(err); toast(k === "conn" ? "Couldn't reach Ollama. Is the PC on and Tailscale connected?" : k === "model" ? `Ollama doesn't have ${ollamaModel()}` : "Test failed: " + String(err.message || err).slice(0, 80)); }
+    t.textContent = "Test the connection"; return;
   }
   if (d.rewrite){
-    if (!S.secret.key){ toast("Add an Anthropic or OpenAI API key first"); return; }
+    if (!ollamaURL()){ toast("Add your Ollama address in Settings first"); return; }
     for (const p of S.posts.filter(p => !d.acct || p.acct === d.acct)){
       if ((d.rewrite === "all" || d.rewrite === "caption") && !isStory(p) && p.captionAuto) p.captionWritten = false;
       if ((d.rewrite === "all" || d.rewrite === "comments") && !isStory(p)) p.commentsWritten = false;
@@ -2529,7 +2505,8 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   if (!S.settings.clientId) S.settings.clientId = CLIENT_ID;
   if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
   S.posts = await DB.all("posts");
-  S.secret = { key: "", ...(await DB.get("kv","secret") || {}) };
+  S.secret = { url: "", model: "", ...(await DB.get("kv","secret") || {}) };
+  if ("key" in S.secret || "keyFrom" in S.secret){ for (const k of ["key", "keyFrom"]) delete S.secret[k]; await saveSecret(); }
   S.accounts = (await DB.get("kv","accounts")) || [];
   if (!S.accounts.length){
     // first run, or an older single-account version: carry the old profile over as account 1
