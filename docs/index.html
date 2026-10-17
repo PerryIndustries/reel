@@ -429,7 +429,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 70;
+const APP_VERSION = 71;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -825,7 +825,8 @@ function genComments(p){
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
-    if (own.length && (onlyOwn || r() < .3)) text = own[(start + k) % own.length];
+    if (own.length && (onlyOwn || r() < .3)) text = own.length > n * 2 ? own[(start + Math.floor(r() * own.length)) % own.length] : own[(start + k) % own.length];
+    if (own.length > n * 2 && out.some(c => c.text === text)) text = own[(start + k * 13) % own.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
   genCache.set(key, out); return out;
@@ -1429,13 +1430,13 @@ const ollamaModel = () => (S.secret.model || "").trim() || DEFAULT_MODEL;
 // e.kind is conn | model.
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
 const errKind = e => (e && e.kind) || "";
-async function ask(system, content, schema){
+async function ask(system, content, schema, max){
   const base = ollamaURL(); if (!base) return null;
   const images = content.filter(b => b.type === "image").map(b => b.source.data);
   const body = {
     // Streamed, so the phone keeps hearing from the PC: iPhone drops a request that's silent for about a minute.
     // A small context keeps four requests at once on the GPU; captions and comments are short.
-    model: ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096, num_predict: schema ? 1000 : 160 },
+    model: ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096, num_predict: max || (schema ? 1000 : 160) },
     messages: [{ role: "system", content: system }, { role: "user", content: content.filter(b => b.type === "text").map(b => b.text).join("\n\n"), ...(images.length ? { images } : {}) }],
     ...(schema ? { format: schema } : {}),
   };
@@ -1450,7 +1451,7 @@ async function ask(system, content, schema){
     const j = await res.json().catch(() => ({}));
     const msg = j.error || `Ollama error ${res.status}`;
     // A text-only model (like uncensored) can't take photos: remember that on this phone and write from text instead.
-    if (images.length && /multimodal|image|vision/i.test(msg)){ markTextOnly(); return ask(system, content.filter(b => b.type !== "image"), schema); }
+    if (images.length && /multimodal|image|vision/i.test(msg)){ markTextOnly(); return ask(system, content.filter(b => b.type !== "image"), schema, max); }
     throw aiError(res.status === 404 && /model/i.test(msg) ? "model" : "", msg);
   }
   // One JSON object per line, each carrying the next piece of the reply.
@@ -1631,6 +1632,31 @@ async function writeOne(j){
     if (answered) setComments(got); else p.commentsWritten = true;
   }
   await savePost(p);
+}
+// Fills an account's own caption or comment list (the pool posts pull from) with a big batch written once, in the
+// account's direction and heat. The owner deletes what they don't like; with Only mine on, posts use just this list.
+const POOL_SIZE = { caption: 60, comments: 150 };
+async function fillPool(a, part, progress){
+  const field = part === "caption" ? "myCaptions" : "myComments";
+  const have = () => (a[field] || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const seen = new Set(have().map(normT));
+  const rules = part === "caption" ? CAPTION_RULES : COMMENT_RULES;
+  const what = part === "caption" ? "Instagram captions this account posts under its own photos" : "comments different followers leave under this account's posts, each from a different person (viewers reacting, never the poster)";
+  const dir = part === "caption" ? a.capDirection : a.comDirection;
+  const sys = `${contextFor(a)}\n\nWrite ${what}. They have to work under any of the account's photos, so never describe anything specific in a photo (no outfit, place, colors or pose).\n\n${styleFor(dir, (a[field] || "").split("\n").slice(-25).join("\n"), rules, part, a)}`;
+  let added = 0;
+  for (let call = 0; call < 12 && added < POOL_SIZE[part]; call++){
+    const recent = have().slice(-30);
+    const out = await ask(sys, [{ type: "text", text: `${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. Make them all different: mix very short ones and emoji-only with longer ones.${remind(a, [[part === "caption" ? "Captions" : "Comments", dir]])}` }], undefined, 900);
+    if (!out) break;
+    const fresh = out.split("\n").map(x => cleanLine(x.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")))
+      .filter(x => x && x.length <= 200 && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
+      .filter(x => { const k = normT(x) || x; if (seen.has(k)) return false; seen.add(k); return true; });
+    if (!fresh.length) break;
+    a[field] = [...have(), ...fresh].join("\n"); added += fresh.length;
+    await saveAccounts(); progress && progress(added, a[field]);
+  }
+  return added;
 }
 let writing = false;
 // Marks an account's posts (live and queued) to be written again and starts the writer; the newest go first.
@@ -2722,12 +2748,16 @@ function vAset(v, r){
       <div class="field"><label for="adcap">Direction for ${AI()}</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
       <div class="hint brief" id="brief-capDirection">${briefHtml(a, "capDirection")}</div>
       <button class="btn" type="button" data-try="caption" data-acct="${id}">Try it</button><div class="tryout" id="try-caption" hidden></div>
+      <button class="btn" type="button" data-fill="caption" data-acct="${id}">Fill this list for me</button>
+      <div class="hint">${AI()} writes about ${POOL_SIZE.caption} captions into your list in one go, following your direction. Delete any you don't like. Then posts take their captions straight from the list (Only mine), with nothing written per post.</div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-redo="caption" data-acct="${id}">Redo captions</button>
       <div class="hint">New captions on every post, including ones already up. Comments stay as they are, and captions you typed yourself are kept.</div></div>
     <div class="card"><h3>Comments</h3>
       ${seg("comstyle", a.comStyle || "auto", [["auto",AI()],["mine","Only mine"]])}
       <div class="field"><label for="amycom">Your own comments, one per line</label><textarea id="amycom" placeholder="each line becomes a comment, word for word">${esc(a.myComments||"")}</textarea></div>
+      <button class="btn" type="button" data-fill="comments" data-acct="${id}">Fill this list for me</button>
+      <div class="hint">${AI()} writes about ${POOL_SIZE.comments} comments into your list in one go, following your direction. Delete any you don't like. Then every post's comments come straight from the list (Only mine), each post a different mix.</div>
       <div class="hint">${a.comStyle === "mine" ? "Every comment comes from your list exactly as you typed it, spread across posts." : `${AI()} copies the style of your lines, and they also show up word for word on posts.`}</div>
       <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div>
       <div class="hint brief" id="brief-comDirection">${briefHtml(a, "comDirection")}</div>
@@ -2962,6 +2992,19 @@ document.addEventListener("click", async e => {
     catch(e){ box.textContent = e.kind === "conn" ? "Couldn't reach Ollama on your PC." : "Something went wrong: " + e.message; }
     return;
   }
+  if (d.fill){ const a = accountById(d.acct) || A(); const btn = t;
+    if (!ollamaURL() || a.writer === "off"){ toast(`${AI()} isn't set up for @${handleOf(a)}, so it can't fill the list`); return; }
+    if (btn.disabled) return; btn.disabled = true; btn.textContent = "Writing…";
+    const box = $(d.fill === "caption" ? "#amycap" : "#amycom");
+    let n = 0;
+    try { n = await fillPool(a, d.fill, (k, text) => { btn.textContent = `Writing… ${k} so far`; if (box) box.value = text; }); }
+    catch(err){ toast(errKind(err) === "conn" ? `Couldn't reach ${AI()} on ${CO()}` : `${AI()} said: ${err.message}`); }
+    if (n){
+      if (d.fill === "caption"){ a.captionStyle = "off"; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); }
+      else { a.comStyle = "mine"; await saveAccounts(); genCache.clear(); }
+      toast(`Added ${n} ${d.fill === "caption" ? "captions" : "comments"}. Posts now pull from your list.`);
+    } else if (btn.isConnected) toast("Nothing new came back. Try again.");
+    render(); return; }
   if (d.redo){ const a = accountById(d.acct) || A(); const what = { caption: "captions", comments: "comments", story: "story text" }[d.redo]; const { n, ai } = await redoPart(a, d.redo);
     toast(!n ? `No ${what} to redo on @${handleOf(a)}` : ai ?`Redoing ${what} on ${n} ${n === 1 ? "post" : "posts"}. Next-up and newest go first.` : `New ${what} on ${n} ${n === 1 ? "post" : "posts"}`); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
