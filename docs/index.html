@@ -408,7 +408,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
@@ -952,6 +952,25 @@ async function autoSchedule(){
     await enqueue(mine.slice(n), a);
   }
 }
+// Posts the owner liked, saved, pinned or opened the comments on stay up for good. Everything else comes
+// down after a few days and goes to the back of the queue to be posted again, fresh, later.
+const CYCLE_AFTER = 3*D, CYCLE_KEEP_MIN = 9;
+const keeps = p => !!(p.liked || p.kept || p.pinned || S.saved[p.id]);
+async function cyclePosts(){
+  for (const a of S.accounts){
+    const L = live(a.id);
+    let up = L.length;
+    for (const p of L.slice().reverse()){
+      if (up <= CYCLE_KEEP_MIN) break;
+      if (keeps(p) || now() - p.publishAt < CYCLE_AFTER) continue;
+      await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); up--;
+      const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
+        myComments: [], hidden: [], cLikes: {}, aiComments: undefined, commentsWritten: false, likesTarget: undefined, commentsTarget: undefined };
+      if (p.captionAuto && !p.captionManual){ again.caption = ""; again.captionWritten = false; }
+      await enqueue([again], a);
+    }
+  }
+}
 /* ================= stories ================= */
 function storyTextPool(a){
   const mine = (a.myStoryTexts || "").split("\n").map(x => x.trim()).filter(Boolean);
@@ -1046,7 +1065,7 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ await autoSchedule(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
+async function autoRun(){ await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
 
 /* ================= caption writer (Claude or ChatGPT, with the owner's own API key) ================= */
 // The key is stored only on this phone and sent only to the company that issued it (sk-ant-… is Anthropic, any other sk-… is OpenAI).
@@ -1777,6 +1796,7 @@ function vComments(v, r){
   setTop(`${backBtn}<h1>Comments</h1>`);
   if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
   const owner = accountById(p.acct) || A();
+  if (!p.kept){ p.kept = true; savePost(p); } // opening the comments keeps the post up (see cyclePosts)
   const vc = visibleComments(p);
   const e = engage(p);
   const extra = Math.max(0, e.comments - vc.length);
