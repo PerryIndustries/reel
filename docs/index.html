@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 65;
+const APP_VERSION = 66;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1430,7 +1430,7 @@ async function ask(system, content, schema){
   const body = {
     // Streamed, so the phone keeps hearing from the PC: iPhone drops a request that's silent for about a minute.
     // A small context keeps four requests at once on the GPU; captions and comments are short.
-    model: ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096 },
+    model: ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096, num_predict: schema ? 1000 : 160 },
     messages: [{ role: "system", content: system }, { role: "user", content: content.filter(b => b.type === "text").map(b => b.text).join("\n\n"), ...(images.length ? { images } : {}) }],
     ...(schema ? { format: schema } : {}),
   };
@@ -1574,6 +1574,22 @@ async function writeOne(j){
   await savePost(p);
 }
 let writing = false;
+// Marks an account's posts (live and queued) to be written again and starts the writer; the newest go first.
+async function autoRedo(a, what){
+  if (!ollamaURL() || a.writer === "off") return 0;
+  let n = 0;
+  for (const p of S.posts.filter(p => p.acct === a.id && p.publishAt && p.publishAt > now() - 14*D)){
+    let ch = false;
+    if (isStory(p)){ if (what.story && p.storyWritten){ p.storyWritten = false; ch = true; } }
+    else {
+      if (what.cap && p.captionAuto && p.captionWritten){ p.captionWritten = false; ch = true; }
+      if (what.com && p.commentsWritten){ p.commentsWritten = false; ch = true; }
+    }
+    if (ch){ n++; await savePost(p); }
+  }
+  if (n) writerRun();
+  return n;
+}
 const WRITERS = 4;
 function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; const h = $("#hwstatus"); if (h){ h.textContent = /^Writing/.test(msg) ? msg + " Pull down to see the new ones on top." : ""; h.hidden = !h.textContent; } }
 // Writes everything that's waiting, a few at a time, live and next-up posts first.
@@ -2083,16 +2099,15 @@ function vExplore(v){
 let homeOrder = null;
 // A post that's already up and gets a new caption (rewrite, redo or your own edit) goes to the top of Home until you've seen it.
 function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(); homeOrder = null; } }
-// A rewritten post stays on top for a few hours, until you've seen it after the rewrite (a glance while it was being
-// rewritten under you doesn't count).
-const capNew = p => p.capAt && now() - p.capAt < 4*H && (S.postSeen[p.id] || 0) < p.capAt + 60e3;
+// A rewritten post goes on top (the 6 newest rewrites at most) until you've seen it once; then it rejoins the normal rotation.
+const capNew = p => p.capAt && now() - p.capAt < D && (S.postSeen[p.id] || 0) < p.capAt;
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
   // Posts with a new caption come before all of that, the latest change on top.
   if (!homeOrder){
-    const adj = all.filter(capNew).sort((x, y) => y.capAt - x.capAt), rest = all.filter(p => !capNew(p));
+    const adj = all.filter(capNew).sort((x, y) => y.capAt - x.capAt).slice(0, 6), rest = all.filter(p => !adj.includes(p));
     const fresh = rest.filter(p => !S.postSeen[p.id]);
     homeOrder = { ids: [...adj, ...fresh, ...rest.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: adj.length + fresh.length };
   }
@@ -2611,7 +2626,7 @@ function vSettings(v){
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
   $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
-  $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}`); writerRun(); });
+  $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}. Rewriting everything now.`); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
 }
@@ -2681,30 +2696,19 @@ function vAset(v, r){
   $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
   $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
-  // A new direction (or new own lines) rewrites everything of this account's that isn't up yet; Rewrite covers what's already posted.
+  // A new direction (or new own lines) rewrites this account's posts by itself, the ones already up included.
   const aiOn = () => !!ollamaURL() && a.writer !== "off";
-  const requeue = async what => {
-    let n = 0;
-    for (const p of S.posts.filter(p => p.acct === a.id && p.publishAt > now())){
-      if (isStory(p)){ if (what.story && p.storyWritten){ p.storyWritten = false; n++; } }
-      else {
-        if (what.cap && p.captionAuto && p.captionWritten){ p.captionWritten = false; n++; }
-        if (what.com && p.commentsWritten){ p.commentsWritten = false; n++; }
-      }
-      await savePost(p);
-    }
-    if (n) writerRun();
-  };
+  const requeue = what => autoRedo(a, what);
   for (const [el, field, what] of [["adcap","capDirection",{ cap: 1, story: 1 }],["adcom","comDirection",{ com: 1 }],["adstory","storyDirection",{ story: 1 }]]) $("#"+el).addEventListener("change", async e => {
     a[field] = e.target.value; await saveAccounts();
-    if (aiOn()){ await requeue(what); toast("Direction saved. Upcoming posts are being rewritten; tap Rewrite for ones already up."); }
+    if (aiOn()){ await requeue(what); toast("Direction saved. Rewriting this account now; the new ones show on top of Home."); }
     else toast("Direction saved");
   });
   for (const [el, field] of [["admfan","dmFanDirection"],["admme","dmMeDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Saved. The next DMs follow it."); });
   $("#amycom").addEventListener("change", async e => { a.myComments = e.target.value; await saveAccounts(); genCache.clear(); toast(a.comStyle === "mine" ? "Comments saved. Every post uses them now." : "Comments saved"); });
   $("#amycap").addEventListener("change", async e => {
     a.myCaptions = e.target.value; await saveAccounts();
-    if (aiOn() && a.captionStyle !== "off"){ await requeue({ cap: 1 }); toast(`Captions saved. ${AI()} copies their style on upcoming posts.`); }
+    if (aiOn() && a.captionStyle !== "off"){ await requeue({ cap: 1 }); toast(`Captions saved. ${AI()} is rewriting captions in their style now.`); }
     else { await redoCaptions(a); await autoCaptions(); toast("Captions saved and applied"); }
   });
   $("#amystory").addEventListener("change", async e => { a.myStoryTexts = e.target.value; await saveAccounts(); for (const p of S.posts.filter(p => isStory(p) && p.acct === a.id && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x")), a); await savePost(p); } toast("Story text saved"); });
@@ -2883,7 +2887,7 @@ document.addEventListener("click", async e => {
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
   if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp.value.trim(); if (!text) return; const a = accountById(d.acct) || A(); inp.value = ""; await ownerSend(a, +d.dmsend, text); dmRepaint(); window.scrollTo(0, document.body.scrollHeight); return; }
   if (d.dmauto && d.fan !== undefined){ const a = accountById(d.acct) || A(), c = startConvo(a, +d.fan); c.auto = d.dmauto === "on"; if (c.auto && !c.next && c.msgs.length && !c.msgs[c.msgs.length - 1].me){ c.turns = 0; scheduleMe(c, now()); } if (!c.auto && c.next && c.next.who === "me") c.next = null; await saveConvos(); render(); toast(c.auto ? `@${handleOf(a)} replies in this chat by itself` : "Only you reply in this chat"); return; }
-  if (d.heat){ const a = accountById(d.acct) || A(); a.heat = d.heat; await saveAccounts(); render(); toast(d.heat === "explicit" ? `@${handleOf(a)} is explicit now` : `@${handleOf(a)} is suggestive now`); return; }
+  if (d.heat){ const a = accountById(d.acct) || A(); a.heat = d.heat; await saveAccounts(); render(); autoRedo(a, { cap: 1, com: 1, story: 1 }); toast(d.heat === "explicit" ? `@${handleOf(a)} is explicit now` : `@${handleOf(a)} is suggestive now`); return; }
   if (d.pronouns){ const a = accountById(d.acct) || A(); a.pronouns = d.pronouns; await saveAccounts(); render(); toast(`Followers say ${PRON[d.pronouns].she}/${PRON[d.pronouns].him} for @${handleOf(a)}`); return; }
   if (d.dmauto){ const a = accountById(d.acct) || A(); a.dmAuto = d.dmauto; await saveAccounts(); render(); toast(d.dmauto === "off" ? `@${handleOf(a)} only replies when you type` : `@${handleOf(a)} answers DMs by itself`); dmTick(); return; }
   if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
