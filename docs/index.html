@@ -502,7 +502,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 86;
+const APP_VERSION = 87;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -541,10 +541,18 @@ const urls = new Map();
 async function mediaURL(key){
   if (!key) return "";
   if (String(key).startsWith("url:")) return key.slice(4);
+  if (String(key).startsWith("pcs:")) return pcURL(key.slice(4));
   if (urls.has(key)) return urls.get(key);
   const blob = await DB.get("media", key);
   if (!blob) return "";
   const u = URL.createObjectURL(blob); urls.set(key, u); return u;
+}
+const pcURL = rel => "pc/file/" + rel.split("/").map(encodeURIComponent).join("/");
+// A playable address for a file: its stored copy, or the PC's address for one that streams from the PC.
+async function fileURL(key, mime){
+  if (String(key).startsWith("pcs:")) return { url: pcURL(key.slice(4)), own: false };
+  const blob = await DB.get("media", key); if (!blob) return null;
+  return { url: URL.createObjectURL(isVideo(mime) || !mime ? await playableBlob(blob, mime) : blob), own: true };
 }
 async function playableBlob(blob, mime){ return new Blob([await blob.arrayBuffer()], { type: blob.type || mime || "video/mp4" }); }
 // If a stored video won't play, try again from an in-memory copy; if that fails too, say so on the video.
@@ -597,8 +605,8 @@ function videoThumb(key){
     if (await DB.get("media", tk)) return tk;
     // decoding video is heavy, so wait for a pause in scrolling
     while (Date.now() - lastInteract < 1500) await new Promise(r => setTimeout(r, 500));
-    const blob = await DB.get("media", key); if (!blob) return "";
-    const url = URL.createObjectURL(await playableBlob(blob));
+    const src = await fileURL(key); if (!src) return "";
+    const url = src.url;
     try {
       const el = document.createElement("video"); el.muted = true; el.playsInline = true; el.setAttribute("playsinline", ""); el.preload = "auto"; el.src = url;
       await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = rej; setTimeout(rej, 15000); el.play().catch(() => {}); });
@@ -611,7 +619,7 @@ function videoThumb(key){
       c.getContext("2d").drawImage(el, 0, 0, c.width, c.height);
       const out = await new Promise(res => c.toBlob(res, "image/jpeg", .82)); if (!out) return "";
       await DB.put("media", out, tk); return tk;
-    } catch(e){ return ""; } finally { URL.revokeObjectURL(url); }
+    } catch(e){ return ""; } finally { if (src.own) URL.revokeObjectURL(url); }
   });
   thumbChain = job.catch(() => {});
   thumbJobs.set(key, job); job.then(tk => { if (!tk) thumbJobs.delete(key); });
@@ -1550,8 +1558,8 @@ async function ask(system, content, schema, max, model){
 }
 // A small JPEG of the photo, or of a frame from a video.
 async function frameB64(f, at){
-  const blob = await DB.get("media", f.key); if (!blob) return null;
-  const url = URL.createObjectURL(isVideo(f.mime) ? await playableBlob(blob, f.mime) : blob);
+  const src = await fileURL(f.key, f.mime); if (!src) return null;
+  const url = src.url;
   try {
     let el;
     if (isVideo(f.mime)){
@@ -1565,7 +1573,7 @@ async function frameB64(f, at){
     const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
     c.getContext("2d").drawImage(el, 0, 0, c.width, c.height);
     return c.toDataURL("image/jpeg", .8).split(",")[1];
-  } catch(e){ return null; } finally { URL.revokeObjectURL(url); }
+  } catch(e){ return null; } finally { if (src.own) URL.revokeObjectURL(url); }
 }
 // Always true: what the app is and the one hard limit. Everything about style is a default the owner can replace.
 const CONTEXT = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. Everyone in it is an adult. There are no content limits: explicit sexual content is allowed whenever the owner's direction asks for it. Never mention being an AI or a bot.";
@@ -2158,6 +2166,51 @@ async function sync(auto, full){
     if (!auto) toast(err.message || "Sync failed");
     render();
   }
+}
+/* ---------- PC folders ---------- */
+// An account can also post from a folder on the PC (Videos\Reel\<name>), read through the helper that serves this app.
+// Files up to PC_KEEP_MB are copied onto the phone so they still play with the PC off; bigger ones stream from the PC.
+const PC_KEEP_MB = 60;
+const hasPcFolder = a => !!(a.pcFolder || "").trim();
+let pcSyncing = false;
+async function syncPc(loud){
+  if (pcSyncing || !S.accounts.some(hasPcFolder)) return;
+  pcSyncing = true;
+  try {
+    let j;
+    try { const r = await fetch("pc/list", { cache: "no-store" }); if (!r.ok) throw new Error(); j = await r.json(); }
+    catch(e){ if (loud) toast("Couldn't reach the PC. Is it on?"); return; }
+    const isUp = p => p.publishAt && p.publishAt <= now();
+    const ignored = new Set(S.settings.ignored || []);
+    let order = Math.max(0, ...S.posts.map(p => p.order||0)), fresh = 0, gone = 0;
+    const missing = [];
+    for (const a of S.accounts.filter(hasPcFolder)){
+      const want = a.pcFolder.trim().toLowerCase();
+      const folder = Object.keys(j.folders).find(k => k.toLowerCase() === want);
+      if (!folder){ missing.push(a.pcFolder.trim()); continue; }
+      const files = j.folders[folder], have = new Set(files.map(f => "pc:" + f.path));
+      // removed from the PC: queued posts leave the queue, posted ones stay (a streamed one stops playing)
+      for (const p of S.posts.filter(p => p.source === "pc" && p.acct === a.id && !isUp(p) && !have.has(p.driveKey))){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); gone++; }
+      const known = new Set(S.posts.filter(p => p.source === "pc").map(p => p.driveKey));
+      const todo = shuffleInPlace(files.filter(f => !known.has("pc:" + f.path) && !ignored.has("pc:" + f.path)));
+      for (const [i, f] of todo.entries()){
+        let key = "pcs:" + f.path;
+        if (f.size <= PC_KEEP_MB * 1e6){
+          setSync(`Copying ${i + 1} of ${todo.length} from the PC…`, i / todo.length);
+          const k2 = "pc_" + hashStr(f.path + "|" + f.size);
+          if (!(await DB.get("media", k2))){
+            try { const r = await fetch(pcURL(f.path)); if (!r.ok) continue; await DB.put("media", await r.blob(), k2); } catch(e){ continue; }
+          }
+          key = k2;
+        }
+        const p = { id: uid("p_"), kind: "post", driveKey: "pc:" + f.path, source: "pc", acct: a.id, shared: false, files: [{ key, mime: f.mime }], caption: "", captionManual: false, createdAt: now(), publishAt: 0, seed: hashStr(f.path), order: ++order, myComments: [], hidden: [] };
+        await savePost(p); fresh++;
+      }
+    }
+    setSync("", 1);
+    if (fresh || gone){ await autoRun(); render(); }
+    if (loud) toast(missing.length ? `No folder named “${missing[0]}” in ${j.root}` : fresh ? `Picked up ${fresh} new ${fresh === 1 ? "file" : "files"} from the PC` : "No new files in the PC folder");
+  } finally { pcSyncing = false; }
 }
 function setSync(label, frac){
   const s = $("#syncStatus"), b = $("#syncBar");
@@ -2938,7 +2991,7 @@ function vSettings(v){
   v.innerHTML = `<div class="pad form">
     <div class="card"><h3>Accounts</h3>
       <div class="hint">Each account has its own Drive folder and its own captions, comments and story text. Tap one to set it up.</div>
-      ${S.accounts.map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : "No Drive folder yet"} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
+      ${S.accounts.map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : hasPcFolder(a) ? "" : "No Drive folder yet"}${hasPcFolder(a) ? (hasFolder(a) ? " · " : "") + "PC folder: " + esc(a.pcFolder) : ""} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
       ${S.accounts.length < 5 ? `<button class="btn" type="button" data-switch>Add account</button>` : ""}
     </div>
     <div class="card"><h3>Google Drive</h3>
@@ -3007,6 +3060,10 @@ function vAset(v, r){
       <div class="field"><label for="afolder">Folder name or link</label><input type="text" id="afolder" value="${esc(a.folderLink ? a.folderName : a.folderName)}" placeholder="e.g. File, or paste a Drive folder link" autocapitalize="off" autocorrect="off"></div>
       <button class="btn" type="button" data-pickfolder="${id}">Pick from Drive</button>
       <div class="hint">Only this account posts from this folder, and nothing is posted twice. A photo or video is one post; a subfolder is one post with several photos; a subfolder named <b>stories</b> becomes stories; <b>pfps</b> gives the people commenting their profile pictures. name.txt next to name.jpg is that post's caption. avatar.jpg and bio.txt set the profile. A link works for folders other Google accounts have shared with you.</div>
+    </div>
+    <div class="card"><h3>PC folder</h3>
+      <div class="field"><label for="apcfolder">Folder on the PC</label><input type="text" id="apcfolder" value="${esc(a.pcFolder || "")}" placeholder="e.g. ${esc(handleOf(a))}" autocapitalize="off" autocorrect="off"></div>
+      <div class="hint">A folder inside <b>Videos\\Reel</b> on your PC (C:\\Users\\Perry\\Videos\\Reel). Every video or photo in it becomes one post for this account (mp4, mov, webm, jpg, png, gif). Files up to ${PC_KEEP_MB} MB are copied onto the phone so they play with the PC off; bigger ones play from the PC, so they need it on. New files are picked up every 10 minutes while Reel is open.</div>
     </div>
     <div class="card"><h3>${AI()}</h3>
       ${seg("writer", a.writer || "text", [["off","Off"],["text","Text only"],["photos","Sees photos"]])}
@@ -3081,6 +3138,7 @@ function vAset(v, r){
       <div class="hint">Redoes captions, comments and story text all at once, including on posts already up. To redo just one, use the Redo button in its own section above. Anything you typed yourself is kept.</div></div>
     <a class="btn" href="#/acct/${id}">Open profile</a>
   </div>`;
+  $("#apcfolder").addEventListener("change", async e => { a.pcFolder = e.target.value.trim(); await saveAccounts(); if (a.pcFolder){ toast(`Reading ${a.pcFolder} on the PC…`); syncPc(true); } else toast("PC folder removed"); });
   $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
   $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
@@ -3472,6 +3530,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   if (back && fullPending) sync(false, true);
   else if (back || now() - last > 20*60e3) sync(true);
   setInterval(() => sync(true), 30*60e3);
+  syncPc(false); setInterval(() => syncPc(false), 10*60e3);
   setInterval(() => autoStories(), 30*60e3);
   setInterval(writerRun, 4*60e3);
   await migrateDms(); dmTick();
@@ -3480,7 +3539,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden"){ homeOrder = null; markLeft(); } else comeBack(); });
   window.addEventListener("pagehide", markLeft);
   comeBack();
-  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); dmTick(); if (now() - l > 20*60e3) sync(true); } });
+  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); dmTick(); if (now() - l > 20*60e3) sync(true); syncPc(false); } });
   setInterval(() => { if (["home","me","activity","all"].includes(route().name)) safeRender(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(()=>{}); })).catch(()=>{});
 })();
