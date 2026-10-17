@@ -465,23 +465,33 @@ async function sendExportToPC(){
   if (!r.ok || !j.ok) throw new Error(j.error || `the PC said ${r.status}`);
   return j.bytes;
 }
-async function loadFromPC(){
+// Reads [start, start + n) of the copy on the PC.
+function pcReader(){
   const base = ollamaURL(); if (!base) throw new Error("this phone doesn't know your PC's address");
-  const r = await fetch(`${base}/reel/backup`, { cache: "no-store" });
-  if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(j.error || `the PC said ${r.status}`); }
-  return new File([await r.blob()], "reel.reelbackup");
+  let total = 0;
+  const get = async (start, n) => {
+    const r = await fetch(`${base}/reel/backup`, { headers: { Range: `bytes=${start}-${start + n - 1}` }, cache: "no-store" });
+    if (r.status !== 206){ const j = await r.json().catch(() => ({})); throw new Error(j.error || `the PC said ${r.status}`); }
+    total = +((r.headers.get("Content-Range") || "").split("/")[1]) || total;
+    return r.blob();
+  };
+  return { size: () => total, blob: (start, n, type) => n ? get(start, n).then(b => type ? new Blob([b], { type }) : b) : Promise.resolve(new Blob([], { type })) };
 }
-// Replaces everything at this address with the file's contents.
-async function importAll(file, progress){
-  const m = /^REEL-EXPORT 1\n(\d+)\n/.exec(await file.slice(0, 64).text());
-  if (!m) throw new Error("that isn't a Reel export file");
+const fileReader = file => ({ size: () => file.size, blob: async (start, n, type) => file.slice(start, start + n, type) });
+// Replaces everything at this address with an export, from a file or from the PC. Checks the export is whole first.
+async function importAll(src, progress){
+  const rd = src instanceof Blob ? fileReader(src) : src;
+  const m = /^REEL-EXPORT 1\n(\d+)\n/.exec(await (await rd.blob(0, 64)).text());
+  if (!m) throw new Error("that isn't a Reel export");
   let at = new TextEncoder().encode(m[0]).length;
-  const man = JSON.parse(await file.slice(at, at + +m[1]).text()); at += +m[1];
+  const man = JSON.parse(await (await rd.blob(at, +m[1])).text()); at += +m[1];
+  const want = at + man.media.reduce((s, x) => s + x.size, 0);
+  if (rd.size() && rd.size() < want) throw new Error(`the export is incomplete (${Math.round(rd.size() / 1048576)} of ${Math.round(want / 1048576)} MB). Send it again`);
   await DB.clear("media"); await DB.clear("posts"); await DB.clear("kv");
   for (let i = 0; i < man.media.length; i++){
     const x = man.media[i];
-    await DB.put("media", file.slice(at, at + x.size, x.type), x.key); at += x.size;
-    if (progress && i % 10 === 0) progress(i, man.media.length);
+    await DB.put("media", await rd.blob(at, x.size, x.type), x.key); at += x.size;
+    if (progress && i % 5 === 0) progress(i, man.media.length);
   }
   for (const p of man.posts) await DB.put("posts", p);
   for (const [k, v] of Object.entries(man.kv)) await DB.put("kv", v, k);
@@ -492,7 +502,7 @@ async function importAll(file, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 85;
+const APP_VERSION = 86;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -3362,8 +3372,7 @@ document.addEventListener("click", async e => {
   if ("importpc" in d){
     if (t.disabled) return; t.disabled = true; t.textContent = "Loading from your PC…";
     try {
-      const f = await loadFromPC();
-      const man = await importAll(f, (i, n) => { t.textContent = `Importing… ${i} of ${n} photos and videos`; });
+      const man = await importAll(pcReader(), (i, n) => { t.textContent = `Importing… ${i} of ${n} photos and videos`; });
       toast(`Imported ${man.posts.length} posts. Reloading…`); setTimeout(() => location.reload(), 900);
     } catch(err){ t.disabled = false; t.textContent = "Load from my PC"; toast("Couldn't load it: " + err.message); }
     return;
