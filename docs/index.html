@@ -408,9 +408,9 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
-const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:720, level:"normal", folderName:"", folderId:"", folderLink:false,
+const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
@@ -830,7 +830,7 @@ function vFanPost(v, r){
   setTop(`${backBtn}<h1>Post</h1>`);
   if (!x.key){ loadPfps(); v.innerHTML = `<div class="empty"><h2>Loading…</h2></div>`; return; }
   const cr = rng(hashStr("fpc" + a.seed + r.b));
-  const cm = Array.from({ length: Math.min(3, x.comments) }, () => { const f = acct(Math.floor(cr()*POOL)); return `<div class="caption clamp"><a href="#/u/${f.i}"><b>${esc(f.handle)}</b></a> ${esc(pick(COMMENTS, cr))}</div>`; }).join("");
+  const cm = Array.from({ length: Math.min(4, x.comments) }, () => { const f = acct(Math.floor(cr()*POOL)); return `<div class="caption clamp"><a href="#/u/${f.i}"><b>${esc(f.handle)}</b></a> ${esc(pick(COMMENTS, cr))}</div>`; }).join("");
   v.innerHTML = `<article class="post"><div class="phead pad"><a href="#/u/${a.i}">${acctAv(a, 32)}</a><div class="who"><a href="#/u/${a.i}"><b>${esc(a.handle)}</b></a>${checkMark(a.verified)}</div></div>
     <div class="slide">${mediaTag({ key: x.key, mime: "image/jpeg" }, "", {})}</div>
     <div class="pad"><div class="likes num">${full(x.likes)} likes</div>${x.caption ? `<div class="caption"><b>${esc(a.handle)}</b> ${esc(x.caption)}</div>` : ""}
@@ -913,7 +913,7 @@ function humanize(t){
   return t;
 }
 function nextSlot(a){
-  const step = Math.max(15, +a.interval || 720) * 60e3;
+  const step = Math.max(15, +a.interval || 720) * 60e3 * 15 / 24; // waking hours only
   const q = queued(a.id); const last = q.length ? q[q.length-1].publishAt : 0;
   const from = last || live(a.id)[0]?.publishAt || 0;
   const jitter = (rng(hashStr("j"+from+a.seed))() - .5) * .5 * step;
@@ -1537,7 +1537,7 @@ function postCard(p){
       <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b data-href="#/u/${liker.i}">${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
       ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
-      ${vc.slice(-2).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
+      ${vc.slice(-4).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
       <div class="when">${p.pinned ? "Pinned · " : ""}${esc(ago(p.publishAt, true))}</div>
       ${p.publishAt <= now() ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
     </div>
@@ -1678,7 +1678,7 @@ function vMe(v, r){
       <div class="card" style="margin-top:14px"><h3>The bot</h3>
         <div class="hint">New files join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. There's enough for about <b>${Math.max(1, Math.round(rw))} more ${Math.round(rw)===1?"day":"days"}</b>${rw < 3 ? ". Add more photos to the folder soon." : "."}` : "The queue is empty, so the bot has nothing to post. Add photos to your Drive folder."}</div>
         <span class="lbl">Posts per day</span>
-        <div class="seg">${[[2880,"½"],[1440,"1"],[720,"2"],[480,"3"],[288,"5"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
+        <div class="seg">${[[720,"2"],[288,"5"],[180,"8"],[120,"12"],[60,"24"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
       </div>
       <div class="sect">Queued (${Q.length})</div>
       ${Q.length ? Q.map(qRow).join("") : `<div class="hint">Empty. Add photos to your Drive folder to give the bot something to post.</div>`}
@@ -2462,6 +2462,10 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
       for (const a of S.accounts){ a.order = "random"; await shuffleQueue(a); }
       st.folderName = ""; st.folderId = ""; st.perAccount = 1; await saveSettings();
     }
+  }
+  if (!S.settings.morePosts){
+    for (const a of S.accounts) if (+a.interval >= 720){ a.interval = 180; await respace(a); }
+    S.settings.morePosts = 1; await saveSettings();
   }
   await saveAccounts();
   const misc = await DB.get("kv","misc") || {};
