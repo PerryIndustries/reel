@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 73;
+const APP_VERSION = 74;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -808,7 +808,7 @@ function engage(p){
   return { likes, comments, views, ...t };
 }
 const genCache = new Map();
-const ownComments = a => (a.myComments || "").split("\n").map(x => x.trim()).filter(Boolean);
+const ownComments = a => (a.myComments || "").split("\n").map(x => x.trim()).filter(x => x && !wrongVoice(x, a, "comments"));
 // About 15 fans per account who show up again and again in the comments.
 const regularsOf = a => { const r = rng(hashStr("reg" + a.seed)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 function genComments(p){
@@ -1337,7 +1337,7 @@ function storyStats(p){
 
 /* ================= captions ================= */
 function captionPool(a){
-  const mine = (a.myCaptions || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const mine = (a.myCaptions || "").split("\n").map(x => x.trim()).filter(x => x && !wrongVoice(x, a, "caption"));
   return [...mine, ...mine, ...mine, ...(thirsty(a) ? THIRST : [])];
 }
 function genCaption(p, attempt){
@@ -1503,6 +1503,16 @@ const heatOf = a => (a && a.heat) || "explicit";
 const heatLine = a => heatOf(a) === "explicit" ? `\n\n${HEAT_EXPLICIT}` : "";
 const DEFAULT_STYLE = "Voice: the way real thirst-trap accounts on Instagram and X/Twitter post: flirty and confident but understated, teasing, a little cocky, often ironic or fake-casual (acting like the photo was no big deal), sometimes pure engagement bait (questions, rate it, should i post the other one), sometimes just an emoji. Innuendo is fine. Avoid cheesy pickup-line copywriting.";
 const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji, lowercase, at most one or two emoji, no hashtags.";
+const isShe = a => !a || !a.pronouns || a.pronouns === "she";
+const WHO_COMMENTS = "\n\nWho is who: the owner is the woman posting. The commenters are horny men reacting to her: what they'd do to her, her body, begging her, losing it over her. Every comment is a man talking to her or about her. Never write as a woman or in her voice: no \"my pussy\", \"my tits\" or \"my clit\", never asking for his cock or his cum.";
+const WHO_CAPTIONS = "\n\nWho is who: the caption is the owner talking, the woman posting, teasing the men who follow her. It is never a man talking about her body.";
+const whoFor = (a, part) => !isShe(a) ? "" : part === "caption" || part === "story" ? WHO_CAPTIONS : part === "comments" ? WHO_COMMENTS : "";
+// Lines in the wrong voice: a comment that sounds like her, or a caption that sounds like a guy talking about her.
+function wrongVoice(t, a, part){
+  if (!isShe(a)) return false;
+  if (part === "comments") return /\bmy (pussy|clit|cunt|tits|titties|boobs|nipples)\b|\byour (cock|dick|cum|balls)\b/i.test(t);
+  return /\byour (pussy|clit|cunt|tits|titties|boobs|nipples)\b/i.test(t);
+}
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
 const STORY_RULES = "Very short (2 to 8 words), the kind of line that makes followers reply.";
 const hasText = t => !!(t && t.trim());
@@ -1577,9 +1587,9 @@ async function askNoCopy(a, system, content, schema, textOf){
 const remind = (a, dirs) => { const d = dirs.filter(([, t]) => hasText(t)).map(([what, t]) => `${what}: ${t.trim()}`); return (d.length ? `\n\nThe owner's direction (instructions to follow, never text to copy):\n${d.join("\n")}` : "") + (heatOf(a) === "explicit" ? "\n\nRemember: this account is explicit. Don't tone it down." : ""); };
 const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
 const cleanLine = t => String(t || "").replace(/^["'“]+|["'”]+$/g, "").trim();
-const storySys = (a, blind) => `${contextFor(a)}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(a.storyDirection || a.capDirection, a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`;
-const capSys = (a, blind, avoid = "") => `${contextFor(a)}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`;
-const comSys = (a, blind) => `${contextFor(a)}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice. Each comment is short, one line.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`;
+const storySys = (a, blind) => `${contextFor(a)}${whoFor(a, "story")}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(a.storyDirection || a.capDirection, a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`;
+const capSys = (a, blind, avoid = "") => `${contextFor(a)}${whoFor(a, "caption")}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`;
+const comSys = (a, blind) => `${contextFor(a)}${whoFor(a, "comments")}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice. Each comment is short, one line.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`;
 const BLIND = "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
 const briefHtml = (a, field) => { const t = briefFor(a, DIR_FIELDS[field], a[field]); return t ? `<b>What the writer takes from this</b>\n${esc(t)}` : ""; };
 // Settings' "Try it": three samples written with the same prompt the real posts get, without a photo.
@@ -1620,7 +1630,7 @@ async function writeOne(j){
     // Some models (roleplay ones especially) stop after a few comments, so keep asking in small batches until there are enough.
     const sys = comSys(a, blind);
     const cap = normT(p.caption), got = [];
-    const keep = c => { const n2 = normT(c); if (!n2 || c.length > 220) return false; if (got.some(g => normT(g) === n2)) return false; return !cap || cap.length < 4 || (n2 !== cap && !(n2.length > 8 && (cap.includes(n2) || n2.includes(cap)))); };
+    const keep = c => { const n2 = normT(c); if (!n2 || c.length > 220 || wrongVoice(c, a, "comments")) return false; if (got.some(g => normT(g) === n2)) return false; return !cap || cap.length < 4 || (n2 !== cap && !(n2.length > 8 && (cap.includes(n2) || n2.includes(cap)))); };
     let answered = false;
     for (let call = 0; call < 5 && got.length < n; call++){
       const want = call ? Math.min(8, n - got.length) : n;
@@ -1642,7 +1652,7 @@ const POOL_SIZE = { caption: 60, comments: 150 };
 // Each batch leans a different way so the list doesn't turn into 150 versions of the same line.
 const POOL_ANGLES = {
   caption: ["teasing, saying little", "bait: questions and rate-me lines", "bratty and cocky", "just one or two emoji", "openly offering what she'd do", "fake-casual, like it's no big deal"],
-  comments: ["short reactions: 1 to 3 words or just emoji", "what they'd do to the owner, spelled out", "about the owner's body", "begging, asking the owner for things, questions to the owner", "funny or unhinged", "girls and couples reacting", "guys who are speechless or losing it"],
+  comments: ["short reactions: 1 to 3 words or just emoji", "what they'd do to the owner, spelled out", "about the owner's body", "begging, asking the owner for things, questions to the owner", "funny or unhinged", "what he'd do if he had her for one night", "guys who are speechless or losing it"],
 };
 // The first three words of a line: lines that open the same way count as repeats.
 const opener = t => normT(t).split(" ").slice(0, 3).join(" ");
@@ -1655,7 +1665,7 @@ async function fillPool(a, part, progress){
   const rules = part === "caption" ? CAPTION_RULES : COMMENT_RULES;
   const what = part === "caption" ? "Instagram captions this account posts under its own photos" : "comments different followers leave under this account's posts, each from a different person (viewers reacting, never the poster)";
   const dir = part === "caption" ? a.capDirection : a.comDirection;
-  const sys = `${contextFor(a)}\n\nWrite ${what}. They have to work under any of the account's photos, so never describe anything specific in a photo (no outfit, place, colors or pose).\n\n${styleFor(dir, (a[field] || "").split("\n").slice(-25).join("\n"), rules, part, a)}`;
+  const sys = `${contextFor(a)}${whoFor(a, part)}\n\nWrite ${what}. They have to work under any of the account's photos, so never describe anything specific in a photo (no outfit, place, colors or pose).\n\n${styleFor(dir, (a[field] || "").split("\n").slice(-25).join("\n"), rules, part, a)}`;
   let added = 0;
   for (let call = 0; call < 12 && added < POOL_SIZE[part]; call++){
     const recent = [...have()].sort(() => Math.random() - .5).slice(0, 12);
@@ -1663,7 +1673,7 @@ async function fillPool(a, part, progress){
     const out = await ask(sys, [{ type: "text", text: `${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. This batch leans this way: ${angle}. Every line starts differently: never more than two that open with the same word (not a run of Fuck, Mmmm or Damn). Each one is a whole thought a real person would post, said by a follower to or about the owner, not a fragment. Mix very short ones with longer ones.${remind(a, [[part === "caption" ? "Captions" : "Comments", dir]])}` }], undefined, 900);
     if (!out) break;
     const fresh = out.split("\n").map(x => cleanLine(x.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")))
-      .filter(x => x && x.length <= 200 && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
+      .filter(x => x && x.length <= 200 && !wrongVoice(x, a, part) && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
       .filter(x => { const k = normT(x) || x; if (seen.has(k)) return false; const o = k.split(" ").length > 3 ? opener(x) : ""; if (o && opens.has(o)) return false; const w = firstWord(x); if (w && (firsts[w] || 0) >= Math.max(4, POOL_SIZE[part] / 20)) return false; firsts[w] = (firsts[w] || 0) + 1; seen.add(k); if (o) opens.add(o); return true; });
     if (!fresh.length) break;
     a[field] = [...have(), ...fresh].join("\n"); added += fresh.length;
