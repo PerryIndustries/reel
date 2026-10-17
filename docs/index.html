@@ -178,6 +178,8 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .field{display:flex;flex-direction:column;gap:6px}
 .field label,.lbl{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
 .hint{font-size:13px;color:var(--muted)}
+.brief{white-space:pre-line}.brief:empty{display:none}
+.tryout{display:flex;flex-direction:column;gap:6px;font-size:14px}.tryout div{padding:8px 10px;border:1px solid var(--line);border-radius:10px}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}
 .seg button{border:1px solid var(--line);border-radius:9px;padding:9px 4px;font-weight:600;font-size:13px}
 .seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
@@ -1500,13 +1502,49 @@ const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
 const STORY_RULES = "Very short (2 to 8 words), the kind of line that makes followers reply.";
 const hasText = t => !!(t && t.trim());
+// Who is talking in each part. Directions are written by the owner, so "I/me/my" in them always means the owner;
+// for comments and fan DMs someone else is talking, and the writer has to turn that around.
+const SPEAKER = {
+  caption: "Who is talking: the owner, posting on their own profile. In the direction, I/me/my means the owner, and the caption is in the owner's own voice.",
+  story: "Who is talking: the owner, on their own story. In the direction, I/me/my means the owner, and the text is in the owner's own voice.",
+  comments: "Who is talking: followers, other people commenting under the owner's post and talking to or about the owner. In the direction, I/me/my means the owner (the poster), never a commenter, so turn it around: \"some ask for my number\" means comments like \"can i get your number\". When the direction describes the commenters (\"mostly guys\"), that is who writes them.",
+  dmFan: "Who is talking: a fan, sending a DM to the owner. In the direction, I/me/my means the owner, so the fan says you/your to them.",
+  dmMe: "Who is talking: the owner, replying to a fan in DMs. In the direction, I/me/my means the owner.",
+};
+const DIR_FIELDS = { capDirection: "caption", comDirection: "comments", storyDirection: "story", dmFanDirection: "dmFan", dmMeDirection: "dmMe" };
+// The brief made from a direction, if it was made from the direction as it reads now. Story text falls back to the caption direction, and to its brief.
+function briefFor(a, genre, dir){
+  const b = a && a.briefs || {}, src = (dir || "").trim();
+  for (const g of genre === "story" ? ["story", "caption"] : [genre]) if (b[g] && b[g].src === src && b[g].text) return b[g].text;
+  return "";
+}
+// Rewrites one direction box into a plain brief from the speaker's side, once, when it's saved. Small models follow that better than a casual sentence.
+async function makeBrief(a, field){
+  const genre = DIR_FIELDS[field], dir = (a[field] || "").trim();
+  a.briefs = a.briefs || {};
+  if (!dir){ delete a.briefs[genre]; return ""; }
+  const list = { type: "array", items: { type: "string" } };
+  const out = await ask(`${contextFor(a)}\n\nThe owner typed a casual direction for one part of their feed. Turn it into a short, clear brief for the writer of that part. ${SPEAKER[genre]}\nWrite the brief from the speaker's side, with me/my turned around wherever the speaker isn't the owner. Keep every wish in the direction and add none of your own. Each item is a few plain words.`,
+    [{ type: "text", text: `Part: ${{ caption: "captions", comments: "comments", story: "story text", dmFan: "fans' DMs", dmMe: "the owner's DM replies" }[genre]}\nDirection: ${dir}` }],
+    { type: "object", properties: { speaker: { type: "string" }, talking_to: { type: "string" }, tone: { type: "string" }, do: list, avoid: list }, required: ["speaker", "talking_to", "tone", "do", "avoid"], additionalProperties: false });
+  if (!out || (a[field] || "").trim() !== dir) return "";
+  // A brief with nothing to do misread the direction; the raw direction alone is safer than a wrong summary.
+  if (!Array.isArray(out.do) || !out.do.some(hasText)){ delete a.briefs[genre]; return ""; }
+  const j = k => Array.isArray(out[k]) ? out[k].filter(hasText).join("; ") : "";
+  const text = [`Speaker: ${out.speaker || "-"}`, `Talking to: ${out.talking_to || "-"}`, `Tone: ${out.tone || "-"}`, `Do: ${j("do") || "-"}`, ...(j("avoid") ? [`Avoid: ${j("avoid")}`] : [])].join("\n");
+  a.briefs[genre] = { src: dir, text };
+  return text;
+}
 // How one part (caption, comments or story text) should read. When the owner wrote a direction or their own lines,
 // those are the ONLY style instructions for that part: the default voice and rules are left out so they can't pull against it.
 function styleFor(dir, mine, defaults, genre, a){
   const own = (mine || "").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 25);
   if (!hasText(dir) && !own.length) return `${heatOf(a) === "explicit" ? "Voice: confident, filthy and teasing, the way explicit adult accounts and their fans actually talk." : DEFAULT_STYLE} ${defaults}${genreExamples(genre, a)}`;
   let s = "";
-  if (hasText(dir)) s += `The owner's direction says what to write: the voice, the topics, how far to go. Follow it closely, and don't add a style of your own. It is an instruction to you, not text to post: never repeat, quote or reword it; write brand-new lines that do what it says.\nDirection: ${dir.trim()}`;
+  if (hasText(dir)){
+    const brief = briefFor(a, genre, dir);
+    s += `${SPEAKER[genre] ? SPEAKER[genre] + "\n" : ""}The owner's direction says what to write: the voice, the topics, how far to go. Follow it closely, and don't add a style of your own. It is an instruction to you, not text to post: never repeat, quote or reword it; write brand-new lines that do what it says.\nDirection (the owner's words): ${dir.trim()}${brief ? `\nWhat it means, spelled out:\n${brief}` : ""}`;
+  }
   if (own.length) s += `${s ? "\n" : ""}Lines the owner wrote themselves. Match their style, length, slang, punctuation and emoji use closely (new lines in that voice, not copies):\n${own.map(x => "- " + x).join("\n")}`;
   return s;
 }
@@ -1535,30 +1573,48 @@ async function askNoCopy(a, system, content, schema, textOf){
 const remind = (a, dirs) => { const d = dirs.filter(([, t]) => hasText(t)).map(([what, t]) => `${what}: ${t.trim()}`); return (d.length ? `\n\nThe owner's direction (instructions to follow, never text to copy):\n${d.join("\n")}` : "") + (heatOf(a) === "explicit" ? "\n\nRemember: this account is explicit. Don't tone it down." : ""); };
 const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
 const cleanLine = t => String(t || "").replace(/^["'“]+|["'”]+$/g, "").trim();
+const storySys = (a, blind) => `${contextFor(a)}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(a.storyDirection || a.capDirection, a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`;
+const capSys = (a, blind, avoid = "") => `${contextFor(a)}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`;
+const comSys = (a, blind) => `${contextFor(a)}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice. Each comment is short, one line.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`;
+const BLIND = "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
+const briefHtml = (a, field) => { const t = briefFor(a, DIR_FIELDS[field], a[field]); return t ? `<b>What the writer takes from this</b>\n${esc(t)}` : ""; };
+// Settings' "Try it": three samples written with the same prompt the real posts get, without a photo.
+async function trySamples(a, genre){
+  const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
+  const schema = { type: "object", properties: { lines: COMMENTS_SCHEMA }, required: ["lines"], additionalProperties: false };
+  const last = [...S.posts].reverse().find(x => x.acct === a.id && x.caption);
+  const [sys, msg] = genre === "comments"
+    ? [comSys(a, BLIND), `The post's caption (written by the poster, don't repeat it): ${last ? last.caption : "(none)"}\nWrite 3 comments.${remind(a, [comDir])}`]
+    : genre === "story"
+      ? [storySys(a, BLIND).replace("Reply with the text only, no quotes.", "Reply with 3 different options."), `Write 3 different story texts.${remind(a, [storyDir])}`]
+      : [capSys(a, BLIND).replace("Reply with the caption only, no quotes.", "Reply with 3 different options."), `This post is on @${handleOf(a)}. Write 3 different captions for it.${remind(a, [capDir])}`];
+  const out = await ask(sys, [{ type: "text", text: msg }], schema);
+  return out && Array.isArray(out.lines) ? out.lines.map(cleanLine).filter(Boolean).slice(0, 3) : [];
+}
 // One request per post: the caption and the comments come back together when both are needed.
 async function writeOne(j){
   const p = j.p, a = acctOf(p);
   const img = a.writer === "photos" && modelSeesPhotos() ? await frameB64(p.files[0]) : null;
-  const blind = img ? "" : "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
+  const blind = img ? "" : BLIND;
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
   const setComments = list => { if (Array.isArray(list)){ capChanged(p); } if (Array.isArray(list)) p.aiComments = list.map(c => String(c).replace(/^@[\w.]+:\s*/, "").trim()).filter(c => c && !copiesDirection(c, a)).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
   const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
   if (j.kind === "story"){
-    const out = await askNoCopy(a, `${contextFor(a)}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(storyDir[1], a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`, withImg(`Write the story text.${remind(a, [storyDir])}`), undefined, o => o);
+    const out = await askNoCopy(a, storySys(a, blind), withImg(`Write the story text.${remind(a, [storyDir])}`), undefined, o => o);
     if (out) p.storyText = cleanLine(out);
     p.storyWritten = true;
   } else if (j.cap){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
     const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
-    const out = await askNoCopy(a, `${contextFor(a)}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.${remind(a, [capDir])}`), undefined, o => o);
+    const out = await askNoCopy(a, capSys(a, blind, avoid), withImg(`This post is on @${handleOf(a)}. Write its caption.${remind(a, [capDir])}`), undefined, o => o);
     if (out){ p.caption = cleanLine(out); capChanged(p); }
     p.captionWritten = true;
   }
   // Comments get their own request, written as replies to the finished caption, so the caption's direction can't bleed into them.
   if (j.kind !== "story" && j.com){
     // Some models (roleplay ones especially) stop after a few comments, so keep asking in small batches until there are enough.
-    const sys = `${contextFor(a)}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice. Each comment is short, one line.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`;
+    const sys = comSys(a, blind);
     const cap = normT(p.caption), got = [];
     const keep = c => { const n2 = normT(c); if (!n2 || c.length > 220) return false; if (got.some(g => normT(g) === n2)) return false; return !cap || cap.length < 4 || (n2 !== cap && !(n2.length > 8 && (cap.includes(n2) || n2.includes(cap)))); };
     let answered = false;
@@ -2664,6 +2720,8 @@ function vAset(v, r){
       ${seg("capstyle", a.captionStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amycap">Your own captions, one per line</label><textarea id="amycap" placeholder="each line can become a caption">${esc(a.myCaptions||"")}</textarea></div>
       <div class="field"><label for="adcap">Direction for ${AI()}</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
+      <div class="hint brief" id="brief-capDirection">${briefHtml(a, "capDirection")}</div>
+      <button class="btn" type="button" data-try="caption" data-acct="${id}">Try it</button><div class="tryout" id="try-caption" hidden></div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-redo="caption" data-acct="${id}">Redo captions</button>
       <div class="hint">New captions on every post, including ones already up. Comments stay as they are, and captions you typed yourself are kept.</div></div>
@@ -2672,12 +2730,16 @@ function vAset(v, r){
       <div class="field"><label for="amycom">Your own comments, one per line</label><textarea id="amycom" placeholder="each line becomes a comment, word for word">${esc(a.myComments||"")}</textarea></div>
       <div class="hint">${a.comStyle === "mine" ? "Every comment comes from your list exactly as you typed it, spread across posts." : `${AI()} copies the style of your lines, and they also show up word for word on posts.`}</div>
       <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div>
+      <div class="hint brief" id="brief-comDirection">${briefHtml(a, "comDirection")}</div>
+      <button class="btn" type="button" data-try="comments" data-acct="${id}">Try it</button><div class="tryout" id="try-comments" hidden></div>
       <button class="btn" type="button" data-redo="comments" data-acct="${id}">Redo comments</button>
       <div class="hint">New comments on every post, including ones already up. Captions stay as they are, and comments you typed yourself are kept.</div></div>
     <div class="card"><h3>Story text</h3>
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
       <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div>
+      <div class="hint brief" id="brief-storyDirection">${briefHtml(a, "storyDirection")}</div>
+      <button class="btn" type="button" data-try="story" data-acct="${id}">Try it</button><div class="tryout" id="try-story" hidden></div>
       <button class="btn" type="button" data-redo="story" data-acct="${id}">Redo story text</button>
       <div class="hint">New text on today's and upcoming stories.</div></div>
     <div class="card"><h3>Heat</h3>
@@ -2691,7 +2753,9 @@ function vAset(v, r){
       ${seg("dmauto", a.dmAuto || "some", [["off","Never"],["some","A few a day"],["lots","Lots"]])}
       <div class="hint">Fans always answer what you type. With this on, chats you leave alone keep going: the account replies in its own voice and they reply back. Switch it per chat in that chat's settings.${a.writer === "off" ? ` ${AI()} is off for this account, so nobody replies until you turn it back on.` : ""}</div>
       <div class="field"><label for="admfan">How fans talk in DMs</label><textarea id="admfan" placeholder="e.g. mostly guys, shy at first then really forward, they ask to meet up, lots of 😳">${esc(a.dmFanDirection||"")}</textarea></div>
-      <div class="field"><label for="admme">How @${esc(handleOf(a))} replies</label><textarea id="admme" placeholder="e.g. dry and teasing, makes them work for it, never more than a few words">${esc(a.dmMeDirection||"")}</textarea></div></div>
+      <div class="hint brief" id="brief-dmFanDirection">${briefHtml(a, "dmFanDirection")}</div>
+      <div class="field"><label for="admme">How @${esc(handleOf(a))} replies</label><textarea id="admme" placeholder="e.g. dry and teasing, makes them work for it, never more than a few words">${esc(a.dmMeDirection||"")}</textarea></div>
+      <div class="hint brief" id="brief-dmMeDirection">${briefHtml(a, "dmMeDirection")}</div></div>
     <div class="card"><h3>Rewrite with ${AI()}</h3>
       <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Redo everything on this account</button>
       <div class="hint">Redoes captions, comments and story text all at once, including on posts already up. To redo just one, use the Redo button in its own section above. Anything you typed yourself is kept.</div></div>
@@ -2702,13 +2766,23 @@ function vAset(v, r){
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
   // A new direction (or new own lines) rewrites this account's posts by itself, the ones already up included.
   const aiOn = () => !!ollamaURL() && a.writer !== "off";
+  // The brief is made before the rewrite starts, so the rewritten posts already use it.
+  const refreshBrief = async field => {
+    const el = $("#brief-" + field);
+    if (!aiOn() || !hasText(a[field])){ if (a.briefs) delete a.briefs[DIR_FIELDS[field]]; await saveAccounts(); if (el) el.textContent = ""; return; }
+    if (el) el.textContent = "Working out what you mean…";
+    try { await makeBrief(a, field); } catch(e){}
+    await saveAccounts();
+    if (el && el.isConnected) el.innerHTML = briefHtml(a, field);
+  };
   const requeue = what => autoRedo(a, what);
   for (const [el, field, what] of [["adcap","capDirection",{ cap: 1, story: 1 }],["adcom","comDirection",{ com: 1 }],["adstory","storyDirection",{ story: 1 }]]) $("#"+el).addEventListener("change", async e => {
     a[field] = e.target.value; await saveAccounts();
+    await refreshBrief(field);
     if (aiOn()){ await requeue(what); toast("Direction saved. Rewriting this account now; the new ones show on top of Home."); }
     else toast("Direction saved");
   });
-  for (const [el, field] of [["admfan","dmFanDirection"],["admme","dmMeDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Saved. The next DMs follow it."); });
+  for (const [el, field] of [["admfan","dmFanDirection"],["admme","dmMeDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Saved. The next DMs follow it."); refreshBrief(field); });
   $("#amycom").addEventListener("change", async e => { a.myComments = e.target.value; await saveAccounts(); genCache.clear(); toast(a.comStyle === "mine" ? "Comments saved. Every post uses them now." : "Comments saved"); });
   $("#amycap").addEventListener("change", async e => {
     a.myCaptions = e.target.value; await saveAccounts();
@@ -2880,6 +2954,14 @@ document.addEventListener("click", async e => {
   if (d.comstyle){ const a = accountById(d.acct) || A(); a.comStyle = d.comstyle; await saveAccounts(); genCache.clear(); render(); toast(d.comstyle === "mine" ? (ownComments(a).length ? "Comments now come only from your list" : "Type your comments in the box, one per line") : `${AI()} writes the comments again`); if (d.comstyle !== "mine") writerRun(); return; }
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
+  if (d.try){
+    const a = accountById(d.acct) || A(), box = $("#try-" + d.try);
+    if (!ollamaURL() || a.writer === "off"){ toast("Turn on the writer first"); return; }
+    box.hidden = false; box.textContent = "Writing 3 samples…";
+    try { const lines = await trySamples(a, d.try); box.innerHTML = lines.length ? lines.map(x => `<div>${esc(x)}</div>`).join("") : "Nothing came back. Try again."; }
+    catch(e){ box.textContent = e.kind === "conn" ? "Couldn't reach Ollama on your PC." : "Something went wrong: " + e.message; }
+    return;
+  }
   if (d.redo){ const a = accountById(d.acct) || A(); const what = { caption: "captions", comments: "comments", story: "story text" }[d.redo]; const { n, ai } = await redoPart(a, d.redo);
     toast(!n ? `No ${what} to redo on @${handleOf(a)}` : ai ?`Redoing ${what} on ${n} ${n === 1 ? "post" : "posts"}. Next-up and newest go first.` : `New ${what} on ${n} ${n === 1 ? "post" : "posts"}`); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
