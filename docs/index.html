@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 78;
+const APP_VERSION = 79;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1652,10 +1652,12 @@ async function writeOne(j){
 // account's direction and heat. The owner deletes what they don't like; with Only mine on, posts use just this list.
 const POOL_SIZE = { caption: 60, comments: 150, story: 40 };
 // Each batch leans a different way so the list doesn't turn into 150 versions of the same line.
+// About a third of captions and story text, and about half of the comments, are openly explicit; the rest tease.
+const POOL_VER = 2;
 const POOL_ANGLES = {
-  story: ["teasing, saying little", "questions that make them reply", "bratty and cocky", "openly offering what she'd do", "fake-casual, like it's no big deal"],
-  caption: ["teasing, saying little", "bait: questions and rate-me lines", "bratty and cocky", "just one or two emoji", "openly offering what she'd do", "fake-casual, like it's no big deal"],
-  comments: ["short reactions: 1 to 3 words or just emoji", "what they'd do to the owner, spelled out", "about the owner's body", "begging, asking the owner for things, questions to the owner", "funny or unhinged", "what he'd do if he had her for one night", "guys who are speechless or losing it"],
+  story: [["teasing, saying little", true], ["questions that make them reply", true], ["bratty and cocky", true], ["openly explicit about what she wants", false], ["fake-casual, like it's no big deal", true], ["openly explicit about what she's doing right now", false]],
+  caption: [["teasing, saying little", true], ["bait: questions and rate-me lines", true], ["bratty and cocky", true], ["just one or two emoji", true], ["openly explicit about what she wants", false], ["fake-casual, like it's no big deal", true], ["openly explicit, dirty and short", false]],
+  comments: [["short hype: 1 to 3 words or just emoji", true], ["compliments: pretty, gorgeous, wifey material, how is this real", true], ["funny or unhinged", true], ["guys who are speechless or losing it", true], ["what they'd do to the owner, spelled out", false], ["about the owner's body, explicit", false], ["begging, asking the owner for things", false], ["what he'd do if he had her for one night", false]],
 };
 // The first three words of a line: lines that open the same way count as repeats.
 const opener = t => normT(t).split(" ").slice(0, 3).join(" ");
@@ -1672,12 +1674,14 @@ async function fillPool(a, part, progress){
   let added = 0, empty = 0;
   for (let call = 0; call < 14 && added < POOL_SIZE[part]; call++){
     const recent = [...have()].sort(() => Math.random() - .5).slice(0, 12);
-    const angles = POOL_ANGLES[part], angle = angles[(call + Math.floor(Math.random() * angles.length)) % angles.length];
+    const angles = POOL_ANGLES[part], [angle, mild] = angles[(call + Math.floor(Math.random() * angles.length)) % angles.length];
+    const who = part === "comments" ? "said by a follower to or about the owner" : "said by her about herself";
+    const tone = mild ? `\n\nThis batch is the lighter part of the mix: flirty and suggestive, hinting rather than spelling it out, no graphic words.${hasText(dir) ? `\n\nThe owner's direction (instructions, never text to copy): ${dir.trim()}` : ""}` : remind(a, [[{ caption: "Captions", comments: "Comments", story: "Story text" }[part], dir]]);
     const her = isShe(a) && part !== "comments" ? `Her voice, for the feel only (write new ones): ${[...HER_VOICE].sort(() => Math.random() - .5).slice(0, 5).join(" / ")}\nEvery line is her talking about herself: I/me/my means her.\n\n` : "";
-    const out = await ask(sys, [{ type: "text", text: `${her}${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. This batch leans this way: ${angle}. Every line starts differently: never more than two that open with the same word (not a run of Fuck, Mmmm or Damn). Each one is a whole thought a real person would post, said by a follower to or about the owner, not a fragment. Mix very short ones with longer ones.${remind(a, [[{ caption: "Captions", comments: "Comments", story: "Story text" }[part], dir]])}` }], undefined, 900);
+    const out = await ask(sys, [{ type: "text", text: `${her}${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. This batch leans this way: ${angle}. Every line starts differently: never more than two that open with the same word (not a run of Fuck, Mmmm or Damn). Each one is a whole thought a real person would post, ${who}, not a fragment. ${part === "comments" ? "Mix very short ones with longer ones." : "Keep them short: 1 to 7 words, lowercase, like real captions."}${tone}` }], undefined, 900);
     if (!out) break;
     const fresh = out.split("\n").map(x => cleanLine(x.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")))
-      .filter(x => x && x.length <= 200 && !wrongVoice(x, a, part) && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
+      .filter(x => x && x.length <= 200 && (part === "comments" || normT(x).split(" ").length <= 9) && !wrongVoice(x, a, part) && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
       .filter(x => { const k = normT(x) || x; if (seen.has(k)) return false; const o = k.split(" ").length > 3 ? opener(x) : ""; if (o && opens.has(o)) return false; const w = firstWord(x); if (w && (firsts[w] || 0) >= Math.max(4, POOL_SIZE[part] / 20)) return false; firsts[w] = (firsts[w] || 0) + 1; seen.add(k); if (o) opens.add(o); return true; });
     if (!fresh.length){ if (++empty >= 3) break; continue; }
     empty = 0;
@@ -1696,7 +1700,12 @@ async function autoPools(){
   let changed = false;
   try {
     for (const a of S.accounts){
-      if (a.writer === "off" || a.poolsDone) continue;
+      if (a.writer === "off") continue;
+      if ((a.poolVer || 1) < POOL_VER){
+        if (a.poolsDone || a.poolFilled_caption || a.poolFilled_comments || a.poolFilled_story){ a.myCaptions = ""; a.myComments = ""; a.myStoryTexts = ""; }
+        a.poolFilled_caption = a.poolFilled_comments = a.poolFilled_story = 0; a.poolsDone = 0; a.poolVer = POOL_VER; await saveAccounts();
+      }
+      if (a.poolsDone) continue;
       setWriter(`Writing @${handleOf(a)}'s caption, comment and story lists…`);
       for (const part of ["caption", "comments", "story"]) if (!(a["poolFilled_" + part])){ if (await fillPool(a, part)){ a["poolFilled_" + part] = 1; await saveAccounts(); } }
       if (!a.poolFilled_caption || !a.poolFilled_comments || !a.poolFilled_story) continue;
