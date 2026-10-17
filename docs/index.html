@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 79;
+const APP_VERSION = 80;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -829,7 +829,7 @@ function genComments(p){
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (aiC.length) text = aiC[k % aiC.length];
-    if (own.length && (onlyOwn || r() < .3)) text = own.length > n * 2 ? own[(start + Math.floor(r() * own.length)) % own.length] : own[(start + k) % own.length];
+    if (own.length && (onlyOwn || (PC() ? (!aiC.length || r() < .5) : r() < .3))) text = own.length > n * 2 ? own[(start + Math.floor(r() * own.length)) % own.length] : own[(start + k) % own.length];
     if (own.length > n * 2 && out.some(c => c.text === text)) text = own[(start + k * 13) % own.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
@@ -1414,7 +1414,7 @@ function avatarChooser(){
 }
 
 async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
-  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); setTimeout(autoPools, 800); }
+  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(async () => { await loadPcStyle(); writerRun(); if (!PC()) autoPools(); }, 400); }
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
@@ -1434,13 +1434,13 @@ const ollamaModel = () => (S.secret.model || "").trim() || DEFAULT_MODEL;
 // e.kind is conn | model.
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
 const errKind = e => (e && e.kind) || "";
-async function ask(system, content, schema, max){
+async function ask(system, content, schema, max, model){
   const base = ollamaURL(); if (!base) return null;
   const images = content.filter(b => b.type === "image").map(b => b.source.data);
   const body = {
     // Streamed, so the phone keeps hearing from the PC: iPhone drops a request that's silent for about a minute.
     // A small context keeps four requests at once on the GPU; captions and comments are short.
-    model: ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096, num_predict: max || (schema ? 1000 : 160) },
+    model: model || ollamaModel(), stream: true, keep_alive: "30m", options: { num_ctx: 4096, num_predict: max || (schema ? 1000 : 160) },
     messages: [{ role: "system", content: system }, { role: "user", content: content.filter(b => b.type === "text").map(b => b.text).join("\n\n"), ...(images.length ? { images } : {}) }],
     ...(schema ? { format: schema } : {}),
   };
@@ -1455,7 +1455,7 @@ async function ask(system, content, schema, max){
     const j = await res.json().catch(() => ({}));
     const msg = j.error || `Ollama error ${res.status}`;
     // A text-only model (like uncensored) can't take photos: remember that on this phone and write from text instead.
-    if (images.length && /multimodal|image|vision/i.test(msg)){ markTextOnly(); return ask(system, content.filter(b => b.type !== "image"), schema, max); }
+    if (!model && images.length && /multimodal|image|vision/i.test(msg)){ markTextOnly(); return ask(system, content.filter(b => b.type !== "image"), schema, max); }
     throw aiError(res.status === 404 && /model/i.test(msg) ? "model" : "", msg);
   }
   // One JSON object per line, each carrying the next piece of the reply.
@@ -1510,9 +1510,11 @@ const WHO_CAPTIONS = "\n\nWho is who: the woman in the photo is talking about he
 const HER_VOICE = ["come watch me play", "wet just thinking about it", "who's coming over to fix this", "bet you can't handle me", "my ass in your face would cure you", "i need it rough tonight", "guess what i'm not wearing", "be honest, would you fuck me", "touching myself to your comments", "ruin me", "your turn to beg"];
 const whoFor = (a, part) => !isShe(a) ? "" : part === "caption" || part === "story" ? WHO_CAPTIONS : part === "comments" ? WHO_COMMENTS : "";
 // Lines in the wrong voice: a comment that sounds like her, or a caption that sounds like a guy talking about her.
+const MINORISH = /\b(teens?|schoolgirl|school|underage|minor|barely legal|little girl|young girl|daddy'?s little|jailbait|loli)\b/i;
 function wrongVoice(t, a, part){
+  if (MINORISH.test(t)) return true;
   if (!isShe(a)) return false;
-  if (part === "comments") return /\bmy (pussy|clit|cunt|tits|titties|boobs|nipples)\b|\byour (cock|dick|cum|balls)\b/i.test(t);
+  if (part === "comments") return /\bmy (pussy|clit|cunt|tits|titties|boobs|nipples)\b|\byour (cock|dick|cum|balls)\b|\b(bend me over|take me now|use me|breed me|fill me|stretch me|choke me|ride me raw)\b/i.test(t);
   return /\b(your (pussy|clit|cunt|tits|titties|boobs|nipples|ass|thighs|legs|holes?|curves|body)|my (cock|dick|balls)|show me|spread (your|'?em)|i'?m (so )?(fucking )?hard|give me (that|a peek|your))\b/i.test(t);
 }
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
@@ -1608,7 +1610,91 @@ async function trySamples(a, genre){
   return out && Array.isArray(out.lines) ? out.lines.map(cleanLine).filter(Boolean).slice(0, 3) : [];
 }
 // One request per post: the caption and the comments come back together when both are needed.
+/* ================= the style set on the owner's PC ================= */
+// The voice, the mix (e-girl, gamer, explicit and so on) and backup lists for captions, comments and story text live in a
+// file on the owner's PC, served next to Ollama, so the style is changed there. A new version is picked up the next time
+// the app opens: every account switches to it and every post is written again, newest first.
+const PC = () => S.settings.pcStyle || null;
+async function loadPcStyle(){
+  const base = ollamaURL(); if (!base) return false;
+  let j;
+  try {
+    const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 6000);
+    const r = await fetch(`${base}/reel/style.json`, { cache: "no-store", signal: ctl.signal }); clearTimeout(t);
+    if (!r.ok) return false; j = await r.json();
+  } catch(e){ return false; }
+  if (!j || !j.ver || !j.pool || !j.caption || !j.comments || (PC() && PC().ver === j.ver)) return false;
+  S.settings.pcStyle = j; await saveSettings();
+  await applyPcStyle();
+  return true;
+}
+async function applyPcStyle(){
+  const st = PC(); if (!st) return;
+  for (const a of S.accounts){
+    if (a.writer === "off") continue;
+    a.myCaptions = st.pool.captions.join("\n"); a.myComments = st.pool.comments.join("\n"); a.myStoryTexts = st.pool.stories.join("\n");
+    a.captionStyle = "off"; a.comStyle = "auto"; a.storyStyle = "off"; a.poolsDone = 1; a.poolVer = POOL_VER;
+  }
+  await saveAccounts(); genCache.clear();
+  for (const p of S.posts){
+    const a = acctOf(p); if (a.writer === "off") continue;
+    if (isStory(p)) p.storyText = storyText(hashStr(uid("x")), a);
+    else {
+      if (p.captionAuto && !p.captionManual){ p.capTry = (p.capTry || 0) + 1; p.caption = genCaption(p, p.capTry) || p.caption; p.captionWritten = false; }
+      p.commentsWritten = false; p.aiComments = undefined; p.comTry = (p.comTry || 0) + 1;
+    }
+    await savePost(p);
+  }
+  genCache.clear();
+  toast("New style from your PC. Rewriting every post, newest first.");
+}
+// The photo model looks at a post's first photo (or a frame of its video) once and says what's in it in one plain line.
+// It can refuse some photos; those posts are written without it.
+const REFUSAL = /\b(i can'?t|i cannot|i'?m (not able|unable)|i am (not able|unable)|sorry|not appropriate|inappropriate)\b/i;
+async function describePhoto(p){
+  const f = p.files && p.files[0];
+  const img = f ? await frameB64(f) : null;
+  let d = "";
+  if (img){
+    try { d = await ask("You describe photos for someone writing an Instagram caption. One plain line, under 25 words: setting, outfit, pose, mood. Nothing else.", [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text: "Describe this photo." }], undefined, 80, PC().visionModel || "gemma3:12b") || ""; }
+    catch(e){ if (errKind(e) === "conn") throw e; d = ""; }
+  }
+  p.photoDesc = REFUSAL.test(d) ? "" : cleanLine(d).slice(0, 240);
+  await savePost(p);
+}
+function pickMode(modes, r){ const t = modes.reduce((s, m) => s + m.w, 0); let x = r() * t; for (const m of modes){ if ((x -= m.w) < 0) return m; } return modes[0]; }
+// One line each; drops a "gamer:" style label or a note in brackets that a model sometimes adds.
+const listLines = out => String(out || "").split("\n").map(x => cleanLine(x.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").replace(/^@[\w.]+:\s*/, "").replace(/^[a-z][a-z' ]{1,22}:\s+(?=\S+ \S)/i, "").replace(/\s*\([^)]*\)\s*$/, ""))).filter(x => x && !/^\(/.test(x));
+// One post in the PC style: the caption plays off the photo, and the comments react to that caption and photo.
+async function writePc(j){
+  const p = j.p, a = acctOf(p), st = PC();
+  const desc = p.photoDesc ? `The photo: ${p.photoDesc}` : "You can't see the photo, so don't describe anything specific in it.";
+  if (j.cap){
+    const m = pickMode(st.caption.modes, rng((p.seed ^ hashStr("pcm" + (p.capTry || 0))) >>> 0));
+    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-12).map(x => "- " + x.caption).join("\n");
+    const sys = `${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${st.caption.voice}\n\nThis caption's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one flirty and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the caption only, no quotes.`;
+    const out = await ask(sys, [{ type: "text", text: `${desc}\nThe caption can play off the photo, but it isn't a description of it.${recent ? `\n\nRecent captions on this account (don't repeat or echo them):\n${recent}` : ""}\n\nWrite her caption.` }], undefined, 60);
+    const c = listLines(out)[0];
+    if (c && !m.ex.map(normT).includes(normT(c)) && !wrongVoice(c, a, "caption") && normT(c).split(" ").length <= 12){ p.caption = c; capChanged(p); }
+    p.captionWritten = true;
+  }
+  if (j.com){
+    const want = Math.max(6, Math.min(20, st.comments.perPost || 12));
+    const tw = st.comments.modes.reduce((s, m) => s + m.w, 0), hot = Math.round(want * st.comments.modes.filter(m => m.explicit).reduce((s, m) => s + m.w, 0) / tw);
+    const sys = `${CONTEXT}${WHO_COMMENTS}\n\n${st.comments.voice}\n\nThe kinds of guys in the comments (the examples only show the feel: never reuse them, write new ones about this post):\n${st.comments.modes.map(m => `- ${m.how}${m.explicit ? ", fully explicit with no softening" : ""}. Feel: ${[...m.ex].sort(() => Math.random() - .5).slice(0, 3).join(" / ")}`).join("\n")}\n\nEvery comment reacts to this post: her caption or the photo. Never label a comment with its kind and never add notes in brackets. Reply with one comment per line, nothing else.`;
+    const got = [], cap = normT(p.caption), ex = new Set(st.comments.modes.flatMap(m => m.ex).map(normT));
+    for (let call = 0; call < 3 && got.length < want; call++){
+      const out = await ask(sys, [{ type: "text", text: `Her caption: ${p.caption || "(none)"}\n${desc}${got.length ? `\n\nAlready under the post (write different ones):\n${got.map(c => "- " + c).join("\n")}` : ""}\n\nWrite ${want - got.length} comments from different guys${hot && !got.length ? `, about ${hot} of them fully explicit` : ""}.` }], undefined, 700);
+      const fresh = listLines(out).filter(x => { const k = normT(x); return k && x.length <= 200 && !/:$/.test(x) && k !== cap && !ex.has(k) && !wrongVoice(x, a, "comments") && !got.some(g => normT(g) === k); });
+      if (!fresh.length) break;
+      got.push(...fresh);
+    }
+    p.aiComments = got.slice(0, 40); p.commentsWritten = true; genCache.clear(); capChanged(p);
+  }
+  await savePost(p);
+}
 async function writeOne(j){
+  if (PC() && j.kind !== "story") return writePc(j);
   const p = j.p, a = acctOf(p);
   const img = a.writer === "photos" && modelSeesPhotos() ? await frameB64(p.files[0]) : null;
   const blind = img ? "" : BLIND;
@@ -1695,7 +1781,7 @@ async function fillPool(a, part, progress){
 // carries on the next time the app opens. Fill this list for me still adds more by hand.
 let poolsRunning = false;
 async function autoPools(){
-  if (poolsRunning || !ollamaURL()) return;
+  if (poolsRunning || !ollamaURL() || PC()) return;
   poolsRunning = true;
   let changed = false;
   try {
@@ -1754,21 +1840,26 @@ async function writerRun(){
       if (a.writer === "off") continue;
       // "Only mine" keeps the owner's own captions and story text; the AI still writes the comments.
       if (isStory(p)){ if (a.storyStyle !== "off" && !p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
-      const cap = !!(p.captionAuto && !p.captionWritten && a.captionStyle !== "off"), com = !p.commentsWritten && !(a.comStyle === "mine" && ownComments(a).length);
+      const cap = !!(p.captionAuto && !p.captionWritten && (a.captionStyle !== "off" || !!PC())), com = !p.commentsWritten && !(a.comStyle === "mine" && ownComments(a).length);
       if (cap || com) jobs.push({ p, kind: "post", cap, com });
     }
     const when = p => Math.abs((p.publishAt || now() + 30*D) - now());
     jobs.sort((x, y) => when(x.p) - when(y.p));
-    let next = 0, done = 0, failure = null;
+    let next = 0, done = 0, failure = null, end = 0;
     const worker = async () => {
-      while (!failure && next < jobs.length){
+      while (!failure && next < end){
         const j = jobs[next++];
         try { await writeOne(j); } catch(e){ failure = failure || e; return; }
         done++; setWriter(`Writing ${done} of ${jobs.length}…`);
       }
     };
     if (jobs.length) setWriter(`Writing 0 of ${jobs.length}…`);
-    await Promise.all(Array.from({ length: Math.min(WRITERS, jobs.length) }, worker));
+    const looks = !!(PC() && PC().vision !== false);
+    for (let c = 0; c < jobs.length && !failure; c = end){
+      end = Math.min(jobs.length, c + (looks ? 12 : jobs.length));
+      if (looks) for (const j of jobs.slice(c, end)) if (j.kind === "post" && j.p.photoDesc === undefined){ setWriter(`Writing ${done} of ${jobs.length}… looking at the photos`); await describePhoto(j.p); }
+      await Promise.all(Array.from({ length: Math.min(WRITERS, end - c) }, worker));
+    }
     if (failure) throw failure;
     setWriter(jobs.length ? "Everything is written." : "");
     if (jobs.length) safeRender();
