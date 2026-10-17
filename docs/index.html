@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 81;
+const APP_VERSION = 82;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1426,7 +1426,8 @@ async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multi
 const DEFAULT_MODEL = "rp";
 const AI = () => "Ollama";
 const CO = () => "your PC";
-const ollamaURL = () => (S.secret.url || "").trim().replace(/\/+$/, "");
+// Served from the owner's PC over Tailscale, Ollama is at the same address, so there's nothing to type in.
+const ollamaURL = () => (S.secret.url || (/\.ts\.net$/.test(location.hostname) ? location.origin : "")).trim().replace(/\/+$/, "");
 const textOnlyModels = () => { try { return JSON.parse(localStorage.getItem("reel-textonly") || "[]"); } catch(e){ return []; } };
 // Models known to be text only, plus any the phone found out about (Ollama said no to a photo).
 const TEXT_ONLY = ["rp", "rp24", "uncensored"];
