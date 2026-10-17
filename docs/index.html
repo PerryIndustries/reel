@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -490,6 +490,31 @@ function wireVideoFallback(vd, key, mime){
 // iPhone shows a black box for a video that hasn't played, so every video gets a still frame.
 let thumbChain = Promise.resolve();
 const thumbJobs = new Map();
+// Grid tiles (Explore, profiles, the queue) use a small copy of each photo, made once and kept. A screen of
+// full-size phone photos is more than iPhone Safari can hold, and it blanks the page to white.
+let smallChain = Promise.resolve();
+const smallJobs = new Map();
+function smallPhoto(key){
+  if (smallJobs.has(key)) return smallJobs.get(key);
+  const job = smallChain.then(async () => {
+    const tk = key + "_sm";
+    if (await DB.get("media", tk)) return tk;
+    const blob = await DB.get("media", key); if (!blob) return "";
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = new Image(); img.src = url; await img.decode();
+      const w = img.naturalWidth, h = img.naturalHeight; if (!w || !h) return "";
+      const k = Math.min(1, 480 / Math.min(w, h));
+      const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      const out = await new Promise(res => c.toBlob(res, "image/jpeg", .8)); c.width = c.height = 0; if (!out) return "";
+      await DB.put("media", out, tk); return tk;
+    } catch(e){ return ""; } finally { URL.revokeObjectURL(url); }
+  });
+  smallChain = job.catch(() => {});
+  smallJobs.set(key, job); job.then(tk => { if (!tk) smallJobs.delete(key); });
+  return job;
+}
 function videoThumb(key){
   if (thumbJobs.has(key)) return thumbJobs.get(key);
   const job = thumbChain.then(async () => {
@@ -534,7 +559,8 @@ async function hydrate(root){
   for (const el of root.querySelectorAll("video[data-media]:not([data-th]):not([data-media^='url:'])")){
     el.dataset.th = "1";
     videoThumb(el.dataset.media).then(async tk => {
-      if (!tk || !el.isConnected) return;
+      if (!el.isConnected) return;
+      if (!tk){ if (el.dataset.poster && !el.getAttribute("src")){ el.dataset.poster = ""; const u = await mediaURL(el.dataset.media); if (u && el.isConnected){ el.src = u + "#t=0.1"; wireVideoFallback(el, el.dataset.media, el.dataset.mime); } } return; }
       const tu = await mediaURL(tk);
       if (el.dataset.poster){ const img = document.createElement("img"); img.src = tu; img.alt = ""; if (el.className) img.className = el.className; el.replaceWith(img); }
       else el.poster = tu;
@@ -547,17 +573,28 @@ async function hydrate(root){
   };
   // Already-opened files go in straight away with no fade, so a redraw doesn't flicker; the rest load side by side.
   const later = [];
+  for (const el of root.querySelectorAll("img[data-small]:not([data-sm])")){
+    el.dataset.sm = "1";
+    const k = String(el.dataset.media); if (k.startsWith("url:")) continue;
+    const hit = urls.get(k + "_sm");
+    if (hit){ el.classList.add("ld"); el.src = hit; continue; }
+    later.push(el);
+  }
   for (const el of root.querySelectorAll("[data-media]")){
-    if (el.getAttribute("src")) continue;
+    if (el.getAttribute("src") || el.dataset.sm) continue;
+    if (el.tagName === "VIDEO" && el.dataset.poster) continue;
     const k = String(el.dataset.media), hit = k.startsWith("url:") ? "" : urls.get(k);
     if (hit){ el.classList.add("ld"); put(el, hit); } else later.push(el);
   }
-  await Promise.all(later.map(async el => put(el, await mediaURL(el.dataset.media))));
+  await Promise.all(later.map(async el => {
+    if (el.dataset.sm){ const sk = await smallPhoto(el.dataset.media); if (el.isConnected && !el.getAttribute("src")) el.src = await mediaURL(sk || el.dataset.media); return; }
+    put(el, await mediaURL(el.dataset.media));
+  }));
 }
 function mediaTag(f, cls, opts={}){
   if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}"${DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : ""} data-mime="${esc(f.mime)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
   const ar = DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : "";
-  return `<img class="${cls||""}" data-media="${esc(f.key)}" alt=""${ar} ${opts.lazy===false?"":'loading="lazy"'}>`;
+  return `<img class="${cls||""}" data-media="${esc(f.key)}"${opts.poster ? " data-small" : ""} alt=""${ar} ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
 
 /* ================= words ================= */
