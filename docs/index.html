@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 75;
+const APP_VERSION = 76;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -820,6 +820,7 @@ function genComments(p){
   const r = rng((p.seed ^ 0x9e3779b9 ^ ((p.comTry || 0) * 0x85ebca6b)) >>> 0);
   const { totalC, totalL } = totals(p);
   const n = Math.min(totalC, 60);
+  const aiC = (p.aiComments || []).filter(t => !wrongVoice(t, oa, "comments"));
   const out = [];
   const used = new Set();
   for (let k=0;k<n;k++){
@@ -827,7 +828,7 @@ function genComments(p){
     let ai = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
-    if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
+    if (aiC.length) text = aiC[k % aiC.length];
     if (own.length && (onlyOwn || r() < .3)) text = own.length > n * 2 ? own[(start + Math.floor(r() * own.length)) % own.length] : own[(start + k) % own.length];
     if (own.length > n * 2 && out.some(c => c.text === text)) text = own[(start + k * 13) % own.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
