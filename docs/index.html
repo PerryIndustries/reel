@@ -1590,11 +1590,22 @@ async function writeOne(j){
   }
   // Comments get their own request, written as replies to the finished caption, so the caption's direction can't bleed into them.
   if (j.kind !== "story" && j.com){
-    const out = await askNoCopy(a, `${contextFor(a)}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`,
-      withImg(`The post's caption (written by the poster, don't repeat it): ${p.caption || "(none)"}\nWrite ${n} comments.${remind(a, [comDir])}`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false }, o => (o.comments || []).join(" "));
-    // Drop any comment that's really the caption again.
-    if (out && Array.isArray(out.comments)){ const cap = normT(p.caption); out.comments = out.comments.filter(c => { const n2 = normT(c); return !cap || cap.length < 4 || (n2 !== cap && !(n2.length > 8 && (cap.includes(n2) || n2.includes(cap)))); }); }
-    if (out) setComments(out.comments); else p.commentsWritten = true;
+    // Some models (roleplay ones especially) stop after a few comments, so keep asking in small batches until there are enough.
+    const sys = `${contextFor(a)}\n\nWrite the comments that different followers leave under this post, each from a different person. They are viewers replying to the post, never the poster: no captions, no lines in the poster's voice. Each comment is short, one line.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`;
+    const cap = normT(p.caption), got = [];
+    const keep = c => { const n2 = normT(c); if (!n2 || c.length > 220) return false; if (got.some(g => normT(g) === n2)) return false; return !cap || cap.length < 4 || (n2 !== cap && !(n2.length > 8 && (cap.includes(n2) || n2.includes(cap)))); };
+    let answered = false;
+    for (let call = 0; call < 5 && got.length < n; call++){
+      const want = call ? Math.min(8, n - got.length) : n;
+      const already = got.length ? `\nComments already under the post (write different ones):\n${got.slice(-20).map(c => "- " + c).join("\n")}` : "";
+      const out = await askNoCopy(a, sys, withImg(`The post's caption (written by the poster, don't repeat it): ${p.caption || "(none)"}${already}\nWrite ${want} comments.${remind(a, [comDir])}`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false }, o => (o.comments || []).join(" "));
+      if (!out || !Array.isArray(out.comments)) break;
+      answered = true;
+      const fresh = out.comments.map(c => String(c).trim()).filter(keep);
+      if (!fresh.length) break;
+      got.push(...fresh);
+    }
+    if (answered) setComments(got); else p.commentsWritten = true;
   }
   await savePost(p);
 }
