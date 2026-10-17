@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 49;
+const APP_VERSION = 50;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1137,8 +1137,10 @@ function nextSlot(a){
   const step = Math.max(15, +a.interval || 720) * 60e3 * 15 / 24; // waking hours only
   const q = queued(a.id); const last = q.length ? q[q.length-1].publishAt : 0;
   const from = last || live(a.id)[0]?.publishAt || 0;
-  const jitter = (rng(hashStr("j"+from+a.seed))() - .5) * .5 * step;
-  return humanize(Math.max(now() + 5*60e3, from + step + jitter));
+  // Bursty like a real person: sometimes two or three posts close together, sometimes a long quiet stretch; same average.
+  const r = rng(hashStr("j"+from+a.seed)), x = r();
+  const gap = step * (x < .25 ? .05 + r() * .2 : x < .75 ? .6 + r() * .8 : 1.5 + r() * 1.1);
+  return humanize(Math.max(now() + 5*60e3, from + gap));
 }
 const perDay = a => Math.round(1440 / (+a.interval || 720) * 10) / 10;
 function runway(a){ const Q = queued(a.id); return Q.length ? (Q[Q.length-1].publishAt - now()) / D : 0; }
@@ -1174,8 +1176,13 @@ async function autoSchedule(){
   }
 }
 // Posts the owner liked, saved, pinned or opened the comments on stay up for good. Everything else comes
-// down after a few days and goes to the back of the queue to be posted again, fresh, later.
-const CYCLE_AFTER = 3*D, CYCLE_KEEP_MIN = 9;
+// down after a random while and goes to the back of the queue to be posted again, fresh, later: some get deleted
+// within hours ("posted then panicked"), most last a day or three, some stay up most of a week.
+const CYCLE_KEEP_MIN = 9;
+function lifeOf(p){
+  const r = rng(hashStr("life" + p.id)), x = r();
+  return x < .15 ? (.5 + r() * 7.5) * H : x < .6 ? (12 + r() * 60) * H : (3 + r() * 5) * D;
+}
 const keeps = p => !!(p.liked || p.kept || p.pinned || S.saved[p.id]);
 async function cyclePosts(){
   for (const a of S.accounts){
@@ -1183,7 +1190,7 @@ async function cyclePosts(){
     let up = L.length;
     for (const p of L.slice().reverse()){
       if (up <= CYCLE_KEEP_MIN) break;
-      if (keeps(p) || now() - p.publishAt < CYCLE_AFTER) continue;
+      if (keeps(p) || now() - p.publishAt < lifeOf(p)) continue;
       await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); up--;
       const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
         myComments: [], hidden: [], cLikes: {}, aiComments: undefined, commentsWritten: false, likesTarget: undefined, commentsTarget: undefined };
@@ -1405,12 +1412,12 @@ async function writeOne(j){
     if (j.com){
       const out = await ask(`${contextFor(a)}\n\nWrite this post's caption and the comments different followers leave on it.\n\nCAPTION\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}\n\nCOMMENTS (each from a different person, reacting to the caption you wrote)\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}${avoid}`,
         withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.${remind([capDir, comDir])}`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
-      if (out && out.caption) p.caption = cleanLine(out.caption);
+      if (out && out.caption){ p.caption = cleanLine(out.caption); capChanged(p); }
       p.captionWritten = true;
       if (out) setComments(out.comments); else p.commentsWritten = true;
     } else {
       const out = await ask(`${contextFor(a)}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.${remind([capDir])}`));
-      if (out) p.caption = cleanLine(out);
+      if (out){ p.caption = cleanLine(out); capChanged(p); }
       p.captionWritten = true;
     }
   } else {
@@ -1901,11 +1908,19 @@ function vExplore(v){
   if (exploreTerm) search();
 }
 let homeOrder = null;
+// A post that's already up and gets a new caption (rewrite, redo or your own edit) goes to the top of Home until you've seen it.
+function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(); homeOrder = null; } }
+const capNew = p => p.capAt && p.capAt > (S.postSeen[p.id] || 0);
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
-  if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: fresh.length }; }
+  // Posts with a new caption come before all of that, the latest change on top.
+  if (!homeOrder){
+    const adj = all.filter(capNew).sort((x, y) => y.capAt - x.capAt), rest = all.filter(p => !capNew(p));
+    const fresh = rest.filter(p => !S.postSeen[p.id]);
+    homeOrder = { ids: [...adj, ...fresh, ...rest.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: adj.length + fresh.length };
+  }
   const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
   const added = all.filter(p => !pos.has(p.id));
   const L = [...added, ...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean)];
@@ -2549,7 +2564,7 @@ function wireSeen(root){
   if (seenIO) seenIO.disconnect();
   const timers = new Map();
   seenIO = new IntersectionObserver(es => es.forEach(en => {
-    const id = en.target.dataset.post; if (!id || now() - (S.postSeen[id] || 0) < 10*60e3) return;
+    const id = en.target.dataset.post; if (!id || (now() - (S.postSeen[id] || 0) < 10*60e3 && !S.posts.some(x => x.id === id && capNew(x)))) return;
     if (en.isIntersecting) timers.set(id, setTimeout(() => { S.postSeen[id] = now(); clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500); }, 1000));
     else { clearTimeout(timers.get(id)); timers.delete(id); }
   }), { threshold: .5 });
@@ -2601,7 +2616,7 @@ function postMenu(id){
       }
       if (o === "requeue"){ p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(a); await savePost(p); toast("Queued for "+until(p.publishAt)); render(); }
       if (o === "move"){ const to = accountById(b.dataset.to); p.acct = to.id; p.publishAt = 0; await savePost(p); p.publishAt = nextSlot(to); await savePost(p); toast("Moved to @"+handleOf(to)+"'s queue"); render(); }
-      if (o === "recap"){ p.capTry = (p.capTry||0) + 1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; p.captionAuto = true; p.captionManual = false; await savePost(p); toast("New caption"); } else toast("Turn on captions in settings first"); render(); }
+      if (o === "recap"){ p.capTry = (p.capTry||0) + 1; const c = genCaption(p, p.capTry); if (c){ p.caption = c; p.captionAuto = true; p.captionManual = false; capChanged(p); await savePost(p); toast("New caption"); } else toast("Turn on captions in settings first"); render(); }
       if (o === "copy"){ try { await navigator.clipboard.writeText(p.caption||""); toast("Copied"); } catch(_){ toast("Couldn't copy"); } }
     });
 }
@@ -2697,7 +2712,7 @@ document.addEventListener("click", async e => {
   }
   if (d.savepost){
     const p = S.posts.find(x=>x.id===d.savepost); const a = accountById(p.acct) || A();
-    const cap = $("#ecap").value.trim(); if (cap !== p.caption){ p.caption = cap; p.captionManual = true; p.captionAuto = false; } p.location = $("#eloc").value.trim();
+    const cap = $("#ecap").value.trim(); if (cap !== p.caption){ p.caption = cap; p.captionManual = true; p.captionAuto = false; capChanged(p); } p.location = $("#eloc").value.trim();
     const w = new Date($("#ewhen").value).getTime(); if (w) p.publishAt = w;
     const l = $("#elikes").value, c = $("#ecom").value;
     p.likesTarget = l === "" ? undefined : Math.max(0, +l); p.commentsTarget = c === "" ? undefined : Math.max(0, +c);
@@ -2797,6 +2812,8 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
     for (const a of S.accounts) if (+a.interval >= 720){ a.interval = 180; await respace(a); }
     S.settings.morePosts = 1; await saveSettings();
   }
+  // Queues made before posting went bursty get the new random spacing once.
+  if (!S.settings.burstyPosts){ for (const a of S.accounts) await respace(a); S.settings.burstyPosts = 1; await saveSettings(); }
   await saveAccounts();
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
