@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 67;
+const APP_VERSION = 68;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1261,7 +1261,9 @@ function lifeOf(p){
   const r = rng(hashStr("life" + p.id)), x = r();
   return x < .15 ? (.5 + r() * 7.5) * H : x < .6 ? (12 + r() * 60) * H : (3 + r() * 5) * D;
 }
-const keeps = p => !!(p.liked || p.kept || p.pinned || S.saved[p.id]);
+const keeps = p => !!(p.liked || S.saved[p.id] || (p.pinned && acctOf(p).pinTouched));
+// A profile shows at most this many posts you haven't kept; older ones rotate out so the grid keeps changing.
+const CYCLE_KEEP_MAX = 18;
 // force: how many of the oldest posts (that you haven't kept) come down now even if their time isn't up, per account.
 async function cyclePosts(force = {}){
   for (const a of S.accounts){
@@ -1271,7 +1273,8 @@ async function cyclePosts(force = {}){
     for (const p of L.slice().reverse()){
       if (up <= CYCLE_KEEP_MIN) break;
       if (keeps(p)) continue;
-      if (now() - p.publishAt < lifeOf(p)){ if (forced >= (force[a.id] || 0)) continue; forced++; }
+      const over = L.filter(x => !keeps(x)).length - (L.length - up) > CYCLE_KEEP_MAX;
+      if (!over && now() - p.publishAt < lifeOf(p)){ if (forced >= (force[a.id] || 0)) continue; forced++; }
       await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); up--;
       const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
         myComments: [], hidden: [], cLikes: {}, aiComments: undefined, commentsWritten: false, likesTarget: undefined, commentsTarget: undefined };
@@ -1862,12 +1865,13 @@ let lastAdvance = 0;
 async function refreshAdvance(){
   if (Date.now() - lastAdvance < 20e3) return 0;
   lastAdvance = Date.now();
-  const next = S.accounts.flatMap(a => queued(a.id)).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
-  const n = Math.min(next.length, 1 + Math.floor(Math.random() * 3));
-  const force = {};
-  for (const p of next.slice(0, n)){
-    p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p);
-    force[p.acct] = (force[p.acct] || 0) + 1;
+  const force = {}; let n = 0;
+  for (const a of S.accounts){
+    const next = queued(a.id).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
+    for (const p of next.slice(0, 1 + Math.floor(Math.random() * 3))){
+      p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p);
+      force[a.id] = (force[a.id] || 0) + 1; n++;
+    }
   }
   await cyclePosts(force);
   return n;
@@ -3019,8 +3023,6 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   loadPfps();
   const back = takeOAuthReturn();
   await autoRun();
-  // Once, after the switch to the roleplay model: everything already written gets rewritten with it, newest first.
-  if (!S.secret.rpRedo && ollamaURL()){ S.secret.rpRedo = 1; await saveSecret(); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); }
   render();
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
   let fullPending = false; try { fullPending = localStorage.getItem("reel-full-pending") === "1"; localStorage.removeItem("reel-full-pending"); } catch(e){}
