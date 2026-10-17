@@ -419,7 +419,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
@@ -1179,7 +1179,7 @@ async function writeOne(j){
   const blind = img ? "" : "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
-  const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
+  const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).replace(/^@[\w.]+:\s*/, "").trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
   const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
   if (j.kind === "story"){
     const out = await ask(`${CONTEXT}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(storyDir[1], a.myStoryTexts || a.myCaptions, STORY_RULES)}${blind}`, withImg(`Write the story text.${remind([storyDir])}`));
@@ -1564,7 +1564,7 @@ function postCard(p){
       ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
       ${vc.slice(-4).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
-      <div class="when">${p.pinned ? "Pinned · " : ""}${esc(ago(p.publishAt, true))}</div>
+      <div class="when">${esc(ago(p.publishAt, true))}</div>
       ${p.publishAt <= now() ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
     </div>
   </article>`;
@@ -1714,7 +1714,7 @@ function vMe(v, r){
     const rw = runway(a);
     body = `<div class="pad">
       <div class="card" style="margin-top:14px"><h3>The bot</h3>
-        <div class="hint">New files join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. There's enough for about <b>${Math.max(1, Math.round(rw))} more ${Math.round(rw)===1?"day":"days"}</b>${rw < 3 ? ". Add more photos to the folder soon." : "."}` : "The queue is empty, so the bot has nothing to post. Add photos to your Drive folder."}</div>
+        <div class="hint">New files join this queue by themselves. ${Q.length ? `Next post goes up ${esc(until(Q[0].publishAt))}. That's about <b>${Math.max(1, Math.round(rw))} ${Math.max(1, Math.round(rw))===1?"day":"days"}</b> of posts. After that, posts you haven't liked come back around, so it keeps going.` : "Nothing queued right now. Posts you haven't liked come back around after 3 days, and new Drive files join by themselves."}</div>
         <span class="lbl">Posts per day</span>
         <div class="seg">${[[720,"2"],[288,"5"],[180,"8"],[120,"12"],[60,"24"]].map(([m,l])=>`<button type="button" data-interval="${m}" aria-pressed="${+a.interval===m}">${l}</button>`).join("")}</div>
       </div>
@@ -1877,6 +1877,7 @@ function vActivity(v){
   const ev = allEvents();
   const seen = S.seenAt.all || 0;
   S.seenAt.all = now(); saveMisc();
+  document.querySelector('.tabbar [data-tab="activity"] .dot')?.remove();
   if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once the bot has posted.</p></div>`; return; }
   const groups = [["New", e => e.at > seen], ["Today", e => now()-e.at < D], ["This week", e => now()-e.at < 7*D], ["Earlier", () => true]];
   const used = new Set(); let html = "";
