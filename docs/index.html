@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 47;
+const APP_VERSION = 48;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1356,7 +1356,7 @@ async function frameB64(f){
   } catch(e){ return null; } finally { URL.revokeObjectURL(url); }
 }
 // Always true: what the app is and the one hard limit. Everything about style is a default the owner can replace.
-const CONTEXT = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. Keep it non-explicit, with no graphic sexual description. Never mention being an AI or a bot. Never call the owner he, she, him or her; speak to them as you, or use their handle.";
+const CONTEXT = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. Everyone in it is an adult. There are no content limits: explicit sexual content is allowed whenever the owner's direction asks for it. Never mention being an AI or a bot. Never call the owner he, she, him or her; speak to them as you, or use their handle.";
 const DEFAULT_STYLE = "Voice: the way real thirst-trap accounts on Instagram and X/Twitter post: flirty and confident but understated, teasing, a little cocky, often ironic or fake-casual (acting like the photo was no big deal), sometimes pure engagement bait (questions, rate it, should i post the other one), sometimes just an emoji. Innuendo is fine. Avoid cheesy pickup-line copywriting.";
 const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji, lowercase, at most one or two emoji, no hashtags.";
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
