@@ -185,6 +185,9 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .seg button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
 .card{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .card h3{margin:0;font:700 16px var(--display)}
+.part{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:12px;border-left:3px solid var(--accent);background:color-mix(in srgb, var(--fg) 4%, transparent)}
+.part.ex{border-left-color:var(--muted)}
+.parthd{display:flex;flex-direction:column;gap:2px}.parthd b{font-size:14px}.parthd span{font-size:12px;color:var(--muted)}
 .code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--soft);border-radius:8px;padding:8px 10px;overflow-wrap:anywhere;user-select:all}
 .thumbs{display:flex;gap:6px;flex-wrap:wrap}
 .thumbs .th{width:72px;height:72px;border-radius:8px;overflow:hidden;background:var(--soft)}
@@ -1544,9 +1547,9 @@ function styleFor(dir, mine, defaults, genre, a){
   let s = "";
   if (hasText(dir)){
     const brief = briefFor(a, genre, dir);
-    s += `${SPEAKER[genre] ? SPEAKER[genre] + "\n" : ""}The owner's direction says what to write: the voice, the topics, how far to go. Follow it closely, and don't add a style of your own. It is an instruction to you, not text to post: never repeat, quote or reword it; write brand-new lines that do what it says.\nDirection (the owner's words): ${dir.trim()}${brief ? `\nWhat it means, spelled out:\n${brief}` : ""}`;
+    s += `${SPEAKER[genre] ? SPEAKER[genre] + "\n" : ""}The owner's direction says what to write: the voice, the topics, how far to go. Follow it closely, and don't add a style of your own. It is an instruction to you, not text to post: never repeat, quote or reword it; write brand-new lines that do what it says.\nDIRECTIONS (the owner's instructions, never text to post): ${dir.trim()}${brief ? `\nWhat it means, spelled out:\n${brief}` : ""}`;
   }
-  if (own.length) s += `${s ? "\n" : ""}Lines the owner wrote themselves. Match their style, length, slang, punctuation and emoji use closely (new lines in that voice, not copies):\n${own.map(x => "- " + x).join("\n")}`;
+  if (own.length) s += `${s ? "\n" : ""}EXAMPLES (finished lines the owner wrote, showing exactly how the result should read). Match their style, length, slang, punctuation, emoji use and how far they go closely; write new lines in that voice, not copies. The directions say what to write; the examples show how it sounds:\n${own.map(x => "- " + x).join("\n")}`;
   return s;
 }
 // A handful of genre lines, different every time, so the writer gets the feel without a list to copy from.
@@ -2744,32 +2747,44 @@ function vAset(v, r){
       <div class="hint">Random picks files from the folder in a mixed-up order. Choosing Random again reshuffles what's already queued.</div></div>
     <div class="card"><h3>Captions</h3>
       ${seg("capstyle", a.captionStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
-      <div class="field"><label for="amycap">Your own captions, one per line</label><textarea id="amycap" placeholder="each line can become a caption">${esc(a.myCaptions||"")}</textarea></div>
-      <div class="field"><label for="adcap">Direction for ${AI()}</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
+      <div class="part dir"><div class="parthd"><b>1 · Directions</b><span>Instructions to the writer, never posted. Say who is talking, the tone, what they talk about, how far to go.</span></div>
+      <div class="field"><label for="adcap">What to write</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
       <div class="hint brief" id="brief-capDirection">${briefHtml(a, "capDirection")}</div>
       <button class="btn" type="button" data-try="caption" data-acct="${id}">Try it</button><div class="tryout" id="try-caption" hidden></div>
+      </div>
+      <div class="part ex"><div class="parthd"><b>2 · Examples</b><span>Finished lines, one per line, exactly as they'd appear on a post. The writer copies their style, and they also get used as captions.</span></div>
+      <div class="field"><label for="amycap">Example captions</label><textarea id="amycap" placeholder="one finished caption per line">${esc(a.myCaptions||"")}</textarea></div>
       <button class="btn" type="button" data-fill="caption" data-acct="${id}">Fill this list for me</button>
       <div class="hint">${AI()} writes about ${POOL_SIZE.caption} captions into your list in one go, following your direction. Delete any you don't like. Then posts take their captions straight from the list (Only mine), with nothing written per post.</div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
+      </div>
       <button class="btn" type="button" data-redo="caption" data-acct="${id}">Redo captions</button>
       <div class="hint">New captions on every post, including ones already up. Comments stay as they are, and captions you typed yourself are kept.</div></div>
     <div class="card"><h3>Comments</h3>
       ${seg("comstyle", a.comStyle || "auto", [["auto",AI()],["mine","Only mine"]])}
-      <div class="field"><label for="amycom">Your own comments, one per line</label><textarea id="amycom" placeholder="each line becomes a comment, word for word">${esc(a.myComments||"")}</textarea></div>
+      <div class="part dir"><div class="parthd"><b>1 · Directions</b><span>Instructions to the writer, never posted. Say who is talking, the tone, what they talk about, how far to go.</span></div>
+      <div class="field"><label for="adcom">What to write</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div>
+      <div class="hint brief" id="brief-comDirection">${briefHtml(a, "comDirection")}</div>
+      <button class="btn" type="button" data-try="comments" data-acct="${id}">Try it</button><div class="tryout" id="try-comments" hidden></div>
+      </div>
+      <div class="part ex"><div class="parthd"><b>2 · Examples</b><span>Finished lines, one per line, exactly as they'd appear on a post. The writer copies their style, and they also show up on posts word for word.</span></div>
+      <div class="field"><label for="amycom">Example comments</label><textarea id="amycom" placeholder="one finished comment per line">${esc(a.myComments||"")}</textarea></div>
       <button class="btn" type="button" data-fill="comments" data-acct="${id}">Fill this list for me</button>
       <div class="hint">${AI()} writes about ${POOL_SIZE.comments} comments into your list in one go, following your direction. Delete any you don't like. Then every post's comments come straight from the list (Only mine), each post a different mix.</div>
       <div class="hint">${a.comStyle === "mine" ? "Every comment comes from your list exactly as you typed it, spread across posts." : `${AI()} copies the style of your lines, and they also show up word for word on posts.`}</div>
-      <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div>
-      <div class="hint brief" id="brief-comDirection">${briefHtml(a, "comDirection")}</div>
-      <button class="btn" type="button" data-try="comments" data-acct="${id}">Try it</button><div class="tryout" id="try-comments" hidden></div>
+      </div>
       <button class="btn" type="button" data-redo="comments" data-acct="${id}">Redo comments</button>
       <div class="hint">New comments on every post, including ones already up. Captions stay as they are, and comments you typed yourself are kept.</div></div>
     <div class="card"><h3>Story text</h3>
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
-      <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
-      <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div>
+      <div class="part dir"><div class="parthd"><b>1 · Directions</b><span>Instructions to the writer, never posted. Say who is talking, the tone, what they talk about, how far to go.</span></div>
+      <div class="field"><label for="adstory">What to write</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div>
       <div class="hint brief" id="brief-storyDirection">${briefHtml(a, "storyDirection")}</div>
       <button class="btn" type="button" data-try="story" data-acct="${id}">Try it</button><div class="tryout" id="try-story" hidden></div>
+      </div>
+      <div class="part ex"><div class="parthd"><b>2 · Examples</b><span>Finished lines, one per line, exactly as they'd appear on a post. The writer copies their style, and they also get used as story text.</span></div>
+      <div class="field"><label for="amystory">Example story text</label><textarea id="amystory" placeholder="short finished lines, one per line">${esc(a.myStoryTexts||"")}</textarea></div>
+      </div>
       <button class="btn" type="button" data-redo="story" data-acct="${id}">Redo story text</button>
       <div class="hint">New text on today's and upcoming stories.</div></div>
     <div class="card"><h3>Heat</h3>
