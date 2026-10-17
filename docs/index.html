@@ -423,7 +423,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 39;
+const APP_VERSION = 41;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -567,7 +567,7 @@ const THIRST = [
 "not a snack. the whole meal 🍽️","warming up the feed","spicy on purpose 🌶️","if you're reading this, you looked too long","leave a 🔥 if you're down bad",
 "call me trouble, everyone else does","temptation looks good on me","good lighting, bad intentions","bad intentions, great angles","sweet face, sinful thoughts",
 "currently accepting compliments and bad decisions","risky behavior 📸","confidence is the best outfit. the rest is optional","less talking, more looking","your crush could never",
-"your ex is typing…","sent this to the group chat and they gasped","brb, setting the internet on fire","oops. did i do that?","just a little something for your 2am scroll",
+"your ex is typing…","sent this to the group chat and they gasped","brb, setting the internet on fire","oops. did i do that?",
 "late night content 🌙","saving this one for the ones who stayed up","it's giving dangerous","handle with care","not for the faint of heart",
 "tell me i'm your type without telling me","low effort, high impact","in my thirst trap era and the people are thirsty","posted this for science. results pending in my DMs","plot twist: i knew you'd like it",
 "you looked. i saw.","careful what you wish for 😏","say less, look more","bedroom eyes, morning light","you up?",
@@ -576,7 +576,7 @@ const THIRST = [
 "ruining your productivity one post at a time","this angle should come with a warning label","i'll be in your thoughts tonight","not sorry 💋",
 "ok who turned the heat up","rare footage of me behaving. jk","feeling dangerous, might delete later","admit it, you saved it","this post is a test. you failed 😏"
 ];
-const THIRST_COMMENTS = ["who allowed this","down bad rn","the audacity 😳","why post this at 2am 😭","CALM DOWN","respectfully… wow","not me zooming in","the internet isn't ready",
+const THIRST_COMMENTS = ["who allowed this","down bad rn","the audacity 😳","CALM DOWN","respectfully… wow","not me zooming in","the internet isn't ready",
 "i need a minute","stop it right now 😩","called in sick to look at this","saving this for research","ok i'm blushing","this should be illegal","my screen is fogging up","help 🫠",
 "delete this before i fall in love","threat 😮‍💨","be serious rn","the caption 💀","you did this on purpose","hydrating rn 💦","sending this to my therapist",
 "the way i gasped","sinful","no one is safe","dangerous behavior","i'm not okay","this is a crime scene 🚨","okay but WHO took this",
@@ -2030,7 +2030,7 @@ function vList(v, r){
   }
   setTop(`${backBtn}<h1>${esc(title)}</h1>`);
   v.innerHTML = `<div class="pad list"><div class="hint" style="padding-top:10px">${full(total)} ${title.toLowerCase()}</div>
-    ${ids.map(i => { const a = acct(i); const fol = isFollowing(i); return `<div class="row"><a href="#/u/${i}">${acctAv(a,44)}</a><a class="who" href="#/u/${i}"><div><b>${esc(a.handle)}</b>${checkMark(a.verified)}</div><div class="muted small">${esc(a.name)}</div></a><button class="btn ${fol?"":"blue"}" type="button" data-follow="${i}">${fol?"Following":"Follow"}</button></div>`; }).join("")}
+    ${ids.map(i => { const a = acct(i); const fol = isFollowing(i); return `<div class="row"><a href="#/u/${i}">${acctAv(a,44)}</a><a class="who" href="#/u/${i}"><div><b>${esc(a.handle)}</b>${checkMark(a.verified)}</div><div class="muted small">${esc(a.name)}</div></a><button class="btn ${fol?"":"blue"}" type="button" data-follow="${i}">${fol?"Following":!who && kind === "followers"?"Follow back":"Follow"}</button></div>`; }).join("")}
     ${total > ids.length ? `<div class="hint" style="padding:12px 0">and ${full(total-ids.length)} more</div>` : ""}</div>`;
 }
 
