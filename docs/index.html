@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 66;
+const APP_VERSION = 67;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -3019,6 +3019,8 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   loadPfps();
   const back = takeOAuthReturn();
   await autoRun();
+  // Once, after the switch to the roleplay model: everything already written gets rewritten with it, newest first.
+  if (!S.secret.rpRedo && ollamaURL()){ S.secret.rpRedo = 1; await saveSecret(); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); }
   render();
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
   let fullPending = false; try { fullPending = localStorage.getItem("reel-full-pending") === "1"; localStorage.removeItem("reel-full-pending"); } catch(e){}
