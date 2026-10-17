@@ -264,6 +264,10 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .bub span{background:var(--soft);padding:9px 13px;border-radius:20px;white-space:pre-wrap;overflow-wrap:anywhere}
 .bub.me{margin-left:auto;align-items:flex-end}
 .bub.me span{background:#3d5afe;color:#fff}
+.dmseen{text-align:right;color:var(--muted);font-size:12px;margin:2px 4px 0}
+.dmset{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px}.dmset summary{font-weight:600;font-size:14px;cursor:pointer}
+.typing{display:inline-flex;gap:4px;align-items:center;padding:13px 14px!important}.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:tdot 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}@keyframes tdot{0%,60%,100%{opacity:.3;transform:none}30%{opacity:1;transform:translateY(-3px)}}
 .dmstory{margin-bottom:4px}.dmstory img,.dmstory video{width:120px;height:200px;object-fit:cover;border-radius:12px;display:block;margin-top:3px}
 .cmt.reply{padding:2px 0 8px 44px}
 .byc{display:inline-flex;align-items:center;gap:3px;color:var(--muted)}.byc svg{width:11px;height:11px;color:var(--heart)}
@@ -422,7 +426,8 @@ const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleuser
 const APP_VERSION = 37;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
-  captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
+  captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
+  dmAuto:"some", dmFanDirection:"", dmMeDirection:"" };
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
 function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
@@ -435,13 +440,13 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { savedVids:{}, vidSeen:{}, dms:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { savedVids:{}, vidSeen:{}, dms:{}, convos:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, convos:S.convos, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 
@@ -876,9 +881,11 @@ const DM_POST = ["this one 😮‍💨","ok THIS pic","why'd you post this 😭"
 const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐"];
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
 const dmCache = new Map();
+let convoVer = 0;
 // Fans message each account every day; the account answers some of them, and they answer back.
-function dmThreads(a){
-  const key = a.id + "|" + Math.floor(now() / 60e3) + "|" + S.posts.length + "|" + JSON.stringify(S.dms[a.id] || {}).length;
+// A chat someone has really talked in is a saved conversation (S.convos) and replaces the made-up lines for that fan.
+function dmTemplate(a){
+  const key = a.id + "|" + Math.floor(now() / 60e3) + "|" + S.posts.length;
   if (dmCache.has(key)) return dmCache.get(key);
   const T = new Map();
   const add = (i, m) => { if (m.at > now()) return; if (!T.has(i)) T.set(i, { i, msgs: [] }); T.get(i).msgs.push(m); };
@@ -904,16 +911,164 @@ function dmThreads(a){
       }
     }
   }
-  for (const [i, list] of Object.entries(S.dms[a.id] || {})) for (const m of list) add(+i, { me:true, text: m.text, at: m.at });
-  const out = [...T.values()].map(t => { t.msgs.sort((x, y) => x.at - y.at); t.last = t.msgs[t.msgs.length - 1]; return t; }).sort((x, y) => y.last.at - x.last.at);
-  if (dmCache.size > 30) dmCache.clear(); dmCache.set(key, out);
-  return out;
+  for (const t of T.values()) t.msgs.sort((x, y) => x.at - y.at);
+  if (dmCache.size > 30) dmCache.clear(); dmCache.set(key, T);
+  return T;
+}
+function dmThreads(a){
+  const T = new Map(dmTemplate(a));
+  for (const [i, c] of Object.entries(S.convos[a.id] || {})){ const msgs = c.msgs.filter(m => m.at <= now()); if (msgs.length) T.set(+i, { i: +i, msgs }); }
+  return [...T.values()].map(t => ({ ...t, last: t.msgs[t.msgs.length - 1] })).sort((x, y) => y.last.at - x.last.at);
 }
 // the first time an account's inbox is counted, only the last few hours start out unread
 const dmReadAt = (a, i) => { const m = (S.dmRead[a.id] ||= { __base: now() - 6*H }); return m[i] || m.__base || 0; };
 const dmUnread = (a, t) => !t.last.me && t.last.at > dmReadAt(a, t.i);
 const dmUnreadCount = a => dmThreads(a).filter(t => dmUnread(a, t)).length;
 const dmPrimary = (a, i) => rng(hashStr("fb" + i + a.seed))() < .3;
+
+/* ================= DM conversations (written by Ollama) ================= */
+// A saved chat: msgs, next (who talks next and when: { who: "fan"|"me", at, seenAt, ready }), note (the owner's note about this
+// person), auto (the account auto-replies here; unset = on unless the owner typed in this chat), summary of the older messages.
+const convoOf = (a, i) => (S.convos[a.id] || {})[i];
+function startConvo(a, i){
+  const box = (S.convos[a.id] ||= {});
+  if (box[i]) return box[i];
+  const t = dmTemplate(a).get(i);
+  return box[i] = { msgs: t ? t.msgs.map(m => ({ ...m })) : [], next: null, note: "", summary: "", sumUpTo: 0, turns: 0, started: now() };
+}
+const saveConvos = async () => { convoVer++; await saveMisc(); };
+const dmAutoOn = (a, c) => a.dmAuto !== "off" && (c.auto ?? !c.byMe);
+// Mostly quick when someone's chatting, sometimes they take a while, now and then they go quiet for hours.
+function replyDelay(fast){
+  const r = Math.random();
+  if (fast) return r < .75 ? 15e3 + Math.random() * 165e3 : r < .95 ? 3*60e3 + Math.random() * 20*60e3 : H + Math.random() * 4*H;
+  return r < .55 ? 30e3 + Math.random() * 6*60e3 : r < .88 ? 6*60e3 + Math.random() * 40*60e3 : H + Math.random() * 6*H;
+}
+function scheduleFan(c, from, fast){ const d = replyDelay(fast); c.next = { who: "fan", at: from + d, seenAt: from + Math.min(d * .5, 10e3 + Math.random() * 80e3) }; }
+// The account answers in its own time: minutes to a few hours.
+function scheduleMe(c, from){ const r = Math.random(); c.next = { who: "me", at: from + (r < .6 ? 2*60e3 + Math.random() * 25*60e3 : 30*60e3 + Math.random() * 3*H) }; }
+// The owner typed a message in this chat: the fan answers it.
+async function ownerSend(a, i, text){
+  const c = startConvo(a, i);
+  c.msgs.push({ me: true, text, at: now() }); c.byMe = true;
+  // A reply already written didn't see this message: keep its timing, write it again.
+  if (!c.next || c.next.who !== "fan") scheduleFan(c, now(), true); else c.next = { who: "fan", at: c.next.at, seenAt: c.next.seenAt };
+  await saveConvos(); dmTick();
+}
+// Who this follower is. Fixed per fan, so the same person always texts the same way.
+function fanPersona(f){
+  const r = rng(hashStr("persona" + f.i + "|" + S.settings.seed));
+  const nerve = pick(["shy and a little nervous, gets bolder the more the owner replies", "confident and forward, says what they want", "playful and teasing, loves banter", "sweet and a bit clingy, double-texts when ignored", "smooth and cocky, acts unbothered", "chaotic, all caps sometimes, lots of keysmash"], r);
+  const typing = pick(["all lowercase, barely any punctuation", "lowercase with lots of emoji", "normal capitalisation, a few emoji", "short bursts, often splits one thought into two texts", "abbreviations like u, ur, rn, fr, ngl", "longer messages, asks lots of questions"], r);
+  const into = pick(["the owner's photos", "the owner's gym progress", "the owner's style and fits", "the owner's stories", "getting to know the owner", "making the owner laugh"], r);
+  return `@${f.handle} (name ${f.name}). Personality: ${nerve}. Texting style: ${typing}. Mostly into ${into}.`;
+}
+const DM_FAN_RULES = "They have a crush on the owner: flirty, eager, a bit thirsty. Casual internet spelling, short texts like real DMs, react to what the owner just said.";
+const DM_ME_RULES = "The owner's account: confident, teasing, a little cocky, plays it cool, short replies, lowercase, sometimes just an emoji.";
+const DM_SCHEMA = { type: "object", properties: { messages: { type: "array", items: { type: "string" } } }, required: ["messages"], additionalProperties: false };
+function chatLine(a, f, m){
+  const sp = (m.story || m.post) && S.posts.find(x => x.id === (m.story || m.post));
+  const ref = m.story ? ` [replying to the owner's story${sp && sp.storyText ? `: "${sp.storyText}"` : ""}]` : m.post ? ` [replying to the owner's post${sp && sp.caption ? ` with the caption "${sp.caption}"` : ""}]` : "";
+  return `@${m.me ? handleOf(a) : f.handle}${ref}: ${m.text}`;
+}
+async function writeTurn(a, i, c){
+  const f = acct(i), who = c.next.who, me = handleOf(a);
+  if (c.msgs.length - c.sumUpTo > 44){
+    const old = c.msgs.slice(c.sumUpTo, c.msgs.length - 20);
+    const out = await ask(`${CONTEXT}\n\nSummarise this DM chat in 3 to 6 short lines: what was talked about, the vibe between them, and anything worth remembering (names, plans, jokes). Reply with the summary only.`,
+      [{ type: "text", text: `${c.summary ? `Summary so far:\n${c.summary}\n\n` : ""}More of the chat:\n${old.map(m => chatLine(a, f, m)).join("\n")}` }]);
+    if (out){ c.summary = out.trim(); c.sumUpTo = c.msgs.length - 20; }
+  }
+  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${styleFor(a.dmFanDirection, "", DM_FAN_RULES)}`
+    : `HOW @${me} TEXTS\n${styleFor(a.dmMeDirection, "", DM_ME_RULES)}`;
+  const note = hasText(c.note) ? `\n\nTHE OWNER'S NOTE ABOUT THIS CHAT (follow it)\n${c.note.trim()}` : "";
+  const writer = who === "fan" ? f.handle : me;
+  const system = `${CONTEXT}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
+  const recent = c.msgs.slice(Math.max(c.sumUpTo, c.msgs.length - 24));
+  const dir = who === "fan" ? ["How fans text", a.dmFanDirection] : [`How @${me} texts`, a.dmMeDirection];
+  const text = `${c.summary ? `Earlier in the chat (summary):\n${c.summary}\n\n` : ""}${recent.length ? `The chat so far, oldest first:\n${recent.map(m => chatLine(a, f, m)).join("\n")}` : `@${f.handle} is sending the first message.`}\n\nWrite @${writer}'s next message(s).${remind([dir, ["This chat", c.note]])}`;
+  const out = await ask(system, [{ type: "text", text }], DM_SCHEMA);
+  // The model sometimes copies the transcript's "@name:" prefix.
+  return (out && Array.isArray(out.messages) ? out.messages : []).map(t => cleanLine(String(t).replace(/^\s*@[\w.]+\s*(\[[^\]]*\])?\s*:\s*/, ""))).filter(Boolean).slice(0, 3);
+}
+// Messages show up when they're due: written a little early so "typing…" is honest, shown when the time comes.
+// Replies that came due while the app was closed are written the next time it opens, with their real times.
+let dmBusy = false; S.dmErr = "";
+async function dmTick(){
+  if (dmBusy || !ollamaURL()) return;
+  dmBusy = true; let changed = false;
+  try {
+    for (const a of S.accounts){
+      if (a.writer === "off") continue;
+      autoStartChats(a);
+      for (const [k, c] of Object.entries(S.convos[a.id] || {})){
+        const i = +k;
+        for (let step = 0; step < 6 && c.next; step++){
+          const n = c.next;
+          if (!n.ready){
+            if (now() < n.at - 25e3) break;
+            const lines = await writeTurn(a, i, c);
+            if (c.next !== n) break;
+            if (!lines.length){ c.next = null; changed = true; break; }
+            n.ready = lines; changed = true;
+          }
+          if (now() < n.at) break;
+          let t = n.at;
+          n.ready.forEach((text, j) => { if (j) t += 3e3 + text.length * 250 + Math.random() * 6e3; c.msgs.push({ me: n.who === "me", text, at: t, ...(n.who === "me" ? { auto: true } : {}) }); });
+          const at = c.msgs[c.msgs.length - 1].at;
+          c.next = null; changed = true;
+          if (n.who === "fan"){
+            if (dmAutoOn(a, c) && c.turns < (c.maxTurns ||= 3 + Math.floor(Math.random() * 8))) scheduleMe(c, at);
+          } else { c.turns++; if (Math.random() < .93) scheduleFan(c, at, false); }
+        }
+      }
+    }
+    S.dmErr = "";
+  } catch(e){
+    const k = errKind(e);
+    S.dmErr = k === "conn" ? "Waiting for your PC. Replies come in once Ollama can be reached." : k === "model" ? `Ollama doesn't have ${ollamaModel()} yet.` : "Couldn't write the reply: " + String(e.message || e).slice(0, 120);
+  } finally {
+    dmBusy = false;
+    if (changed) await saveConvos();
+    dmRepaint();
+  }
+}
+// With auto-replies on, the account answers a few unanswered messages a day by itself and those become real chats.
+function autoStartChats(a){
+  if (a.dmAuto === "off") return;
+  const perDay = a.dmAuto === "lots" ? 10 : 3;
+  const box = S.convos[a.id] || {};
+  const today = Object.values(box).filter(c => c.autoStart && now() - c.autoStart < D).length;
+  if (today >= perDay || Math.random() > .5) return;
+  const open = dmThreads(a).filter(t => !box[t.i] && !t.last.me && now() - t.last.at < 12*H);
+  if (!open.length) return;
+  const t = open[Math.floor(Math.random() * Math.min(5, open.length))];
+  const c = startConvo(a, t.i); c.autoStart = now(); scheduleMe(c, Math.max(t.last.at, now() - 20*60e3));
+}
+// Fills in new messages, "Seen" and "typing…" on an open chat without touching what's being typed.
+function dmRepaint(){
+  const r = route();
+  if (r.name === "dm" && r.b !== undefined && r.b !== ""){
+    const el = $("#dmmsgs"); if (!el) return;
+    const a = accountById(r.a) || A(), i = +r.b;
+    const bottom = window.innerHeight + window.scrollY > document.body.scrollHeight - 120;
+    el.innerHTML = dmMsgsHTML(a, i); (S.dmRead[a.id] ||= {})[i] = now();
+    if (bottom) window.scrollTo(0, document.body.scrollHeight);
+    return;
+  }
+  if (r.name === "dm" || r.name === "home") safeRender();
+}
+// Messages typed before chats were real conversations get a reply too.
+async function migrateDms(){
+  let n = 0;
+  for (const a of S.accounts) for (const [i, list] of Object.entries(S.dms[a.id] || {})){
+    if (!list.length || convoOf(a, +i)) continue;
+    const c = startConvo(a, +i);
+    c.msgs = [...c.msgs, ...list.map(m => ({ me: true, text: m.text, at: m.at }))].sort((x, y) => x.at - y.at);
+    c.byMe = true; scheduleFan(c, now(), true); n++;
+  }
+  if (n || Object.keys(S.dms).length){ S.dms = {}; await saveConvos(); }
+}
 // What each account did on its own lately.
 function accountActions(a, since){
   const posts = live(a.id).filter(p => p.publishAt > since).length;
@@ -1588,18 +1743,40 @@ function vDM(v, r){
     `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/dm/${esc(a.id)}" class="${tab==="primary"?"on":""}">Primary</button><button type="button" data-href="#/dm/${esc(a.id)}//requests" class="${tab==="requests"?"on":""}">Requests${reqN ? ` (${reqN})` : ""}</button></div>` +
     `<div class="pad list">${list.length ? list.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="row dmrow" href="#/dm/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages</h2><p>${tab === "primary" ? "Messages from people this account follows show up here." : "Messages from everyone else land here first."}</p></div>`}</div>`;
 }
-function vDMThread(v, a, i){
-  const f = acct(i);
+function dmMsgsHTML(a, i){
   const t = dmThreads(a).find(x => x.i === i) || { i, msgs: [] };
-  (S.dmRead[a.id] ||= {})[i] = now(); saveMisc();
-  setTop(`${backBtn}<a href="#/u/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">${esc(f.handle)}</h1></a>`);
+  const c = convoOf(a, i);
   const postRef = id => { const sp = S.posts.find(x => x.id === id); if (!sp) return ""; return `<a class="dmpost" href="#/p/${esc(sp.id)}"><div class="hint">Replied to ${esc(handleOf(a))}'s post</div><div class="dmcard"><div class="dmch">${myAv(24, a)}<b>${esc(handleOf(a))}</b></div>${mediaTag(sp.files[0], "", { poster: true })}${sp.caption ? `<div class="dmcap"><b>${esc(handleOf(a))}</b> ${esc(sp.caption)}</div>` : ""}</div></a>`; };
   const story = id => { const sp = S.posts.find(x => x.id === id); return sp ? `<div class="dmstory"><div class="hint">Replied to ${esc(handleOf(a))}'s story</div>${mediaTag(sp.files[0], "", { poster: true })}</div>` : ""; };
+  const last = t.msgs[t.msgs.length - 1];
+  const n = c && c.next;
+  const typing = n && n.who === "fan" && n.ready && now() >= n.at - 20e3;
+  const seen = last && last.me ? (n && n.who === "fan" && now() < n.seenAt ? "Sent" : "Seen") : "";
+  const late = n && n.who === "fan" && now() > n.at + 60e3 && S.dmErr;
+  return t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > 60*60e3; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.story && !m.me ? story(m.story) : ""}${m.post && !m.me ? postRef(m.post) : ""}<span>${esc(m.text)}</span></div>`; }).join("") +
+    (seen && !typing ? `<div class="dmseen">${seen}</div>` : "") +
+    (typing ? `<div class="bub"><span class="typing"><i></i><i></i><i></i></span></div>` : "") +
+    (late ? `<div class="hint" style="text-align:center;margin-top:10px">${esc(S.dmErr)}</div>` : "");
+}
+function vDMThread(v, a, i){
+  const f = acct(i);
+  const c = convoOf(a, i);
+  (S.dmRead[a.id] ||= {})[i] = now(); saveMisc();
+  setTop(`${backBtn}<a href="#/u/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">${esc(f.handle)}</h1></a>`);
+  const auto = a.dmAuto !== "off" && (c ? dmAutoOn(a, c) : true);
   v.innerHTML = `<div class="pad dm" style="padding-bottom:80px">
     <div class="dmhead">${acctAv(f, 86)}<b>${esc(f.handle)}</b><div class="hint">${esc(f.name)} · ${fmt(f.followers)} followers</div><a class="btn" style="width:auto;display:inline-block;margin-top:8px" href="#/u/${i}">View profile</a></div>
-    ${t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > 60*60e3; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.story && !m.me ? story(m.story) : ""}${m.post && !m.me ? postRef(m.post) : ""}<span>${esc(m.text)}</span></div>`; }).join("")}
+    <details class="dmset"><summary>Chat settings${c && hasText(c.note) ? " · note on" : ""}</summary>
+      <div class="form" style="padding-top:10px">
+        <div class="seg"><button type="button" data-dmauto="on" data-acct="${esc(a.id)}" data-fan="${i}" aria-pressed="${auto}">@${esc(handleOf(a))} replies by itself</button><button type="button" data-dmauto="off" data-acct="${esc(a.id)}" data-fan="${i}" aria-pressed="${!auto}">Only when I type</button></div>
+        ${a.dmAuto === "off" ? `<div class="hint">Auto-replies are off for this whole account (Settings → @${esc(handleOf(a))} → Messages).</div>` : ""}
+        <div class="field"><label for="dmnote">Note about this person</label><textarea id="dmnote" placeholder="e.g. he's been flirting for weeks, very clingy, wants to meet up, playing hard to get">${esc((c && c.note) || "")}</textarea></div>
+        <div class="hint">How @${esc(f.handle)} acts and what the chat is about. ${AI()} follows it for both sides of this chat.</div>
+      </div></details>
+    <div id="dmmsgs">${dmMsgsHTML(a, i)}</div>
   </div>
   <div class="cbox"><div class="in pad">${myAv(32, a)}<input type="text" id="dmin" placeholder="Message…" autocomplete="off"><button type="button" data-dmsend="${i}" data-acct="${esc(a.id)}">Send</button></div></div>`;
+  $("#dmnote").addEventListener("change", async e => { const cc = startConvo(a, i); cc.note = e.target.value; if (cc.next) cc.next = { who: cc.next.who, at: cc.next.at, seenAt: cc.next.seenAt }; await saveConvos(); toast("Note saved for this chat"); });
   setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
 }
 /* ================= explore ================= */
@@ -2216,6 +2393,12 @@ function vAset(v, r){
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
       <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
+    <div class="card"><h3>Messages</h3>
+      <span class="lbl">@${esc(handleOf(a))} answers DMs by itself</span>
+      ${seg("dmauto", a.dmAuto || "some", [["off","Never"],["some","A few a day"],["lots","Lots"]])}
+      <div class="hint">Fans always answer what you type. With this on, chats you leave alone keep going: the account replies in its own voice and they reply back. Switch it per chat in that chat's settings.${a.writer === "off" ? ` ${AI()} is off for this account, so nobody replies until you turn it back on.` : ""}</div>
+      <div class="field"><label for="admfan">How fans talk in DMs</label><textarea id="admfan" placeholder="e.g. mostly guys, shy at first then really forward, they ask to meet up, lots of 😳">${esc(a.dmFanDirection||"")}</textarea></div>
+      <div class="field"><label for="admme">How @${esc(handleOf(a))} replies</label><textarea id="admme" placeholder="e.g. dry and teasing, makes them work for it, never more than a few words">${esc(a.dmMeDirection||"")}</textarea></div></div>
     <div class="card"><h3>Rewrite with ${AI()}</h3>
       <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Rewrite this account</button>
       <div class="seg"><button type="button" data-rewrite="caption" data-acct="${id}">Captions</button><button type="button" data-rewrite="comments" data-acct="${id}">Comments</button><button type="button" data-rewrite="story" data-acct="${id}">Stories</button></div>
@@ -2244,6 +2427,7 @@ function vAset(v, r){
     if (aiOn()){ await requeue(what); toast("Direction saved. Upcoming posts are being rewritten; tap Rewrite for ones already up."); }
     else toast("Direction saved");
   });
+  for (const [el, field] of [["admfan","dmFanDirection"],["admme","dmMeDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Saved. The next DMs follow it."); });
   $("#amycap").addEventListener("change", async e => {
     a.myCaptions = e.target.value; await saveAccounts();
     if (aiOn() && a.captionStyle !== "off"){ await requeue({ cap: 1 }); toast(`Captions saved. ${AI()} copies their style on upcoming posts.`); }
@@ -2418,7 +2602,9 @@ document.addEventListener("click", async e => {
   if (d.clike){ const p = S.posts.find(x=>x.id===d.p); p.cLikes = {...(p.cLikes||{}), [d.clike]: !(p.cLikes||{})[d.clike]}; await savePost(p); render(); return; }
   if (d.hidec){ const p = S.posts.find(x=>x.id===d.p); if (d.hidec.startsWith("g")) p.hidden = [...(p.hidden||[]), d.hidec]; else p.myComments = (p.myComments||[]).filter(c=>c.id!==d.hidec); await savePost(p); render(); return; }
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
-  if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp.value.trim(); if (!text) return; const box = ((S.dms[d.acct] ||= {})[d.dmsend] ||= []); box.push({ text, at: now() }); await saveMisc(); render(); return; }
+  if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp.value.trim(); if (!text) return; const a = accountById(d.acct) || A(); inp.value = ""; await ownerSend(a, +d.dmsend, text); dmRepaint(); window.scrollTo(0, document.body.scrollHeight); return; }
+  if (d.dmauto && d.fan !== undefined){ const a = accountById(d.acct) || A(), c = startConvo(a, +d.fan); c.auto = d.dmauto === "on"; if (c.auto && !c.next && c.msgs.length && !c.msgs[c.msgs.length - 1].me){ c.turns = 0; scheduleMe(c, now()); } if (!c.auto && c.next && c.next.who === "me") c.next = null; await saveConvos(); render(); toast(c.auto ? `@${handleOf(a)} replies in this chat by itself` : "Only you reply in this chat"); return; }
+  if (d.dmauto){ const a = accountById(d.acct) || A(); a.dmAuto = d.dmauto; await saveAccounts(); render(); toast(d.dmauto === "off" ? `@${handleOf(a)} only replies when you type` : `@${handleOf(a)} answers DMs by itself`); dmTick(); return; }
   if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
   if ("pick" in d){ $("#picker").click(); return; }
   if ("avpick" in d){ avatarChooser(); return; }
@@ -2540,7 +2726,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {}; S.vidSeen = misc.vidSeen || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.convos = misc.convos || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {}; S.vidSeen = misc.vidSeen || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   loadPfps();
   const back = takeOAuthReturn();
@@ -2553,8 +2739,11 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   setInterval(() => sync(true), 30*60e3);
   setInterval(() => autoStories(), 30*60e3);
   setInterval(writerRun, 4*60e3);
+  await migrateDms(); dmTick();
+  setInterval(dmTick, 20e3);
+  setInterval(() => { if (route().name === "dm" && route().b) dmRepaint(); }, 4e3);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") homeOrder = null; });
-  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); if (now() - l > 20*60e3) sync(true); } });
+  document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); dmTick(); if (now() - l > 20*60e3) sync(true); } });
   setInterval(() => { if (["home","me","activity","all"].includes(route().name)) safeRender(); }, 60e3);
   if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update().catch(()=>{}); })).catch(()=>{});
 })();
