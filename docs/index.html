@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 53;
+const APP_VERSION = 54;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1336,6 +1336,9 @@ const DEFAULT_MODEL = "gemma3:12b";
 const AI = () => "Ollama";
 const CO = () => "your PC";
 const ollamaURL = () => (S.secret.url || "").trim().replace(/\/+$/, "");
+const textOnlyModels = () => { try { return JSON.parse(localStorage.getItem("reel-textonly") || "[]"); } catch(e){ return []; } };
+const modelSeesPhotos = () => !textOnlyModels().includes(ollamaModel());
+function markTextOnly(){ const l = textOnlyModels(); if (!l.includes(ollamaModel())){ l.push(ollamaModel()); try { localStorage.setItem("reel-textonly", JSON.stringify(l)); } catch(e){} } }
 const ollamaModel = () => (S.secret.model || "").trim() || DEFAULT_MODEL;
 // e.kind is conn | model.
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
@@ -1360,6 +1363,8 @@ async function ask(system, content, schema){
   if (!res.ok){
     const j = await res.json().catch(() => ({}));
     const msg = j.error || `Ollama error ${res.status}`;
+    // A text-only model (like uncensored) can't take photos: remember that on this phone and write from text instead.
+    if (images.length && /multimodal|image|vision/i.test(msg)){ markTextOnly(); return ask(system, content.filter(b => b.type !== "image"), schema); }
     throw aiError(res.status === 404 && /model/i.test(msg) ? "model" : "", msg);
   }
   // One JSON object per line, each carrying the next piece of the reply.
@@ -1433,7 +1438,7 @@ const cleanLine = t => String(t || "").replace(/^["'“]+|["'”]+$/g, "").trim(
 // One request per post: the caption and the comments come back together when both are needed.
 async function writeOne(j){
   const p = j.p, a = acctOf(p);
-  const img = a.writer === "photos" ? await frameB64(p.files[0]) : null;
+  const img = a.writer === "photos" && modelSeesPhotos() ? await frameB64(p.files[0]) : null;
   const blind = img ? "" : "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
