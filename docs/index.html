@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 77;
+const APP_VERSION = 78;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -2017,10 +2017,28 @@ async function refreshAdvance(){
 }
 // Coming back to the app after a couple of minutes away changes the feed by itself, the same as a refresh.
 const markLeft = () => { try { localStorage.setItem("reel-left-at", String(now())); } catch(e){} };
+// Every 2 or 3 times you come back, some followers have changed their profile picture, like on the real app:
+// about 1 in 12 of them, always including a few of each account's regulars so it shows.
+async function shiftPfps(){
+  const st = S.settings;
+  st.comeCount = (st.comeCount || 0) + 1;
+  if (!st.pfpNextAt) st.pfpNextAt = 2 + Math.floor(Math.random() * 2);
+  if (st.comeCount < st.pfpNextAt){ await saveSettings(); return false; }
+  st.comeCount = 0; st.pfpNextAt = 2 + Math.floor(Math.random() * 2);
+  const who = new Set();
+  for (const a of S.accounts){ const reg = regularsOf(a); for (let k = 0; k < 3; k++) who.add(reg[Math.floor(Math.random() * reg.length)]); }
+  const want = Math.round(POOL / 12) + who.size;
+  while (who.size < Math.min(POOL, want)) who.add(Math.floor(Math.random() * POOL));
+  const bump = { ...(st.pfpBump || {}) };
+  for (const i of who) bump[i] = (bump[i] || 0) + 1;
+  st.pfpBump = bump; pfpCache.clear(); await saveSettings();
+  return true;
+}
 async function comeBack(){
   let left = 0; try { left = +localStorage.getItem("reel-left-at") || 0; localStorage.removeItem("reel-left-at"); } catch(e){}
   if (!left || now() - left < 2*60e3) return;
-  if (!(await refreshAdvance())) return;
+  const newPfps = await shiftPfps();
+  if (!(await refreshAdvance())){ if (newPfps) safeRender(); return; }
   homeOrder = null;
   if (route().name === "home"){ window.scrollTo(0, 0); safeRender(); }
 }
