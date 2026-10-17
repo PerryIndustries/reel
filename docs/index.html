@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 80;
+const APP_VERSION = 81;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -766,7 +766,7 @@ const handleOf = a => (a && a.handle) || "unnamed" + (a ? S.accounts.indexOf(a) 
 
 /* ================= fake world: growth + engagement ================= */
 const LEVEL = { low:.45, normal:1, high:2.2, viral:5 };
-const thirsty = a => (a || A()).captionStyle === "thirst";
+const thirsty = a => !!PC() || (a || A()).captionStyle === "thirst";
 function baseFollowersAt(a, t){
   const start = a.startedAt || now();
   const days = Math.max(0, (t - start)/D);
@@ -862,7 +862,7 @@ function ownerReply(p, c){
   const r = rng(hashStr("or" + p.id + c.id));
   const liked = r() < .3, replies = r() < (thirsty(acctOf(p)) ? .2 : .12);
   const at = c.at + (5 + r() * 180) * 60e3;
-  return { liked: liked && at <= now(), reply: replies && at <= now() ? { text: pick(OWNER_CMT, r), at } : null };
+  return { liked: liked && at <= now(), reply: replies && at <= now() ? { text: pick(PC() && PC().pool.replies && PC().pool.replies.length ? PC().pool.replies : OWNER_CMT, r), at } : null };
 }
 
 /* ================= highlights ================= */
@@ -968,6 +968,7 @@ const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","a
 THIRST.push(...GENRE.caption.map(t => genderize(t, "she"))); THIRST_COMMENTS.push(...GENRE.comments.map(t => genderize(t, "she"))); STORY_TEXT.push(...GENRE.story); DM_OPEN.push(...GENRE.dmFan); DM_OWNER.push(...GENRE.dmMe);
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
 const dmCache = new Map();
+const dmBank = (k, d) => { const l = PC() && PC().pool[k]; return l && l.length ? l : d; };
 let convoVer = 0;
 // Fans message each account every day; the account answers some of them, and they answer back.
 // A chat someone has really talked in is a saved conversation (S.convos) and replaces the made-up lines for that fan.
@@ -976,7 +977,7 @@ function dmTemplate(a){
   if (dmCache.has(key)) return dmCache.get(key);
   const T = new Map();
   const add = (i, m) => { if (m.at > now()) return; if (!T.has(i)) T.set(i, { i, msgs: [] }); T.get(i).msgs.push(m); };
-  const perDay = Math.max(2, Math.min(25, Math.round((2 + followersNow(a) / 1500) * (LEVEL[a.level] || 1))));
+  const perDay = Math.max(2, Math.min(PC() ? 60 : 25, Math.round((2 + followersNow(a) / 1500) * (LEVEL[a.level] || 1) * (PC() ? 3 : 1))));
   const stories = postsOf(a.id, "story");
   const posted = live(a.id);
   const start = Math.max(a.startedAt || now() - 14*D, now() - 14*D);
@@ -988,13 +989,13 @@ function dmTemplate(a){
       const st = stories.find(x => x.publishAt <= t && t < x.publishAt + D);
       const rp = rng(hashStr("dmp" + a.seed + "|" + d + "|" + k));
       const recent = posted.filter(x => x.publishAt <= t && t - x.publishAt < 7*D);
-      if (st && r() < .35) add(i, { me:false, text: pick(DM_STORY, r), at: t, story: st.id });
-      else if (recent.length && rp() < .4) add(i, { me:false, text: pick(DM_POST, rp), at: t, post: recent[Math.floor(rp() * Math.min(3, recent.length))].id });
-      else add(i, { me:false, text: pick(DM_OPEN, r), at: t });
-      if (r() < .35) add(i, { me:false, text: pick(DM_FOLLOW, r), at: t + (1 + r() * 40) * 60e3 });
+      if (st && r() < .35) add(i, { me:false, text: pick(dmBank("dmStory", DM_STORY), r), at: t, story: st.id });
+      else if (recent.length && rp() < .4) add(i, { me:false, text: pick(dmBank("dmPost", DM_POST), rp), at: t, post: recent[Math.floor(rp() * Math.min(3, recent.length))].id });
+      else add(i, { me:false, text: pick(dmBank("dmOpen", DM_OPEN), r), at: t });
+      if (r() < (PC() ? .6 : .35)) add(i, { me:false, text: pick(dmBank("dmFollow", DM_FOLLOW), r), at: t + (1 + r() * 40) * 60e3 });
       if (r() < .3){
-        const t2 = t + (10 + r() * 170) * 60e3; add(i, { me:true, text: pick(DM_OWNER, r), at: t2 });
-        if (r() < .6) add(i, { me:false, text: pick(DM_BACK, r), at: t2 + (2 + r() * 25) * 60e3 });
+        const t2 = t + (10 + r() * 170) * 60e3; add(i, { me:true, text: pick(dmBank("dmOwner", DM_OWNER), r), at: t2 });
+        if (r() < .6) add(i, { me:false, text: pick(dmBank("dmBack", DM_BACK), r), at: t2 + (2 + r() * 25) * 60e3 });
       }
     }
   }
@@ -1066,8 +1067,9 @@ async function writeTurn(a, i, c){
       [{ type: "text", text: `${c.summary ? `Summary so far:\n${c.summary}\n\n` : ""}More of the chat:\n${old.map(m => chatLine(a, f, m)).join("\n")}` }]);
     if (out){ c.summary = out.trim(); c.sumUpTo = c.msgs.length - 20; }
   }
-  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan", a)}`
-    : `HOW @${me} TEXTS\n${styleFor(a.dmMeDirection, "", DM_ME_RULES, "dmMe", a)}`;
+  const pd = PC() && PC().dm, feel = l => (l || []).length ? `\nThe feel (write new texts, never these): ${[...l].sort(() => Math.random() - .5).slice(0, 4).join(" / ")}` : "";
+  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${pd && pd.fan ? pd.fan + feel(pd.fanEx) : styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan", a)}`
+    : `HOW @${me} TEXTS\n${pd && pd.me ? pd.me + feel(pd.meEx) : styleFor(a.dmMeDirection, "", DM_ME_RULES, "dmMe", a)}`;
   const note = hasText(c.note) ? `\n\nTHE OWNER'S NOTE ABOUT THIS CHAT (follow it)\n${c.note.trim()}` : "";
   const writer = who === "fan" ? f.handle : me;
   const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
@@ -1105,7 +1107,7 @@ async function dmTick(){
           const at = c.msgs[c.msgs.length - 1].at;
           c.next = null; changed = true;
           if (n.who === "fan"){
-            if (dmAutoOn(a, c) && c.turns < (c.maxTurns ||= 3 + Math.floor(Math.random() * 8))) scheduleMe(c, at);
+            if (dmAutoOn(a, c) && c.turns < (c.maxTurns ||= PC() ? 6 + Math.floor(Math.random() * 12) : 3 + Math.floor(Math.random() * 8))) scheduleMe(c, at);
           } else { c.turns++; if (Math.random() < .93) scheduleFan(c, at, false); }
         }
       }
@@ -1476,7 +1478,7 @@ async function ask(system, content, schema, max, model){
   return schema ? JSON.parse(text) : text;
 }
 // A small JPEG of the photo, or of a frame from a video.
-async function frameB64(f){
+async function frameB64(f, at){
   const blob = await DB.get("media", f.key); if (!blob) return null;
   const url = URL.createObjectURL(isVideo(f.mime) ? await playableBlob(blob, f.mime) : blob);
   try {
@@ -1484,7 +1486,7 @@ async function frameB64(f){
     if (isVideo(f.mime)){
       el = document.createElement("video"); el.muted = true; el.playsInline = true; el.preload = "auto"; el.src = url;
       await new Promise((res, rej) => { el.onloadeddata = res; el.onerror = rej; setTimeout(rej, 10000); });
-      el.currentTime = Math.min(1, (el.duration || 3) / 3);
+      el.currentTime = at != null ? (el.duration || 3) * at : Math.min(1, (el.duration || 3) / 3);
       await new Promise(res => { el.onseeked = res; setTimeout(res, 3000); });
     } else { el = new Image(); el.src = url; await el.decode(); }
     const w = el.videoWidth || el.naturalWidth, h = el.videoHeight || el.naturalHeight; if (!w || !h) return null;
@@ -1634,11 +1636,12 @@ async function applyPcStyle(){
     if (a.writer === "off") continue;
     a.myCaptions = st.pool.captions.join("\n"); a.myComments = st.pool.comments.join("\n"); a.myStoryTexts = st.pool.stories.join("\n");
     a.captionStyle = "off"; a.comStyle = "auto"; a.storyStyle = "off"; a.poolsDone = 1; a.poolVer = POOL_VER;
+    if (a.dmAuto !== "off") a.dmAuto = "lots";
   }
-  await saveAccounts(); genCache.clear();
+  await saveAccounts(); genCache.clear(); dmCache.clear();
   for (const p of S.posts){
     const a = acctOf(p); if (a.writer === "off") continue;
-    if (isStory(p)) p.storyText = storyText(hashStr(uid("x")), a);
+    if (isStory(p)){ p.storyText = storyText(hashStr(uid("x")), a); p.storyWritten = false; }
     else {
       if (p.captionAuto && !p.captionManual){ p.capTry = (p.capTry || 0) + 1; p.caption = genCaption(p, p.capTry) || p.caption; p.captionWritten = false; }
       p.commentsWritten = false; p.aiComments = undefined; p.comTry = (p.comTry || 0) + 1;
@@ -1652,14 +1655,16 @@ async function applyPcStyle(){
 // It can refuse some photos; those posts are written without it.
 const REFUSAL = /\b(i can'?t|i cannot|i'?m (not able|unable)|i am (not able|unable)|sorry|not appropriate|inappropriate)\b/i;
 async function describePhoto(p){
-  const f = p.files && p.files[0];
-  const img = f ? await frameB64(f) : null;
+  const f = p.files && p.files[0], vid = !!(f && isVideo(f.mime));
+  const imgs = !f ? [] : vid ? (await (async () => { const o = []; for (const at of [.15, .5, .85]) o.push(await frameB64(f, at)); return o; })()).filter(Boolean) : [await frameB64(f)].filter(Boolean);
   let d = "";
-  if (img){
-    try { d = await ask("You describe photos for someone writing an Instagram caption. One plain line, under 25 words: setting, outfit, pose, mood. Nothing else.", [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text: "Describe this photo." }], undefined, 80, PC().visionModel || "gemma3:12b") || ""; }
+  if (imgs.length){
+    const ask1 = vid ? "You describe short videos for someone writing an Instagram caption. You get frames from the start, middle and end of the clip, in order. One plain line, under 30 words: setting, outfit, what she does in the clip, mood. Nothing else."
+      : "You describe photos for someone writing an Instagram caption. One plain line, under 25 words: setting, outfit, pose, mood. Nothing else.";
+    try { d = await ask(ask1, [...imgs.map(data => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data } })), { type: "text", text: vid ? "Describe this video." : "Describe this photo." }], undefined, 90, PC().visionModel || "gemma3:12b") || ""; }
     catch(e){ if (errKind(e) === "conn") throw e; d = ""; }
   }
-  p.photoDesc = REFUSAL.test(d) ? "" : cleanLine(d).slice(0, 240);
+  p.photoDesc = REFUSAL.test(d) ? "" : cleanLine(d).slice(0, 260); p.photoIsVideo = vid; p.descV = 2;
   await savePost(p);
 }
 function pickMode(modes, r){ const t = modes.reduce((s, m) => s + m.w, 0); let x = r() * t; for (const m of modes){ if ((x -= m.w) < 0) return m; } return modes[0]; }
@@ -1668,11 +1673,19 @@ const listLines = out => String(out || "").split("\n").map(x => cleanLine(x.repl
 // One post in the PC style: the caption plays off the photo, and the comments react to that caption and photo.
 async function writePc(j){
   const p = j.p, a = acctOf(p), st = PC();
-  const desc = p.photoDesc ? `The photo: ${p.photoDesc}` : "You can't see the photo, so don't describe anything specific in it.";
+  const desc = p.photoDesc ? `${p.photoIsVideo ? "The post is a video. What happens in it" : "The photo"}: ${p.photoDesc}` : "You can't see the photo, so don't describe anything specific in it.";
+  if (j.kind === "story"){
+    const sp = st.story || st.caption, m = pickMode(sp.modes, rng((p.seed ^ hashStr("pcs")) >>> 0));
+    const out = await ask(`${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${sp.voice}\n\nThis story's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one thirsty but not graphic."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the text only, no quotes.`,
+      [{ type: "text", text: `${desc}\nThe text sits over her story and can play off it.\n\nWrite her story text.` }], undefined, 40);
+    const c = listLines(out)[0];
+    if (c && !m.ex.map(normT).includes(normT(c)) && !wrongVoice(c, a, "story") && normT(c).split(" ").length <= 12) p.storyText = c;
+    p.storyWritten = true; await savePost(p); return;
+  }
   if (j.cap){
     const m = pickMode(st.caption.modes, rng((p.seed ^ hashStr("pcm" + (p.capTry || 0))) >>> 0));
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-12).map(x => "- " + x.caption).join("\n");
-    const sys = `${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${st.caption.voice}\n\nThis caption's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one flirty and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the caption only, no quotes.`;
+    const sys = `${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${st.caption.voice}\n\nThis caption's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one thirsty and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the caption only, no quotes.`;
     const out = await ask(sys, [{ type: "text", text: `${desc}\nThe caption can play off the photo, but it isn't a description of it.${recent ? `\n\nRecent captions on this account (don't repeat or echo them):\n${recent}` : ""}\n\nWrite her caption.` }], undefined, 60);
     const c = listLines(out)[0];
     if (c && !m.ex.map(normT).includes(normT(c)) && !wrongVoice(c, a, "caption") && normT(c).split(" ").length <= 12){ p.caption = c; capChanged(p); }
@@ -1694,7 +1707,7 @@ async function writePc(j){
   await savePost(p);
 }
 async function writeOne(j){
-  if (PC() && j.kind !== "story") return writePc(j);
+  if (PC()) return writePc(j);
   const p = j.p, a = acctOf(p);
   const img = a.writer === "photos" && modelSeesPhotos() ? await frameB64(p.files[0]) : null;
   const blind = img ? "" : BLIND;
@@ -1839,7 +1852,7 @@ async function writerRun(){
       const a = acctOf(p);
       if (a.writer === "off") continue;
       // "Only mine" keeps the owner's own captions and story text; the AI still writes the comments.
-      if (isStory(p)){ if (a.storyStyle !== "off" && !p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
+      if (isStory(p)){ if ((a.storyStyle !== "off" || !!PC()) && !p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
       const cap = !!(p.captionAuto && !p.captionWritten && (a.captionStyle !== "off" || !!PC())), com = !p.commentsWritten && !(a.comStyle === "mine" && ownComments(a).length);
       if (cap || com) jobs.push({ p, kind: "post", cap, com });
     }
@@ -1857,7 +1870,7 @@ async function writerRun(){
     const looks = !!(PC() && PC().vision !== false);
     for (let c = 0; c < jobs.length && !failure; c = end){
       end = Math.min(jobs.length, c + (looks ? 12 : jobs.length));
-      if (looks) for (const j of jobs.slice(c, end)) if (j.kind === "post" && j.p.photoDesc === undefined){ setWriter(`Writing ${done} of ${jobs.length}… looking at the photos`); await describePhoto(j.p); }
+      if (looks) for (const j of jobs.slice(c, end)) if (j.p.descV !== 2){ setWriter(`Writing ${done} of ${jobs.length}… looking at the photos`); await describePhoto(j.p); }
       await Promise.all(Array.from({ length: Math.min(WRITERS, end - c) }, worker));
     }
     if (failure) throw failure;
