@@ -3023,6 +3023,8 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   loadPfps();
   const back = takeOAuthReturn();
   await autoRun();
+  // Once, after the switch to the roleplay model: everything already written gets rewritten with it, newest first.
+  if (!S.secret.rpRedo && ollamaURL()){ S.secret.rpRedo = 1; await saveSecret(); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); }
   render();
   let last = 0; try { last = +localStorage.getItem("reel-synced-at") || 0; } catch(e){}
   let fullPending = false; try { fullPending = localStorage.getItem("reel-full-pending") === "1"; localStorage.removeItem("reel-full-pending"); } catch(e){}
