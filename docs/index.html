@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 63;
+const APP_VERSION = 64;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1075,7 +1075,7 @@ async function writeTurn(a, i, c){
 // Replies that came due while the app was closed are written the next time it opens, with their real times.
 let dmBusy = false; S.dmErr = "";
 async function dmTick(){
-  if (dmBusy || !writerReady()) return;
+  if (dmBusy || !ollamaURL()) return;
   dmBusy = true; let changed = false;
   try {
     for (const a of S.accounts){
@@ -1349,7 +1349,7 @@ async function autoCaptions(){
 // One account's captions, comments or story text, new on every post including ones already up. The writer redoes
 // them when it's set up and allowed to write that part; otherwise they come from the built-in lines and your own.
 async function redoPart(a, part){
-  const ai = writerReady() && a.writer !== "off";
+  const ai = !!ollamaURL() && a.writer !== "off";
   let n = 0;
   for (const p of S.posts.filter(p => p.acct === a.id)){
     if (part === "caption" && !isStory(p) && p.captionAuto && !p.captionManual){
@@ -1408,61 +1408,23 @@ async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multi
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
-// Photos go along only for accounts set to "Sees photos", so each caption fits its picture; that needs a model that sees images.
+// The default is "rp", a roleplay model that writes explicit content and can't see photos. "Sees photos" accounts need a
+// vision model typed into Settings (like gemma3:12b); with a text-only model they write from text.
 // 12b sees photos too and is about twice as fast as 27b on the owner's RTX 3090 (four posts in ~35s).
-const DEFAULT_MODEL = "gemma3:12b";
-const AI = () => useOpenAI() ? "ChatGPT" : "Ollama";
-const CO = () => useOpenAI() ? "OpenAI" : "your PC";
+const DEFAULT_MODEL = "rp";
+const AI = () => "Ollama";
+const CO = () => "your PC";
 const ollamaURL = () => (S.secret.url || "").trim().replace(/\/+$/, "");
 const textOnlyModels = () => { try { return JSON.parse(localStorage.getItem("reel-textonly") || "[]"); } catch(e){ return []; } };
-const modelSeesPhotos = () => useOpenAI() || !textOnlyModels().includes(ollamaModel());
+// Models known to be text only, plus any the phone found out about (Ollama said no to a photo).
+const TEXT_ONLY = ["rp", "rp24", "uncensored"];
+const modelSeesPhotos = () => !TEXT_ONLY.includes(ollamaModel()) && !textOnlyModels().includes(ollamaModel());
 function markTextOnly(){ const l = textOnlyModels(); if (!l.includes(ollamaModel())){ l.push(ollamaModel()); try { localStorage.setItem("reel-textonly", JSON.stringify(l)); } catch(e){} } }
 const ollamaModel = () => (S.secret.model || "").trim() || DEFAULT_MODEL;
-// ChatGPT as a second writer, to compare with Ollama: the owner's OpenAI key is stored only on this phone and sent only to OpenAI.
-const OPENAI_MODEL = "gpt-5-mini";
-const OA_KEY_RE = /^sk-\S{20,}$/;
-const useOpenAI = () => S.secret.engine === "openai" && OA_KEY_RE.test(S.secret.oaKey || "");
-const oaModel = () => (S.secret.oaModel || "").trim() || OPENAI_MODEL;
-const writerReady = () => useOpenAI() || !!ollamaURL();
-let declined = 0;
-async function askOpenAI(system, content, schema){
-  const parts = content.map(b => b.type === "image" ? { type: "image_url", image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } } : { type: "text", text: b.text });
-  const body = {
-    model: oaModel(), max_completion_tokens: 3000, ...(/^gpt-5/.test(oaModel()) ? { reasoning_effort: "minimal" } : {}),
-    messages: [{ role: "system", content: system }, { role: "user", content: parts }],
-    ...(schema ? { response_format: { type: "json_schema", json_schema: { name: "reply", strict: true, schema } } } : {}),
-  };
-  let res;
-  for (let attempt = 0; ; attempt++){
-    try { res = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${S.secret.oaKey}` }, body: JSON.stringify(body) }); }
-    catch(e){ throw aiError("conn", "Couldn't reach OpenAI"); }
-    if ((res.status === 429 || res.status >= 500) && attempt < 2){
-      const peek = await res.clone().json().catch(() => ({}));
-      if (peek.error?.code !== "insufficient_quota"){ await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue; }
-    }
-    break;
-  }
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok){
-    const msg = j.error?.message || `OpenAI error ${res.status}`;
-    if (res.status === 401) throw aiError("auth", msg);
-    if (res.status === 403) throw aiError("perm", msg);
-    if (res.status === 429) throw aiError(j.error?.code === "insufficient_quota" ? "credit" : "rate", msg);
-    if (res.status === 404 && /model/i.test(msg)) throw aiError("model", msg);
-    throw aiError("", msg);
-  }
-  const m = j.choices?.[0];
-  // Counted so the owner can see how often ChatGPT says no.
-  if (!m || m.message?.refusal || m.finish_reason === "content_filter"){ declined++; return null; }
-  const text = String(m.message?.content || "").trim();
-  if (!text){ declined++; return null; }
-  return schema ? JSON.parse(text) : text;
-}
 // e.kind is conn | model.
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
 const errKind = e => (e && e.kind) || "";
 async function ask(system, content, schema){
-  if (useOpenAI()) return askOpenAI(system, content, schema);
   const base = ollamaURL(); if (!base) return null;
   const images = content.filter(b => b.type === "image").map(b => b.source.data);
   const body = {
@@ -1577,7 +1539,7 @@ async function writeOne(j){
   const blind = img ? "" : "\n\nYou can't see the photo. Write without describing anything specific in it (no outfit, place, colors or pose).";
   const withImg = text => img ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: img } }, { type: "text", text }] : [{ type: "text", text }];
   const n = Math.max(8, Math.min(30, totals(p).totalC));
-  const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).replace(/^@[\w.]+:\s*/, "").trim()).filter(c => c && !copiesDirection(c, a)).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
+  const setComments = list => { if (Array.isArray(list)){ capChanged(p); } if (Array.isArray(list)) p.aiComments = list.map(c => String(c).replace(/^@[\w.]+:\s*/, "").trim()).filter(c => c && !copiesDirection(c, a)).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
   const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
   if (j.kind === "story"){
     const out = await askNoCopy(a, `${contextFor(a)}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(storyDir[1], a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`, withImg(`Write the story text.${remind(a, [storyDir])}`), undefined, o => o);
@@ -1613,10 +1575,10 @@ async function writeOne(j){
 }
 let writing = false;
 const WRITERS = 4;
-function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; }
+function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; const h = $("#hwstatus"); if (h){ h.textContent = /^Writing/.test(msg) ? msg + " Pull down to see the new ones on top." : ""; h.hidden = !h.textContent; } }
 // Writes everything that's waiting, a few at a time, live and next-up posts first.
 async function writerRun(){
-  if (writing || !writerReady()) return;
+  if (writing || !ollamaURL()) return;
   writing = true;
   try {
     const jobs = [];
@@ -1641,16 +1603,11 @@ async function writerRun(){
     if (jobs.length) setWriter(`Writing 0 of ${jobs.length}…`);
     await Promise.all(Array.from({ length: Math.min(WRITERS, jobs.length) }, worker));
     if (failure) throw failure;
-    setWriter(jobs.length ? `Everything is written.${declined ? ` ${AI()} declined ${declined} so far; those kept the built-in lines.` : ""}` : "");
+    setWriter(jobs.length ? "Everything is written." : "");
     if (jobs.length) safeRender();
   } catch(e){
     const k = errKind(e);
-    if (useOpenAI() && k === "auth") setWriter("That OpenAI key didn't work. Check it and paste it again.");
-    else if (useOpenAI() && k === "credit") setWriter("Your OpenAI account is out of credit. Add credit at platform.openai.com.");
-    else if (useOpenAI() && k === "rate") setWriter("OpenAI asked the app to slow down. It tries again in a few minutes.");
-    else if (useOpenAI() && k === "model") setWriter(`OpenAI doesn't know the model ${oaModel()}.`);
-    else if (useOpenAI() && k === "conn") setWriter("Couldn't reach OpenAI. Check the phone's internet.");
-    else if (k === "conn") setWriter("Couldn't reach Ollama. Check that your PC is on and Tailscale is connected on this phone. It tries again next time you open the app.");
+    if (k === "conn") setWriter("Couldn't reach Ollama. Check that your PC is on and Tailscale is connected on this phone. It tries again next time you open the app.");
     else if (k === "model") setWriter(`Ollama doesn't have ${ollamaModel()} yet. On the PC, run: ollama pull ${ollamaModel()}`);
     else setWriter("Writing stopped: " + (e && e.message ? e.message.slice(0, 160) : "unknown error"));
   } finally { writing = false; }
@@ -2117,7 +2074,9 @@ function vExplore(v){
 let homeOrder = null;
 // A post that's already up and gets a new caption (rewrite, redo or your own edit) goes to the top of Home until you've seen it.
 function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(); homeOrder = null; } }
-const capNew = p => p.capAt && p.capAt > (S.postSeen[p.id] || 0);
+// A rewritten post stays on top for a few hours, until you've seen it after the rewrite (a glance while it was being
+// rewritten under you doesn't count).
+const capNew = p => p.capAt && now() - p.capAt < 4*H && (S.postSeen[p.id] || 0) < p.capAt + 60e3;
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
@@ -2132,7 +2091,8 @@ function vHome(v){
   const added = all.filter(p => !pos.has(p.id));
   const L = [...added, ...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean)];
   const splitAt = added.length + homeOrder.fresh;
-  const banner = needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "";
+  const writingNow = /^Writing/.test(S.writerMsg || "");
+  const banner = `<div class="hint pad" id="hwstatus" style="padding-top:8px"${writingNow ? "" : " hidden"}>${writingNow ? esc(S.writerMsg) + " Pull down to see the new ones on top." : ""}</div>` + (needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "");
   if (!L.length){
     const setup = !hasSetup();
     v.innerHTML = banner + storyTray() + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
@@ -2621,14 +2581,10 @@ function vSettings(v){
         <div class="field"><span class="lbl">Address to give Google</span><div class="code">${esc(redirectURI())}</div></div></details>
     </div>
     <div class="card"><h3>Caption writer</h3>
-      <div class="seg"><button type="button" data-engine="ollama" aria-pressed="${!useOpenAI()}">Ollama (your PC)</button><button type="button" data-engine="openai" aria-pressed="${useOpenAI()}">ChatGPT</button></div>
-      <div class="field"><label for="soakey">OpenAI key (for ChatGPT)</label><input type="password" id="soakey" value="${esc(S.secret.oaKey || "")}" placeholder="sk-…" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="field"><label for="soamodel">ChatGPT model</label><input type="text" id="soamodel" value="${esc(S.secret.oaModel || "")}" placeholder="${esc(OPENAI_MODEL)}" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="hint">ChatGPT works with your PC off and costs a little per post on your OpenAI account. The key is saved only on this phone and sent only to OpenAI. ChatGPT may refuse explicit writing; the status below counts how often it declines.</div>
-      <div class="hint">Ollama on your PC writes every caption, comment and story text, following each account's direction. Each account's page sets whether it's off, writes from text only, or sees the photos. Without an address, or when the PC can't be reached, the built-in lines are used.</div>
+      <div class="hint">Ollama on your PC writes every caption, comment, story text and DM, following each account's Heat and directions. It uses <b>rp</b>, a roleplay model that writes explicit content. Nothing goes to an AI company and nothing costs money. When the PC is off or can't be reached, the built-in lines fill in until it's back.</div>
       <div class="field"><label for="surl">Ollama address</label><input type="url" id="surl" value="${esc(S.secret.url || "")}" placeholder="https://your-pc.tailnet.ts.net" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
       <div class="field"><label for="smodel">Model</label><input type="text" id="smodel" value="${esc(S.secret.model || "")}" placeholder="${esc(DEFAULT_MODEL)}" autocapitalize="off" autocorrect="off" autocomplete="off"></div>
-      <div class="hint">Saved only on this phone. Nothing goes to an AI company and nothing costs money. "Sees photos" needs a model that can see images, like gemma3.</div>
+      <div class="hint">Leave Model empty for rp. <b>rp24</b> is a bigger roleplay model: smarter, about 2 to 3 times slower. rp and rp24 can't see photos, so "Sees photos" accounts write from text; type <b>gemma3:12b</b> to have captions react to the photo (it's tamer).</div>
       <button class="btn" type="button" data-testai>Test the connection</button>
       <div class="status" id="wstatus">${esc(S.writerMsg || "")}</div>
       <button class="btn" type="button" data-rewrite="all">Rewrite every account</button></div>
@@ -2646,8 +2602,6 @@ function vSettings(v){
   </div>`;
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
   $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
-  $("#soakey").addEventListener("change", async e => { S.secret.oaKey = e.target.value.trim(); await saveSecret(); setWriter(""); toast(OA_KEY_RE.test(S.secret.oaKey) ? "OpenAI key saved on this phone" : S.secret.oaKey ? "That doesn't look like an OpenAI key (sk-…)" : "Key removed"); render(); });
-  $("#soamodel").addEventListener("change", async e => { S.secret.oaModel = e.target.value.trim(); await saveSecret(); toast(`ChatGPT model: ${oaModel()}`); });
   $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}`); writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
@@ -2668,7 +2622,7 @@ function vAset(v, r){
     </div>
     <div class="card"><h3>${AI()}</h3>
       ${seg("writer", a.writer || "text", [["off","Off"],["text","Text only"],["photos","Sees photos"]])}
-      <div class="hint">${a.writer === "off" ? `${AI()} doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to ${CO()}.` : a.writer === "photos" ? `${AI()} sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to ${CO()}.` : `${AI()} writes from your direction boxes only. No photos or videos from this account are sent to ${CO()}.`}</div></div>
+      <div class="hint">${a.writer === "off" ? `${AI()} doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to ${CO()}.` : a.writer === "photos" ? (modelSeesPhotos() ? `${AI()} sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to ${CO()}.` : `${ollamaModel()} can't see photos, so this account writes from text for now. To have it react to the photos, type gemma3:12b as the model in Settings (it's tamer).`) : `${AI()} writes from your direction boxes only. No photos or videos from this account are sent to ${CO()}.`}</div></div>
     <div class="card"><h3>Posting</h3>
       <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
       <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
@@ -2719,7 +2673,7 @@ function vAset(v, r){
   $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
   // A new direction (or new own lines) rewrites everything of this account's that isn't up yet; Rewrite covers what's already posted.
-  const aiOn = () => writerReady() && a.writer !== "off";
+  const aiOn = () => !!ollamaURL() && a.writer !== "off";
   const requeue = async what => {
     let n = 0;
     for (const p of S.posts.filter(p => p.acct === a.id && p.publishAt > now())){
@@ -2875,16 +2829,6 @@ document.addEventListener("click", async e => {
   if (d.tab === "dm"){ go("#/dm/" + (S.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/"+d.tab); return; }
   if (d.accgo){ if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
-  if (d.engine){
-    if (d.engine === "openai" && !OA_KEY_RE.test(S.secret.oaKey || "")){ toast("Paste your OpenAI key first"); $("#soakey")?.focus(); return; }
-    S.secret.engine = d.engine; await saveSecret(); declined = 0; setWriter(""); render(); toast(d.engine === "openai" ? "ChatGPT writes now. Tap Rewrite to compare." : "Ollama writes now"); writerRun(); return;
-  }
-  if ("testai" in d && useOpenAI()){
-    t.textContent = "Testing…";
-    try { const out = await ask("Reply with the single word OK.", [{ type: "text", text: "Test." }]); toast(out ? `ChatGPT answered (${oaModel()})` : "OpenAI connected but didn't answer"); setWriter(""); writerRun(); }
-    catch(err){ const k = errKind(err); toast(k === "auth" ? "That OpenAI key didn't work" : k === "credit" ? "OpenAI account is out of credit" : "Test failed: " + String(err.message || err).slice(0, 80)); }
-    t.textContent = "Test the connection"; return;
-  }
   if ("testai" in d){
     const u = $("#surl").value.trim(); if (!u){ toast("Type your Ollama address first"); return; }
     S.secret.url = u; await saveSecret(); t.textContent = "Testing…";
@@ -2893,7 +2837,7 @@ document.addEventListener("click", async e => {
     t.textContent = "Test the connection"; return;
   }
   if (d.rewrite){
-    if (!writerReady()){ toast("Set up the caption writer in Settings first"); return; }
+    if (!ollamaURL()){ toast("Set up the caption writer in Settings first"); return; }
     for (const p of S.posts.filter(p => !d.acct || p.acct === d.acct)){
       if ((d.rewrite === "all" || d.rewrite === "caption") && !isStory(p) && p.captionAuto) p.captionWritten = false;
       if ((d.rewrite === "all" || d.rewrite === "comments") && !isStory(p)) p.commentsWritten = false;
@@ -3020,6 +2964,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   if (!S.settings.seed){ S.settings.seed = Math.floor(Math.random()*1e9); await saveSettings(); }
   S.posts = await DB.all("posts");
   S.secret = { url: "", model: "", ...(await DB.get("kv","secret") || {}) };
+  if (!S.secret.rp){ for (const k of ["engine", "oaKey", "oaModel"]) delete S.secret[k]; if (/^(gemma3|uncensored|huihui)/.test(S.secret.model || "")) S.secret.model = ""; S.secret.rp = 1; await saveSecret(); }
   if ("key" in S.secret || "keyFrom" in S.secret){ for (const k of ["key", "keyFrom"]) delete S.secret[k]; await saveSecret(); }
   S.accounts = (await DB.get("kv","accounts")) || [];
   if (!S.accounts.length){
