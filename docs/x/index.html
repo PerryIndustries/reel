@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Wire">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>Wire</title>
+<link rel="stylesheet" href="../kit/base.css">
+<style>
+:root{
+  --bg:#ffffff; --fg:#0f1419; --muted:#536471; --line:#eff3f4; --soft:#f7f9f9;
+  --accent:#1d9bf0; --accent-fg:#ffffff; --heart:#f91880; --repost:#00ba7c; --link:#1d9bf0; --gold:#f5b50a;
+  --font:-apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  --display:-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --bar:52px;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#000000; --fg:#e7e9ea; --muted:#71767b; --line:#2f3336; --soft:#16181c;
+  --accent:#1d9bf0; --accent-fg:#ffffff; --heart:#f91880; --repost:#00ba7c; --link:#1d9bf0; color-scheme:dark}}
+.top{border-bottom:0}
+.top .row{height:52px}
+.logo-mark{width:30px;height:30px;flex:none;color:var(--fg)}
+.logo-mark svg{width:30px;height:30px}
+.ftabs{display:grid;grid-template-columns:repeat(2,1fr);border-bottom:1px solid var(--line);position:sticky;top:calc(52px + env(safe-area-inset-top,0px));background:var(--bg);z-index:9}
+.ftabs button,.ftabs a{padding:14px 0 12px;text-align:center;font-weight:600;color:var(--muted);position:relative;display:block}
+.ftabs .on{color:var(--fg);font-weight:700}
+.ftabs .on::after{content:"";position:absolute;left:50%;bottom:0;width:56px;margin-left:-28px;height:4px;border-radius:2px;background:var(--accent)}
+.ftabs.four{grid-template-columns:repeat(4,1fr)}
+/* tweets */
+.tweet{border-bottom:1px solid var(--line);padding:10px 16px 6px;position:relative}
+.tweet.chain{border-bottom:0;padding-bottom:0}
+.tweet.chain .tav::after{content:"";position:absolute;left:19px;top:44px;bottom:-10px;width:2px;background:var(--line)}
+.tweet.reply{padding-top:8px}
+.social{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;font-weight:700;padding:0 0 4px 26px}
+.social svg{width:16px;height:16px}
+.trow{display:flex;gap:10px}
+.tav{position:relative;flex:none;width:40px}
+.tbody{flex:1;min-width:0}
+.thead{display:flex;align-items:center;gap:4px;font-size:15px;line-height:1.3;min-width:0}
+.thead b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.thead .h{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.thead .sp{flex:1}
+.thead .dots{width:28px;height:28px;display:grid;place-items:center;color:var(--muted);flex:none;margin:-4px -6px -4px 0}
+.thead .dots svg{width:18px;height:18px}
+.replyto{color:var(--muted);font-size:14px;padding-top:2px}
+.replyto b{color:var(--link);font-weight:400}
+.ttext{padding-top:2px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.35}
+.ttext.big{font-size:21px;line-height:1.3;padding-top:8px}
+.ttext .tag{color:var(--link)}
+.tmedia{margin-top:10px;border-radius:16px;overflow:hidden;border:1px solid var(--line);position:relative;background:var(--soft);display:grid;gap:2px}
+.tmedia .pic{width:100%;height:100%}
+.tmedia.g1{display:block}
+.tmedia.g1 .pic{aspect-ratio:var(--ar,4/5);max-height:72vh}
+.tmedia.g1 .pic img{object-fit:cover}
+.tmedia.g2{grid-template-columns:1fr 1fr;aspect-ratio:7/4}
+.tmedia.g3{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:1}
+.tmedia.g3 .pic:first-child{grid-row:span 2}
+.tmedia.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:1}
+.tmedia .pic{aspect-ratio:auto}
+.tmedia .nsfwcover{background:rgba(0,0,0,.32)}
+.tmedia .nsfwcover .tag{background:#fff;color:#000;border:0}
+.quoted{margin-top:10px;border:1px solid var(--line);border-radius:16px;padding:10px 12px;display:block}
+.quoted .thead{font-size:14px}
+.quoted .ttext{font-size:14px}
+.quoted .tmedia{margin-top:8px;border-radius:12px}
+.quoted .tmedia.g1 .pic{max-height:260px}
+.tbar{display:flex;align-items:center;justify-content:space-between;padding:8px 0 4px;margin-left:-6px;max-width:440px}
+.tbar button,.tbar a{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:13px;padding:6px;border-radius:999px;font-variant-numeric:tabular-nums}
+.tbar svg{width:19px;height:19px}
+.tbar .on.like{color:var(--heart)}
+.tbar .on.rt{color:var(--repost)}
+.tbar .on.bm{color:var(--accent)}
+.tbar .end{display:flex;gap:2px}
+.tbar .end button{padding:6px 4px}
+/* post page */
+.detail{padding:12px 16px 4px;border-bottom:1px solid var(--line)}
+.detail .who{display:flex;align-items:center;gap:10px}
+.detail .who .n{flex:1;min-width:0;line-height:1.25}
+.detail .who b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail .who .h{color:var(--muted);font-size:15px}
+.detail .time{color:var(--muted);font-size:15px;padding:12px 0;border-bottom:1px solid var(--line)}
+.detail .time b{color:var(--fg);font-weight:700}
+.detail .counts{display:flex;gap:16px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px;color:var(--muted)}
+.detail .counts b{color:var(--fg)}
+.detail .tbar{max-width:none;justify-content:space-around;margin:0}
+.showmore{display:block;color:var(--link);font-size:14px;padding:10px 16px 12px 66px;border-bottom:1px solid var(--line);width:100%}
+.loadmore{display:block;width:100%;text-align:center;padding:14px;color:var(--link);font-weight:600}
+.reply-to{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);padding:6px 16px 0}
+.reply-to button{color:var(--link);font-weight:700}
+/* profile */
+.pbanner{height:130px;background:linear-gradient(120deg,#1d9bf0,#7856ff);position:relative;overflow:hidden}
+.pbanner .pic{position:absolute;inset:0;height:100%}
+.pbanner .pic img{object-fit:cover}
+.pbanner .pic.nsfw img{filter:blur(18px) brightness(.8)}
+.phead{display:flex;justify-content:space-between;align-items:flex-end;padding:0 16px;margin-top:-40px;position:relative}
+.phead .av{border:4px solid var(--bg)}
+.phead .btns{display:flex;gap:8px;padding-bottom:6px}
+.phead .btn{width:auto;padding:7px 16px}
+.pinfo{padding:10px 16px 0}
+.pinfo h2{margin:0;font:800 20px var(--display);display:flex;align-items:center;gap:4px}
+.pinfo .h{color:var(--muted);font-size:15px}
+.pinfo .bio{padding-top:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.pinfo .meta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--muted);padding-top:10px;font-size:14px}
+.pinfo .meta svg{width:16px;height:16px;vertical-align:-3px;margin-right:2px}
+.pinfo .fol{display:flex;gap:16px;padding-top:10px;font-size:14px;color:var(--muted)}
+.pinfo .fol b{color:var(--fg)}
+.pinned{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;font-weight:700;padding:10px 16px 0 42px}
+.pinned svg{width:14px;height:14px}
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+.mgrid .pic{aspect-ratio:1}
+.astrip{display:flex;gap:14px;overflow-x:auto;padding:10px 16px;scrollbar-width:none;border-bottom:1px solid var(--line)}
+.astrip::-webkit-scrollbar{display:none}
+.astrip button{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;flex:none;font-size:12px}
+.astrip .ring{padding:2px;border:2px solid transparent;border-radius:50%}
+.astrip .on .ring{border-color:var(--accent)}
+.astrip .n{max-width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astrip .on .n{font-weight:700}
+/* search */
+.xsearch{flex:1;display:flex;align-items:center;gap:8px;background:var(--soft);border-radius:999px;padding:0 14px;height:40px}
+.xsearch svg{width:18px;height:18px;color:var(--muted);flex:none}
+.xsearch input{border:0;background:transparent;padding:0;height:40px;border-radius:0}
+.xsearch input:focus-visible{outline:none}
+.trend{display:block;padding:12px 16px;border-bottom:1px solid var(--line)}
+.trend .k{color:var(--muted);font-size:13px}
+.trend b{display:block;font-size:15px;padding:2px 0}
+.trend .n{color:var(--muted);font-size:13px}
+.prow{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.prow .who{flex:1;min-width:0}
+.prow .who div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .btn{width:auto;padding:6px 16px}
+/* notifications */
+.note{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);align-items:flex-start}
+.note.un{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.note .ic{width:30px;flex:none;display:flex;justify-content:flex-end;padding-top:2px}
+.note .ic svg{width:28px;height:28px}
+.note .ic .like{color:var(--heart)}.note .ic .rt{color:var(--repost)}.note .ic .fol{color:var(--accent)}
+.note .t{flex:1;min-width:0}
+.note .avs{display:flex;gap:4px;padding-bottom:8px}
+.note .q{color:var(--muted);padding-top:4px;font-size:14px;overflow-wrap:anywhere}
+.note .th{width:44px;height:44px;border-radius:8px;overflow:hidden;background:var(--soft);flex:none}
+.note .th img{width:100%;height:100%;object-fit:cover}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 12px 5px 5px;border:1px solid var(--line);font-weight:600;font-size:14px;flex:none}
+.chip.on{border-color:var(--fg)}
+.chip .cnt{background:var(--accent);color:#fff;font-size:11px;line-height:16px;min-width:16px;padding:0 4px;border-radius:999px;text-align:center}
+.fab{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 16px);width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;box-shadow:0 4px 14px rgba(0,0,0,.25);z-index:8}
+.fab svg{width:26px;height:26px}
+.caught{text-align:center;padding:22px 16px 18px}
+.bub.me span{background:var(--accent)}
+</style>
+</head>
+<body>
+<header class="top"><div class="row" id="top"></div></header>
+<main id="view"></main>
+<nav class="tabbar"><div class="row">
+  <button type="button" data-tab="home" aria-label="Home"></button>
+  <button type="button" data-tab="search" aria-label="Search"></button>
+  <button type="button" data-tab="notifications" aria-label="Notifications"></button>
+  <button type="button" data-tab="messages" aria-label="Messages"></button>
+  <button type="button" data-tab="me" aria-label="Profile"></button>
+</div></nav>
+<div class="ptr" id="ptr"><i></i></div>
+<div id="layer"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 1, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
+</script>
+<script src="../kit/core.js"></script>
+<script>
+"use strict";
+// Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
+const APP_VERSION = 1;
+/* ================= icons ================= */
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  homeOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>',
+  searchOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4" stroke-linecap="round"/></svg>',
+  bellOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+  mailOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 7.5V5h18v2.5l-9 6z"/><path d="M3 9.8 12 15.8 21 9.8V19H3z"/></svg>',
+  person:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0z"/></svg>',
+  personOn:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0z"/></svg>',
+  reply:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
+  rt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4M21 6H8a4 4 0 0 0-4 4v2M7 22l-4-4 4-4M3 18h13a4 4 0 0 0 4-4v-2"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
+  heartOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
+  views:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>',
+  bm:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  bmOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M7 8l5-5 5 5M5 14v6h14v-6"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 3l6 6-3 1-3 3 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 3-3z"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.2A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7c1.6 0 3-.4 4.3-1"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  quote:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 16h5v-5H6a3 3 0 0 1 3-3V6a5 5 0 0 0-5 5zM14 16h5v-5h-3a3 3 0 0 1 3-3V6a5 5 0 0 0-5 5z"/></svg>',
+};
+// The mark: a wire bending through the square with a spark at its end.
+const MARK = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="currentColor"/><path d="M12 46C22 46 26 22 38 22c6 0 6 8 12 8" fill="none" stroke="var(--bg)" stroke-width="5" stroke-linecap="round"/><circle cx="50" cy="30" r="5" fill="#1d9bf0"/></svg>';
+APP.mark = MARK;
+APP.handleStyle = a => "@" + handleOf(a);
+APP.followersWord = "followers";
+// About one post in three has no photo: a thought, a tease, a question to her followers.
+APP.kindFor = (a, r) => r() < .33 ? "text" : "photo";
+APP.decorate = (p, a, r) => { p.sensitive = p.files.length > 0; };
+const verifiedOwner = a => !!a.verified || LEVEL[a.level] > 1;
+
+/* ================= X-style numbers ================= */
+// Likes, replies, reposts, views and bookmarks for one of her posts, growing over time, plus your own taps.
+function stats(p){
+  const e = engage(p), r = rng(p.seed ^ 0x6a09e667);
+  const rtRate = .06 + r() * .18, bmRate = .04 + r() * .12;
+  const q = fanItems(p).filter(x => x.type === "quote").length;
+  return { likes: e.likes + (p.liked ? 1 : 0), replies: Math.max(e.comments, countTree(commentTree(p))), reposts: Math.round(e.likes * rtRate) + q + (p.reposted ? 1 : 0), quotes: q, views: Math.round(e.views * 2.6) + 12, bookmarks: Math.round(e.likes * bmRate) + (p.saved ? 1 : 0) };
+}
+// Fans' reposts and quote posts of one of her posts, and a fan's own post about her now and then. Seeded per post.
+const fanCache = new Map();
+function fanItems(p){
+  const key = p.id + "|" + (p.aiQuotes || []).length + "|" + (p.aiFan || []).length + "|" + p.comTry;
+  if (fanCache.has(key)) return fanCache.get(key);
+  const a = acctOf(p), r = rng(p.seed ^ 0x3779b9), { L } = totals(p), reg = regularsOf(a);
+  const fan = () => r() < .35 ? reg[Math.floor(r() * reg.length)] : Math.floor(r() * POOL);
+  const out = [];
+  const nRe = L > 150 ? Math.floor(r() * 3) : (r() < .3 ? 1 : 0), nQ = L > 300 ? Math.floor(r() * 3) : (r() < .25 ? 1 : 0);
+  for (let k = 0; k < nRe; k++) out.push({ type: "repost", p, by: fan(), at: p.publishAt + (5 + r() * 600) * MIN, id: p.id + "r" + k });
+  for (let k = 0; k < nQ; k++){ const by = fan(); out.push({ type: "quote", p, by, at: p.publishAt + (10 + r() * 900) * MIN, id: p.id + "q" + k, text: (p.aiQuotes || [])[k] || quoteLine(a, r) }); }
+  if (r() < .45){ const by = fan(); out.push({ type: "fan", p, by, at: p.publishAt + (30 + r() * 1200) * MIN, id: p.id + "f", text: (p.aiFan || [])[0] || fanPostLine(a, r) }); }
+  if (fanCache.size > 300) fanCache.clear();
+  fanCache.set(key, out); return out;
+}
+const allFanItems = () => allLive().flatMap(fanItems).filter(x => x.at <= now());
+const fanItem = (pid, id) => { const p = S.posts.find(x => x.id === pid); return p && fanItems(p).find(x => x.id === id); };
+const followingOf = a => (a.following || 300) + Math.floor(Math.max(0, (now() - (a.startedAt || now())) / D) * .8);
+const joinedAt = a => (a.startedAt || now() - 30*D) - Math.floor(rng(hashStr("joined" + a.seed))() * 700) * D;
+
+/* ================= lines of this platform ================= */
+// Her text-only posts: thoughts, teases, questions to the timeline. Her photo captions come from the shared lines.
+const TEXT_POSTS = ["can't sleep. someone come tire me out", "horny and bored is a dangerous combination for your timeline", "reply with what you'd do to me and i'll pick a winner", "my vibrator died mid session and i'm taking it personally", "i love that half of you are hard right now and pretending you're not", "quote this with your worst intention", "woke up wet. that's the whole post", "thinking about getting bent over the kitchen counter again", "every man in my replies is going to hell and i'm driving", "who's awake and useful", "i need to be fucked like someone's trying to prove a point", "posting less this week so i can get railed more. priorities", "if you've touched yourself to my posts say nothing. ok wow", "the amount of dick in my dms today could fill a stadium. keep going", "gym done. shower done. still need someone to finish me", "rate your own stamina honestly, i'm doing research", "i want to be someone's worst idea tonight", "no photo today. use your imagination, you've had enough practice", "tell me your filthiest thought about me. the good ones get a reply", "edged three times today and posted this instead of finishing", "ask me anything. the dirtier the better", "sitting on my hands so i don't post the video", "some of you need to stop liking and start messaging", "the men on this app are feral and i'm the reason", "wearing nothing, doing nothing, wanting everything", "my favourite sound is a man losing his mind. post more? ok", "new rule: every 1k likes i take something off", "you can't see it but i'm touching myself reading your replies", "been a good girl all week. that ends tonight", "bored. horny. online. you know what to do", "i come harder when i know you're watching", "not a single thought in my head, just want to get fucked", "which one of you is going to be brave in the replies today", "i'll answer every reply tonight. every one. be nice. or don't", "hot girl walk done. hot girl everything else pending", "if you can make me laugh you can make me cum, that's just science", "the polite replies get a like. the filthy ones get an answer", "i post, you lose your mind, i get off to it. the system works"];
+const PHOTO_LINES = ["new one for the timeline", "soft launch of my ass", "lighting did most of the work", "post-gym, pre-shower, zero clothes", "the mirror said yes", "don't quote this unless you mean it", "for the ones who stayed up", "which one of you is going to say something", "ok last one. i lied", "quote with your rating", "sunday.", "no caption needed", "be honest in the replies", "this one almost didn't get posted", "for the bookmarks", "took forty, posting one", "ignore the mess. look at me", "my favorite angle and yours", "if this does numbers i post the rest", "a little something before bed"];
+// What the men write when they quote one of her posts, and what they post about her on their own.
+const QUOTES = ["she posted this and went offline. the audacity", "this woman is going to end me", "i have seen this 40 times today and it still works", "the timeline is unusable now, thanks", "i'm not ok. nobody check on me", "not me saving this with my whole chest", "she knows exactly what she's doing", "this is the hottest thing on the app today and it's not close", "my entire for you page is her now. i've accepted it", "how is anyone supposed to work after seeing this", "i'd ruin my life for one night, zero hesitation", "god is a woman and she posts at 11pm", "the fact she replies to people makes this ten times worse", "i would do unspeakable things. speakable ones too", "this is why i have a second account", "i'm so hard i can't type. anyway", "every single man who liked this is a weak man. i liked it twice", "the way my hand moved before my brain did", "putting this in my will", "she did this on purpose and i'm grateful", "fuck. just fuck.", "i'd eat her out for an hour and thank her after", "someone's getting fucked tonight and it's sadly not me", "woke up to this and i'm late for work now", "quote posting so i never lose it"];
+const FAN_POSTS = ["@{h} is ruining my timeline and i hope she never stops", "if @{h} replies to me today i'm logging off a happy man", "every time @{h} posts i lose an hour of my life", "the @{h} notifications are the only reason i open this app", "no one on here is doing it like @{h}. no one", "i think about @{h}'s last post more than i think about my job", "someone tell @{h} to post more. actually don't, i can't take it", "@{h} dropped another one and the group chat went silent", "me refreshing @{h}'s page every ten minutes like a normal person", "@{h} has my whole timeline hard and i'm the ringleader", "another day of @{h} posting and me pretending i'm fine", "@{h} is the only woman i'd beg for in public", "whoever gets to fuck @{h} tonight, know that we all hate you", "watching @{h}'s replies is a sport and i'm a season ticket holder", "@{h} if you see this, hi. it's me. again."];
+const X_REPLIES = ["ratio'd by your own body", "the quote tweets are feral and so am i", "i'm not reading the replies, i'm in them", "sir this is a Christian app. anyway hi", "she replies to the filthy ones first, learn the game", "bookmarked for later. you know what later means", "liked before i even saw the photo", "the notification sound hits different when it's you", "my for you page is just you and i'm not fixing it", "muted the word 'behave' because of you", "i'd risk the suspension for this", "you're the reason this app still exists"];
+const quoteLine = (a, r) => genderize(r() < .6 ? pick(QUOTES, r) : menLine(a, r), a.pronouns);
+const fanPostLine = (a, r) => pick(FAN_POSTS, r).replace(/\{h\}/g, handleOf(a));
+APP.bank = {
+  comment: (a, r) => r() < .2 ? pick(X_REPLIES, r) : menLine(a, r),
+  reply: (a, r) => r() < .5 ? pick(MEN_BANTER, r) : r() < .5 ? pick(X_REPLIES, r) : menLine(a, r),
+  op: (a, r) => pick(OP_REPLIES, r),
+};
+APP.fallbackText = p => {
+  const a = acctOf(p), r = rng(p.seed ^ 0x51ed27 ^ ((p.textTry || 0) * 977));
+  if (p.kind === "text") return r() < .7 ? pick(TEXT_POSTS, r) : herLine(a, r);
+  return r() < .3 ? pick(PHOTO_LINES, r) : herLine(a, r);
+};
+// @mentions turn blue.
+const linkify = t => esc(t).replace(/(^|\s)(@[\w.]+)/g, (m, s, h) => `${s}<span class="tag">${h}</span>`);
+
+/* ================= the writer: posts, replies, quotes ================= */
+APP.writeOne = async p => {
+  const a = acctOf(p), st = PC();
+  if (!p.textWritten){
+    const m = herMode(p, "post");
+    const what = p.kind === "text" ? `Write one text-only post from her account on an X-style app: a thought, a tease, something she wants, a question to the men following her, or what she's doing right now. 4 to 30 words, lowercase, casual, no hashtags, one emoji at most.` : `She is posting ${p.files.length > 1 ? `${p.files.length} photos` : "a photo"} of herself on an X-style app. Write the text that goes with it, in her voice: short, 1 to 14 words, lowercase, often fake-casual, sometimes just a few words, no hashtags, one emoji at most. You can't see the photo, so don't describe anything specific in it.`;
+    const sys = `${contextFor(a)}${whoFor(a, "caption")}\n\n${voiceOf("caption")}\n\n${what}\nThis post's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one teasing and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${(m.ex || []).map(x => "- " + x).join("\n")}\n\nReply with the post text only, no quotes.`;
+    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && hasText(x.text)).slice(-12).map(x => "- " + x.text).join("\n");
+    const out = await ask(sys, [{ type: "text", text: `${recent ? `Recent posts on this account (don't repeat or echo them):\n${recent}\n\n` : ""}Write her post.` }], undefined, 80);
+    const c = listLines(out)[0];
+    if (c && !wrongVoice(c, a, "caption") && normT(c).split(" ").length <= 40) p.text = c;
+    p.textWritten = true;
+    await savePost(p);
+  }
+  if (!p.commentsWritten){
+    const text = textOf(p), desc = p.kind === "text" ? `Her post (no photo): "${text}"` : `Her post: ${p.files.length > 1 ? "a set of photos" : "a photo"} of herself with the text "${text}"`;
+    const want = clamp((st && st.comments && st.comments.perPost) || 12, 8, 14);
+    const sysC = `${CONTEXT}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\n${desc}. Write the replies different men post under it on an X-style app: short, mostly one line, some quoting her words back at her, some saying what they'd do, some just emoji, some begging for more or for her DMs.\nThe kinds of guys replying (the examples only show the feel: never reuse them):\n${modeList(menModes())}\n\nNever label a reply with its kind and never add notes in brackets. One reply per line, nothing else.`;
+    p.aiComments = await askLines(sysC, desc, want, "comments", a, 650);
+    const sysR = `${CONTEXT}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\n${desc}. Under it, men reply to each other's replies and to her. Write those: a man agreeing with or one-upping another man, telling him to get in line, joking about how down bad they all are, and men answering her when she replies to them, losing it that she answered. Short, X style.\n\nOne reply per line, nothing else.`;
+    p.aiReplies = await askLines(sysR, `Some replies already under the post:\n${p.aiComments.slice(0, 6).map(c => "- " + c).join("\n")}`, 8, "comments", a, 450);
+    const sysO = `${contextFor(a)}${whoFor(a, "caption")}\n\n${voiceOf("caption")}\n\nShe answers some of the men replying under her own post ("${text}"). Write her replies: short (1 to 12 words), teasing, cocky, filthy when she feels like it, answering what they said, never a polite thank-you.${heatOf(a) === "explicit" ? "\n\n" + HEAT_EXPLICIT : ""}\n\nOne reply per line, nothing else.`;
+    p.aiOp = await askLines(sysO, `Replies she's answering:\n${p.aiComments.slice(0, 8).map(c => "- " + c).join("\n")}`, 5, "caption", a, 260);
+    const sysQ = `${CONTEXT}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\n${desc}. Men quote-post it with a line of their own on top, and some post about her on their own timelines (mentioning @${handleOf(a)}). Write those lines: short, X style, horny, funny or both.\n\nOne per line, nothing else.`;
+    const q = await askLines(sysQ, `Write 3 quote-post lines, then 2 posts about her that mention @${handleOf(a)}.`, 5, "comments", a, 300);
+    p.aiQuotes = q.filter(x => !x.includes("@" + handleOf(a))).slice(0, 3); p.aiFan = q.filter(x => x.includes("@" + handleOf(a))).slice(0, 2);
+    p.commentsWritten = true; treeCache.clear(); fanCache.clear();
+    await savePost(p);
+  }
+};
+APP.fanReplyPrompt = (p, f, herText) => [
+  `${contextFor(acctOf(p))}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\nUnder her post ("${textOf(p)}") on an X-style app, she just replied to @${f.handle}. Write his answer: one short reply, reacting to what she said, losing it a little that she answered, horny and direct.\n\nWHO HE IS\n${fanPersona(f)}\n\nReply with the one line only.`,
+  `She wrote: ${herText}\n\nWrite his reply.`];
+
+/* ================= views ================= */
+APP.views = {};
+APP.renderTabs = r => {
+  for (const b of document.querySelectorAll(".tabbar [data-tab]")){
+    const t = b.dataset.tab; const on = t === r.name || (t === "home" && ["p", "q", "quotes"].includes(r.name)) || (t === "me" && r.name === "acct");
+    b.classList.toggle("on", on);
+    if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
+    if (t === "search") b.innerHTML = on ? I.searchOn : I.search;
+    if (t === "notifications"){ const n = unreadNotes(); b.innerHTML = (on ? I.bellOn : I.bell) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "messages"){ const n = LIB.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.mailOn : I.mail) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "me") b.innerHTML = on ? I.personOn : I.person;
+  }
+};
+const sensitiveCover = id => `<button type="button" class="nsfwcover" data-reveal="${esc(id)}">${I.eyeOff}<b>Content warning: Nudity</b><span>The person who posted this marked it sensitive</span><span class="tag">Show</span></button>`;
+function mediaHTML(p, small){
+  if (!p.files.length) return "";
+  const n = Math.min(4, p.files.length), blur = blurOn() && !revealed.has(p.id);
+  return `<div class="tmedia g${n} ${blur ? "nsfw" : ""}">${p.files.slice(0, 4).map(f => picBox(f, "pic", { small: small || n > 1 })).join("")}${blur ? sensitiveCover(p.id) : ""}</div>`;
+}
+const nameLine = (a, small) => `<b>${esc(nameOf(a))}</b>${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}`;
+const fanName = f => `<b>${esc(f.name)}</b>${f.verified ? `<span class="check">${I.check}</span>` : ""}`;
+function tbar(p){
+  const s = stats(p);
+  return `<div class="tbar">
+    <a href="#/p/${esc(p.id)}" aria-label="Reply">${I.reply}<span>${fmt(s.replies)}</span></a>
+    <button type="button" class="rt ${p.reposted ? "on" : ""}" data-repost="${esc(p.id)}" aria-label="Repost">${I.rt}<span>${fmt(s.reposts)}</span></button>
+    <button type="button" class="like ${p.liked ? "on" : ""}" data-like="${esc(p.id)}" aria-label="Like">${p.liked ? I.heartOn : I.heart}<span>${fmt(s.likes)}</span></button>
+    <a href="#/p/${esc(p.id)}" aria-label="Views">${I.views}<span>${fmt(s.views)}</span></a>
+    <span class="end"><button type="button" class="bm ${p.saved ? "on" : ""}" data-bookmark="${esc(p.id)}" aria-label="Bookmark">${p.saved ? I.bmOn : I.bm}</button><button type="button" data-share aria-label="Share">${I.share}</button></span>
+  </div>`;
+}
+// One of her posts in the timeline.
+function tweetCard(p, opts = {}){
+  const a = acctOf(p);
+  return `<article class="tweet" data-post="${esc(p.id)}">
+    ${opts.social || ""}${opts.pinned ? `<div class="social">${I.pin} Pinned</div>` : ""}
+    <div class="trow"><a class="tav" href="#/acct/${esc(a.id)}">${myAv(40, a)}</a>
+      <div class="tbody">
+        <div class="thead">${nameLine(a)}<span class="h">@${esc(handleOf(a))} · ${esc(ago(p.publishAt))}</span><span class="sp"></span><button type="button" class="dots" data-postmenu="${esc(p.id)}" aria-label="More">${I.dots}</button></div>
+        ${hasText(textOf(p)) ? `<a class="ttext" href="#/p/${esc(p.id)}" style="display:block">${linkify(textOf(p))}</a>` : ""}
+        <a href="#/p/${esc(p.id)}" style="display:block">${mediaHTML(p)}</a>
+        ${tbar(p)}
+      </div></div>
+  </article>`;
+}
+// The quoted card inside a quote post.
+const quotedCard = p => { const a = acctOf(p); return `<a class="quoted" href="#/p/${esc(p.id)}"><div class="thead">${myAv(20, a)} ${nameLine(a)}<span class="h">@${esc(handleOf(a))} · ${esc(ago(p.publishAt))}</span></div>${hasText(textOf(p)) ? `<div class="ttext">${linkify(textOf(p))}</div>` : ""}${mediaHTML(p, true)}</a>`; };
+// A fan's post: a quote of hers, or his own post about her.
+function fanCard(x, opts = {}){
+  const f = acct(x.by), r = rng(hashStr(x.id)), fl = Math.round(Math.pow(r(), 2) * Math.max(8, totals(x.p).L * .12) * curve(now() - x.at, 3*H)), fr = Math.round(fl * (.02 + r() * .1)), fv = Math.round(fl * (8 + r() * 20)) + 40;
+  const liked = !!(S.misc.fanLikes || {})[x.id];
+  return `<article class="tweet ${opts.cls || ""}" data-fan="${esc(x.id)}" data-pid="${esc(x.p.id)}">
+    <div class="trow"><a class="tav" href="#/user/${f.i}">${acctAv(f, 40)}</a>
+      <div class="tbody">
+        <div class="thead">${fanName(f)}<span class="h">@${esc(f.handle)} · ${esc(ago(x.at))}</span><span class="sp"></span><button type="button" class="dots" data-fanmenu="${esc(x.id)}" data-pid="${esc(x.p.id)}" aria-label="More">${I.dots}</button></div>
+        <a class="ttext" href="#/q/${esc(x.p.id)}/${esc(x.id)}" style="display:block">${linkify(x.text)}</a>
+        ${x.type === "quote" ? quotedCard(x.p) : ""}
+        <div class="tbar"><a href="#/q/${esc(x.p.id)}/${esc(x.id)}">${I.reply}<span>${fmt(fr)}</span></a><button type="button" class="rt">${I.rt}<span>${fmt(Math.round(fl * .1))}</span></button><button type="button" class="like ${liked ? "on" : ""}" data-fanlike="${esc(x.id)}">${liked ? I.heartOn : I.heart}<span>${fmt(fl + (liked ? 1 : 0))}</span></button><a href="#/q/${esc(x.p.id)}/${esc(x.id)}">${I.views}<span>${fmt(fv)}</span></a><span class="end"><button type="button" data-share>${I.share}</button></span></div>
+      </div></div>
+  </article>`;
+}
+const social = (icon, text) => `<div class="social">${icon} ${text}</div>`;
+let homeOrder = null;
+APP.feedReset = () => { homeOrder = null; };
+// For you: her posts with the fans' reposts, quotes and posts about her mixed in. Following: just the accounts.
+APP.views.home = (v, r) => {
+  const tab = r.a === "following" ? "following" : "foryou";
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><span style="flex:1"></span><span class="logo-mark">${MARK}</span><span style="flex:1"></span><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  const mine = allLive().filter(p => acctSet(acctOf(p)).on);
+  let items = mine.map(p => ({ type: "post", p, at: p.publishAt, id: p.id }));
+  if (tab === "foryou") items = [...items, ...allFanItems()];
+  items.sort((x, y) => y.at - x.at);
+  const tabs = `<div class="ftabs"><a class="${tab === "foryou" ? "on" : ""}" href="#/">For you</a><a class="${tab === "following" ? "on" : ""}" href="#/home/following">Following</a></div>`;
+  if (!mine.length){ v.innerHTML = tabs + `<div class="empty"><h2>Nothing posted yet</h2><p>The bot posts by itself from the photos Reel fetched. ${queued(A().id).length ? `Next post goes up ${esc(until(queued(A().id)[0].publishAt))}.` : "Pull down to refresh."}</p></div>` + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`; return; }
+  const writingNow = /^Writing/.test(S.writerMsg || "");
+  v.innerHTML = tabs + (writingNow ? `<div class="hint pad" style="padding:8px 16px">${esc(S.writerMsg)} Pull down to see the new ones.</div>` : "") + items.slice(0, 120).map(x => {
+    if (x.type === "post") return tweetCard(x.p);
+    if (x.type === "repost") return tweetCard(x.p, { social: social(I.rt, `${esc(acct(x.by).name)} reposted`) });
+    return fanCard(x);
+  }).join("") + `<div class="caught"><b>You're all caught up</b><div class="hint">Pull down later for more</div></div>` + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`;
+};
+// Post page: the post in full, then the replies as conversation chains.
+let replyTo = null, shownTop = {};
+const expanded = new Set();
+function replyTweet(p, c, opts = {}){
+  const a = acctOf(p), f = c.acct >= 0 ? acct(c.acct) : null;
+  const liked = !!(p.cVotes || {})[c.id], score = c.score + (liked ? 1 : 0);
+  const r = rng(hashStr(c.id + p.id));
+  return `<article class="tweet reply ${opts.chain ? "chain" : ""} ${f ? "" : "you"}" data-cid="${esc(c.id)}" data-depth="${c.depth}">
+    <div class="trow"><a class="tav" href="${f ? "#/user/" + f.i : "#/acct/" + esc(a.id)}">${f ? acctAv(f, 40) : myAv(40, a)}</a>
+      <div class="tbody">
+        <div class="thead">${f ? fanName(f) : nameLine(a)}<span class="h">@${esc(f ? f.handle : handleOf(a))} · ${esc(ago(c.at))}</span><span class="sp"></span><button type="button" class="dots" data-cmenu="${esc(c.id)}" data-p="${esc(p.id)}" aria-label="More">${I.dots}</button></div>
+        ${opts.to ? `<div class="replyto">Replying to <b>@${esc(opts.to)}</b></div>` : ""}
+        <div class="ttext">${linkify(c.text)}</div>
+        <div class="tbar"><button type="button" data-reply="${esc(c.id)}" data-handle="${esc(f ? f.handle : handleOf(a))}">${I.reply}<span>${c.replies.length || ""}</span></button><button type="button" class="rt">${I.rt}<span>${Math.round(score * .08) || ""}</span></button><button type="button" class="like ${liked ? "on" : ""}" data-clike="${esc(c.id)}" data-p="${esc(p.id)}">${liked ? I.heartOn : I.heart}<span>${fmt(score)}</span></button><a href="#/p/${esc(p.id)}">${I.views}<span>${fmt(Math.round(score * (6 + r() * 12)) + 3)}</span></a><span class="end"><button type="button" data-share>${I.share}</button></span></div>
+      </div></div>
+  </article>`;
+}
+// One top-level reply and the chain under it: the longest line of answers, each answering the one above.
+function chainHTML(p, c){
+  const a = acctOf(p), chain = [c];
+  let cur = c;
+  while (cur.replies.length && chain.length < (expanded.has(c.id) ? 12 : 3)){ cur = cur.replies.slice().sort((x, y) => y.score - x.score)[0]; chain.push(cur); }
+  const rest = countTree(c.replies) - (chain.length - 1);
+  return chain.map((x, k) => replyTweet(p, x, { chain: k < chain.length - 1, to: k ? (chain[k-1].acct >= 0 ? acct(chain[k-1].acct).handle : handleOf(a)) : handleOf(a) })).join("") + (rest > 0 && !expanded.has(c.id) ? `<button type="button" class="showmore" data-expand="${esc(c.id)}">Show ${rest} more ${rest === 1 ? "reply" : "replies"}</button>` : "");
+}
+APP.views.p = (v, r) => {
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>Post</h1>`);
+  if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2><p>It came down. Posts you like, bookmark or reply to stay up.</p></div>`; return; }
+  if (!p.kept){ p.kept = true; savePost(p); }
+  const a = acctOf(p), s = stats(p);
+  // your own replies first (as the real app does right after you post), then the busiest threads
+  const tree = commentTree(p).slice().sort((x, y) => (y.mine ? 1 : 0) - (x.mine ? 1 : 0) || (y.score + y.replies.length * 3) - (x.score + x.replies.length * 3));
+  const shown = shownTop[p.id] || 6;
+  const d = new Date(p.publishAt);
+  v.innerHTML = `<div class="detail">
+      <div class="who"><a href="#/acct/${esc(a.id)}">${myAv(44, a)}</a><div class="n"><b>${esc(nameOf(a))}${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}</b><span class="h">@${esc(handleOf(a))}</span></div><button type="button" class="dots" data-postmenu="${esc(p.id)}" aria-label="More">${I.dots}</button></div>
+      ${hasText(textOf(p)) ? `<div class="ttext big">${linkify(textOf(p))}</div>` : ""}
+      ${mediaHTML(p)}
+      <div class="time">${esc(d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))} · ${esc(d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))} · <b>${fmt(s.views)}</b> Views</div>
+      <div class="counts"><span><b>${fmt(s.reposts)}</b> Reposts</span><a href="#/quotes/${esc(p.id)}"><b>${fmt(s.quotes)}</b> Quotes</a><span><b>${fmt(s.likes)}</b> Likes</span><span><b>${fmt(s.bookmarks)}</b> Bookmarks</span></div>
+      ${tbar(p)}
+    </div>
+    <div style="padding-bottom:90px">${tree.slice(0, shown).map(c => chainHTML(p, c)).join("")}
+      ${tree.length > shown ? `<button type="button" class="loadmore" data-loadmore="${esc(p.id)}">Show more replies</button>` : ""}
+      ${!tree.length ? `<div class="empty"><h2>No replies yet</h2><p>They start coming in a few minutes after posting.</p></div>` : ""}
+    </div>
+    <div class="cbox">${replyTo && replyTo.p === p.id ? `<div class="reply-to">Replying to @${esc(replyTo.handle)} <button type="button" data-cancelreply>Cancel</button></div>` : ""}<div class="row pad">${myAv(32, a)}<input type="text" id="cin" placeholder="Post your reply" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Reply</button></div></div>`;
+};
+// A fan's quote post or post about her, with a few replies from other men.
+APP.views.q = (v, r) => {
+  const x = fanItem(r.a, r.b);
+  setTop(`${backBtn}<h1>Post</h1>`);
+  if (!x){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
+  const a = acctOf(x.p), rr = rng(hashStr("qr" + x.id)), n = Math.floor(rr() * 4);
+  const reps = Array.from({ length: n }, (_, k) => { const i = Math.floor(rr() * POOL); return { id: x.id + "." + k, acct: i, text: rr() < .6 ? pick(MEN_BANTER, rr) : menLine(a, rr), at: x.at + (3 + rr() * 300) * MIN, score: Math.floor(rr() * 12), replies: [], depth: 1 }; }).filter(c => c.at <= now());
+  v.innerHTML = fanCard(x) + reps.map(c => replyTweet(x.p, c, { to: acct(x.by).handle })).join("") + (!reps.length ? `<div class="empty"><p>No replies yet.</p></div>` : "");
+};
+APP.views.quotes = (v, r) => {
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>Quotes</h1>`);
+  if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
+  const Q = fanItems(p).filter(x => x.type === "quote" && x.at <= now());
+  v.innerHTML = Q.length ? Q.map(x => fanCard(x)).join("") : `<div class="empty"><h2>No quotes yet</h2></div>`;
+};
+// Profile: hers, with the account switcher across the top.
+function acctStrip(){
+  if (LIB.accounts.length < 2) return "";
+  return `<div class="astrip">${LIB.accounts.map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
+}
+APP.views.acct = async (v, r) => { if (accountById(r.a) && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+const pinnedOf = a => { const L = live(a.id); return L.find(p => p.pinned) || (L.length >= 4 ? L.slice().sort((x, y) => totals(y).L - totals(x).L)[0] : null); };
+APP.views.me = (v, r) => {
+  const a = A(), tab = ["replies", "media", "likes"].includes(r.a) ? r.a : "posts";
+  setTop(`${LIB.accounts.length > 1 ? `<button class="iconbtn" type="button" data-switch aria-label="Accounts">${I.person}</button>` : ""}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(live(a.id).length)} posts</div></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  const L = live(a.id), pin = pinnedOf(a);
+  let body = "";
+  if (tab === "posts") body = L.length ? (pin ? tweetCard(pin, { pinned: true }) : "") + L.filter(p => p !== pin).map(p => tweetCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>${acctSet(a).on ? "The bot's first post goes up soon." : "This account doesn't post here. Turn it on in Settings."}</p></div>`;
+  else if (tab === "replies"){
+    const mine = S.posts.filter(p => p.acct === a.id).flatMap(p => flattenTree(commentTree(p)).filter(c => c.op).map(c => ({ c, p }))).sort((x, y) => y.c.at - x.c.at).slice(0, 60);
+    body = mine.length ? mine.map(({ c, p }) => replyTweet(p, c, { to: c.parent && c.parent.acct >= 0 ? acct(c.parent.acct).handle : handleOf(a) })).join("") : `<div class="empty"><h2>No replies yet</h2><p>Her replies under her posts show up here.</p></div>`;
+  } else if (tab === "media"){
+    const files = L.flatMap(p => p.files.map(f => ({ f, p })));
+    body = files.length ? `<div class="mgrid">${files.map(({ f, p }) => `<a href="#/p/${esc(p.id)}" class="pic ${blurOn() && !revealed.has(p.id) ? "nsfw" : ""}" data-ar>${mediaTag(f, "", { small: true })}</a>`).join("")}</div>` : `<div class="empty"><h2>No media yet</h2></div>`;
+  } else {
+    const liked = allFanItems().filter(x => x.p.acct === a.id && rng(hashStr("lk" + x.id))() < .4).slice(0, 40);
+    body = liked.length ? liked.map(x => fanCard(x)).join("") : `<div class="empty"><h2>No likes yet</h2></div>`;
+  }
+  const banner = photosOf(a.id)[0];
+  v.innerHTML = acctStrip() + `<div class="pbanner" style="--h:${hashStr(a.id) % 360}">${banner ? picBox(banner, "pic " + (blurOn() ? "nsfw" : ""), { small: true }) : ""}</div>
+    <div class="phead">${myAv(86, a)}<div class="btns"><button class="btn line" type="button" data-switch>${LIB.accounts.length > 1 ? "Switch account" : "Account"}</button></div></div>
+    <div class="pinfo"><h2>${esc(nameOf(a))}${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}</h2><div class="h">@${esc(handleOf(a))}</div>${a.bio ? `<div class="bio">${linkify(a.bio)}</div>` : ""}<div class="meta"><span>${I.cal} Joined ${esc(new Date(joinedAt(a)).toLocaleDateString("en-US", { month: "long", year: "numeric" }))}</span>${a.link ? `<span>🔗 ${esc(a.link)}</span>` : ""}</div><div class="fol num"><span><b>${fmt(followingOf(a))}</b> Following</span><span><b>${fmt(followersNow(a))}</b> Followers</span></div></div>
+    <div class="ftabs four" style="position:static;margin-top:12px"><a class="${tab === "posts" ? "on" : ""}" href="#/me">Posts</a><a class="${tab === "replies" ? "on" : ""}" href="#/me/replies">Replies</a><a class="${tab === "media" ? "on" : ""}" href="#/me/media">Media</a><a class="${tab === "likes" ? "on" : ""}" href="#/me/likes">Likes</a></div>` + body;
+};
+APP.views.user = (v, r) => {
+  const f = acct(+r.a); if (!pfpIndex) loadPfps();
+  setTop(`${backBtn}<h1>${esc(f.name)}</h1>`);
+  const theirs = allFanItems().filter(x => x.by === f.i).sort((x, y) => y.at - x.at);
+  v.innerHTML = `<div class="pbanner" style="background:linear-gradient(120deg,hsl(${f.seed % 360} 60% 40%),hsl(${(f.seed + 80) % 360} 60% 55%))"></div>
+    <div class="phead">${acctAv(f, 86)}<div class="btns"><a class="btn line" href="#/messages/${esc(A().id)}/${f.i}">${I.mail.replace("<svg", '<svg style="width:18px;height:18px;vertical-align:-4px"')}</a><button class="btn ${isFollowing(f.i) ? "line" : "primary"}" type="button" data-follow="${f.i}">${isFollowing(f.i) ? "Following" : "Follow"}</button></div></div>
+    <div class="pinfo"><h2>${esc(f.name)}${f.verified ? `<span class="check">${I.check}</span>` : ""}</h2><div class="h">@${esc(f.handle)}${followsYou(f.i) ? ' <span class="flair" style="background:var(--soft);border-radius:4px;padding:1px 5px;font-size:12px">Follows you</span>' : ""}</div>${f.bio ? `<div class="bio">${esc(f.bio)}</div>` : ""}<div class="meta"><span>${I.cal} Joined ${esc(new Date(f.joined).toLocaleDateString("en-US", { month: "long", year: "numeric" }))}</span></div><div class="fol num"><span><b>${fmt(f.following)}</b> Following</span><span><b>${fmt(f.followers + (isFollowing(f.i) ? 1 : 0))}</b> Followers</span></div></div>
+    <div class="ftabs" style="position:static;margin-top:12px"><a class="on">Posts</a><a href="#/messages/${esc(A().id)}/${f.i}">Message</a></div>
+    ${theirs.length ? theirs.map(x => fanCard(x)).join("") : `<div class="empty"><h2>Nothing here yet</h2><p>His posts and quotes about your accounts show up here.</p></div>`}`;
+};
+// Search: what's trending today, and posts or people by name.
+let searchQ = "";
+const TRENDS = ["#SundaySelfie", "#NoPantiesClub", "#LateNightTease", "#MirrorMonday", "#ThirstTrapThursday", "#GoodMorningTimeline", "#BedroomViews", "#AfterDark", "#GymDone", "#RateMe", "#Soaked", "#OnlyHerFeed", "#TooHotForTheTL", "#BehaveOrDont", "#QuoteThis", "#WifeyMaterial"];
+function trends(){
+  const r = rng(hashStr("tr" + Math.floor(now() / D) + S.settings.seed)), pool = TRENDS.slice(), out = [];
+  while (out.length < 8 && pool.length){ const t = pool.splice(Math.floor(r() * pool.length), 1)[0]; out.push({ t, n: Math.round(Math.exp(7 + r() * 5)), k: pick(["Trending in Adult", "Trending", "Adult · Trending", "Popular with people you follow"], r) }); }
+  const mine = LIB.accounts.map(a => ({ t: "@" + handleOf(a), n: Math.round(followersNow(a) * (.3 + r() * .6)), k: "Trending in Adult" }));
+  return [...mine.slice(0, 1), ...out].sort(() => r() - .5);
+}
+APP.views.search = v => {
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><div class="xsearch">${I.search}<input type="search" id="xq" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" value="${esc(searchQ)}"></div><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  const term = searchQ.trim().toLowerCase().replace(/^@/, "");
+  if (!term){
+    v.innerHTML = `<div class="sect pad" style="font-size:20px;font-weight:800">Trends for you</div>${trends().map((x, k) => `<a class="trend" href="#/search/${encodeURIComponent(x.t.replace(/^[#@]/, ""))}"><span class="k">${k + 1} · ${esc(x.k)}</span><b>${esc(x.t)}</b><span class="n">${fmt(x.n)} posts</span></a>`).join("")}`;
+  } else {
+    const people = [...LIB.accounts.filter(a => handleOf(a).toLowerCase().includes(term) || nameOf(a).toLowerCase().includes(term)).map(a => ({ own: a }))];
+    for (let i = 0; i < POOL && people.length < 30; i++){ const f = acct(i); if (f.handle.toLowerCase().includes(term) || f.name.toLowerCase().includes(term)) people.push({ fan: f }); }
+    const posts = allLive().filter(p => textOf(p).toLowerCase().includes(term) || handleOf(acctOf(p)).toLowerCase().includes(term)).slice(0, 40);
+    const fans = allFanItems().filter(x => x.text.toLowerCase().includes(term)).slice(0, 20);
+    v.innerHTML = (people.length ? `<div class="sect pad">People</div>${people.map(x => x.own ? `<a class="prow" href="#/acct/${esc(x.own.id)}">${myAv(44, x.own)}<div class="who"><div>${nameLine(x.own)}</div><div class="hint">@${esc(handleOf(x.own))} · ${fmt(followersNow(x.own))} followers</div></div></a>` : `<a class="prow" href="#/user/${x.fan.i}">${acctAv(x.fan, 44)}<div class="who"><div>${fanName(x.fan)}</div><div class="hint">@${esc(x.fan.handle)} · ${esc(x.fan.bio || fmt(x.fan.followers) + " followers")}</div></div><button class="btn ${isFollowing(x.fan.i) ? "line" : "primary"}" type="button" data-follow="${x.fan.i}">${isFollowing(x.fan.i) ? "Following" : "Follow"}</button></a>`).join("")}` : "") +
+      (posts.length || fans.length ? `<div class="sect pad">Posts</div>${[...posts.map(p => ({ at: p.publishAt, h: tweetCard(p) })), ...fans.map(x => ({ at: x.at, h: fanCard(x) }))].sort((x, y) => y.at - x.at).map(x => x.h).join("")}` : "") +
+      (!people.length && !posts.length && !fans.length ? `<div class="empty"><h2>No results for "${esc(searchQ)}"</h2><p>Try searching for something else.</p></div>` : "");
+  }
+  const q = $("#xq"); let typing = 0;
+  q.addEventListener("input", () => { searchQ = q.value; clearTimeout(typing); typing = setTimeout(() => { const y = window.scrollY; render(); const el = $("#xq"); if (el){ el.focus(); el.setSelectionRange(el.value.length, el.value.length); } window.scrollTo(0, y); }, 160); });
+};
+// Notifications: grouped likes, reposts, follows and mentions.
+function notes(){
+  const out = [];
+  for (const a of LIB.accounts) for (const p of live(a.id).slice(0, 20)){
+    const s = stats(p), tree = commentTree(p), flat = flattenTree(tree), who = likerSample(p, 3);
+    if (s.likes > 2) out.push({ kind: "like", at: Math.min(now(), p.publishAt + 25*MIN), who, html: `<b>${esc(acct(who[0]).name)}</b>${s.likes > 3 ? ` and ${full(s.likes - 1)} others` : ""} liked your post`, p });
+    for (const x of fanItems(p).filter(x => x.at <= now())){
+      if (x.type === "repost") out.push({ kind: "rt", at: x.at, who: [x.by], html: `<b>${esc(acct(x.by).name)}</b> reposted your post`, p });
+      else out.push({ kind: "mention", at: x.at, who: [x.by], html: `<b>${esc(acct(x.by).name)}</b> ${x.type === "quote" ? "quoted your post" : "mentioned you"}`, q: x.text, p, href: `#/q/${p.id}/${x.id}` });
+    }
+    for (const c of tree.slice(0, 2)) out.push({ kind: "mention", at: c.at, who: [c.acct], html: `<b>${esc(acct(c.acct).name)}</b> replied to your post`, q: c.text, p });
+    for (const c of flat.filter(x => x.parent && x.parent.op && x.acct >= 0).slice(0, 2)) out.push({ kind: "mention", at: c.at, who: [c.acct], html: `<b>${esc(acct(c.acct).name)}</b> replied to your reply`, q: c.text, p });
+    const fb = Math.round(followBump(p, a) * curve(now() - p.publishAt, 5*H));
+    if (fb > 0){ const rr = rng(p.seed ^ 0x51ed27); const f = [Math.floor(rr() * POOL), Math.floor(rr() * POOL)]; out.push({ kind: "fol", at: Math.min(now(), p.publishAt + (20 + rr() * 90) * MIN), who: f, html: fb > 1 ? `<b>${esc(acct(f[0]).name)}</b> and ${full(fb - 1)} others followed you` : `<b>${esc(acct(f[0]).name)}</b> followed you` }); }
+  }
+  return out.filter(x => x.at <= now()).sort((x, y) => y.at - x.at).slice(0, 150);
+}
+// The first time notifications are counted, only the last few hours start out unread.
+const notesSeen = () => S.misc.seenAt.notes || (S.misc.seenAt.notes0 ||= now() - 6*H);
+const unreadNotes = () => LIB.ok ? notes().filter(n => n.at > notesSeen()).length : 0;
+APP.views.notifications = (v, r) => {
+  const tab = r.a === "mentions" ? "mentions" : "all";
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><h1>Notifications</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  const all = notes(), seen = notesSeen();
+  S.misc.seenAt.notes = now(); saveMisc();
+  const list = tab === "mentions" ? all.filter(n => n.kind === "mention") : all;
+  const icon = k => k === "like" ? `<span class="like">${I.heartOn}</span>` : k === "rt" ? `<span class="rt">${I.rt}</span>` : k === "fol" ? `<span class="fol">${I.personOn}</span>` : `<span class="fol">${I.reply}</span>`;
+  v.innerHTML = `<div class="ftabs"><a class="${tab === "all" ? "on" : ""}" href="#/notifications">All</a><a class="${tab === "mentions" ? "on" : ""}" href="#/notifications/mentions">Mentions</a></div>` +
+    (list.length ? list.map(n => `<a class="note ${n.at > seen ? "un" : ""}" href="${n.href || (n.p ? "#/p/" + esc(n.p.id) : "#/user/" + n.who[0])}"><span class="ic">${icon(n.kind)}</span><div class="t"><div class="avs">${n.who.slice(0, 3).map(i => acctAv(acct(i), 32)).join("")}</div><div>${n.html} <span class="muted small">· ${esc(ago(n.at))}</span></div>${n.q ? `<div class="q">${esc(n.q)}</div>` : n.p && hasText(textOf(n.p)) ? `<div class="q">${esc(textOf(n.p))}</div>` : ""}</div>${n.p && n.p.files[0] ? `<span class="th">${mediaTag(n.p.files[0], "", { small: true })}</span>` : ""}</a>`).join("") : `<div class="empty"><h2>Nothing yet</h2><p>Likes, reposts, replies and new followers show up here.</p></div>`);
+};
+// Messages: fans' DMs, per account.
+APP.views.messages = (v, r) => {
+  const a = accountById(r.a) || A();
+  if (r.b !== undefined && r.b !== ""){ dmThread(v, a, +r.b); return; }
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32, a)}</button><h1>Messages</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  const all = dmThreads(a);
+  const preview = t => (t.last.me ? "You: " : t.last.post ? "Sent your post: " : "") + t.last.text;
+  v.innerHTML = (LIB.accounts.length > 1 ? `<div class="chips">${LIB.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/messages/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+    `<div class="pad">${all.length ? all.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="dmrow" href="#/messages/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.name)} <span class="muted small" style="font-weight:400">@${esc(f.handle)} · ${esc(ago(t.last.at))}</span></div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages yet</h2><p>Fans start messaging once the first posts are up.</p></div>`}</div>`;
+};
+function dmMsgsHTML(a, i){
+  const t = dmThreads(a).find(x => x.i === i) || { i, msgs: [] };
+  const c = convoOf(a, i), n = c && c.next;
+  const typing = n && n.ready && now() >= n.at - 20e3;
+  const last = t.msgs[t.msgs.length - 1];
+  const seen = last && last.me ? (n && now() < n.seenAt ? "Sent" : "Seen") : "";
+  const postRef = id => { const sp = S.posts.find(x => x.id === id); if (!sp) return ""; return `<a class="dmpost" href="#/p/${esc(sp.id)}"><div class="dmcard"><div class="dmch">${myAv(20, a)}<b>${esc(nameOf(a))}</b> <span class="muted">@${esc(handleOf(a))}</span></div>${sp.files[0] ? picBox(sp.files[0], "pic", { small: true }) : ""}<div class="dmcap">${esc(textOf(sp))}</div></div></a>`; };
+  return t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > H; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.post && !m.me ? postRef(m.post) : ""}<span>${esc(m.text)}</span></div>`; }).join("") +
+    (seen && !typing ? `<div class="dmseen">${seen}</div>` : "") + (typing ? `<div class="bub"><span class="typing"><i></i><i></i><i></i></span></div>` : "") + (n && now() > n.at + MIN && S.dmErr ? `<div class="hint" style="text-align:center;margin-top:10px">${esc(S.dmErr)}</div>` : "");
+}
+function dmThread(v, a, i){
+  const f = acct(i);
+  (S.misc.dmRead[a.id] ||= {})[i] = now(); saveMisc();
+  setTop(`${backBtn}<a href="#/user/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">${esc(f.name)}<div class="hint" style="font-weight:400">@${esc(f.handle)}</div></h1></a>`);
+  v.innerHTML = `<div class="pad" style="padding-bottom:80px"><div class="dmhead">${acctAv(f, 86)}<b>${esc(f.name)}</b><div class="hint">@${esc(f.handle)} · ${fmt(f.followers)} followers</div>${f.bio ? `<div class="hint">${esc(f.bio)}</div>` : ""}</div><div id="dmmsgs">${dmMsgsHTML(a, i)}</div></div>
+    <div class="cbox"><div class="row pad">${myAv(32, a)}<input type="text" id="dmin" placeholder="Start a new message" autocomplete="off"><button type="button" data-dmsend="${i}" data-acct="${esc(a.id)}">Send</button></div></div>`;
+  setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
+}
+APP.dmRepaint = () => {
+  const r = route();
+  if (r.name === "messages" && r.b !== undefined && r.b !== ""){ const el = $("#dmmsgs"); if (!el) return; const a = accountById(r.a) || A(); const bottom = window.innerHeight + window.scrollY > document.body.scrollHeight - 120; el.innerHTML = dmMsgsHTML(a, +r.b); hydrate(el); (S.misc.dmRead[a.id] ||= {})[+r.b] = now(); if (bottom) window.scrollTo(0, document.body.scrollHeight); return; }
+  if (["messages", "home"].includes(r.name)) safeRender();
+};
+setInterval(() => { const r = route(); if (r.name === "messages" && r.b) APP.dmRepaint(); }, 4e3);
+// The bot's queue.
+APP.views.queue = v => {
+  setTop(`${backBtn}<h1>Scheduled</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  v.innerHTML = `<div class="pad"><div class="card" style="margin-top:14px"><h3>The bot posts for you</h3><div class="hint">Every photo Reel fetched gets posted here by itself, between 9 AM and midnight, in sets of one to four; about one post in three is text only. Photos never posted here go first; after that, reposts in new combos. Posts you like, bookmark or reply to stay up; the rest come down after a while.</div><div class="hint" data-wstatus>${esc(writerLine())}</div></div></div>` +
+    LIB.accounts.map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">@${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
+      ${st.on ? `<span class="lbl">Posts per day</span><div class="seg" style="margin:6px 0 10px">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}</button>`).join("")}</div>
+      <div class="hint">${photosOf(a.id).length} photos in Reel · ${live(a.id).length} up · ${Q.length} queued${Q.length ? ` · next ${esc(until(Q[0].publishAt))}` : ""}</div>
+      ${Q.slice(0, 14).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : `<span style="display:grid;place-items:center;height:100%;font-size:20px">💬</span>`}</div><div class="info"><div>${esc(textOf(p))}</div><div class="hint">${p.kind === "text" ? "text post" : p.files.length + (p.files.length === 1 ? " photo" : " photos")} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : p.files.length ? " · new" : ""}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let @${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
+};
+APP.views.settings = v => {
+  setTop(`${backBtn}<h1>Settings</h1>`);
+  v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.</div>
+      ${LIB.accounts.map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>@${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
+    </div>
+    <div class="card"><h3>Content</h3>
+      <button type="button" class="toggle ${blurOn() ? "on" : ""}" data-blur><span><b>Sensitive media warning</b><div class="hint">Photos stay hidden behind a warning until you tap Show.</div></span><span class="sw"></span></button>
+      <button class="btn" type="button" data-newworld>New set of fans</button>
+      <div class="hint">New names and pictures for everyone who replies, quotes and messages. Your posts and likes stay.</div></div>
+    <div class="card"><h3>Writer</h3><div class="hint">Ollama on your PC writes the posts, replies, quotes and her answers, with the address and style Reel uses. When the PC is off, the built-in lines fill in.</div><div class="status" data-wstatus>${esc(writerLine())}</div>${PC() ? `<div class="hint">PC style version ${esc(String(PC().ver))}.</div>` : ""}<button class="btn" type="button" data-rewrite>Rewrite every post</button></div>
+    <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div><button class="btn danger" type="button" data-reset>Erase everything Wire made on this phone</button><div class="hint">Reel's photos and accounts are never touched.</div></div>
+    <div class="hint ver">Wire version ${APP_VERSION}</div>
+  </div>`;
+  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone (shared with Reel). ${S.posts.length} posts across ${LIB.accounts.length} ${LIB.accounts.length === 1 ? "account" : "accounts"}.`; });
+};
+function postMenu(id){
+  const p = S.posts.find(x => x.id === id); if (!p) return;
+  const a = acctOf(p);
+  sheet(`<button class="opt" data-o="pin">${I.pin} ${p.pinned ? "Unpin from profile" : "Pin to your profile"}</button>
+    <button class="opt" data-o="save">${p.saved ? I.bmOn : I.bm} ${p.saved ? "Remove bookmark" : "Bookmark"}</button>
+    ${p.files.length ? `<button class="opt" data-o="reveal">${I.eyeOff} ${revealed.has(p.id) || !blurOn() ? "Media is shown" : "Show the media"}</button>` : ""}
+    <button class="opt" data-o="retext">${I.quote} New text</button>
+    ${p.publishAt > now() ? `<button class="opt" data-o="now">${I.plus} Post now</button>` : ""}
+    <button class="opt red" data-o="del">${I.dots} Delete post</button>`, async el => {
+      const b = el.closest("[data-o]"); if (!b) return; const o = b.dataset.o;
+      if (o === "del"){ if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Tap again to delete"; return; } closeSheet(); await delPost(p); toast("Deleted. Its photos come back later."); if (route().name === "p") history.back(); else render(); return; }
+      closeSheet();
+      if (o === "pin"){ const was = p.pinned; for (const x of live(a.id)) if (x.pinned){ x.pinned = 0; await savePost(x); } p.pinned = was ? 0 : now(); await savePost(p); toast(p.pinned ? "Pinned to your profile" : "Unpinned"); render(); }
+      if (o === "save"){ p.saved = !p.saved; await savePost(p); toast(p.saved ? "Added to your Bookmarks" : "Removed from Bookmarks"); render(); }
+      if (o === "reveal"){ revealed.add(p.id); render(); }
+      if (o === "retext"){ p.textTry = (p.textTry || 0) + 1; p.text = ""; p.textWritten = !ollamaURL(); await savePost(p); toast(ollamaURL() ? "Writing new text" : "New text"); writerRun(); render(); }
+      if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
+    });
+}
+const repaintCard = p => { const el = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); if (!el || route().name === "p") { render(); return; } const soc = el.querySelector(".social"); el.outerHTML = tweetCard(p, { social: soc ? soc.outerHTML : "" }); const n = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); hydrate(n); };
+APP.onClick = async (t, d) => {
+  if (d.tab === "home"){ if (route().name !== "home") go("#/"); refreshFeed(); return; }
+  if (d.tab === "messages"){ go("#/messages/" + (LIB.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
+  if (d.tab){ go("#/" + d.tab); return; }
+  if (d.like){ const p = S.posts.find(x => x.id === d.like); if (!p) return; p.liked = !p.liked; p.kept = true; await savePost(p); repaintCard(p); return; }
+  if (d.bookmark){ const p = S.posts.find(x => x.id === d.bookmark); if (!p) return; p.saved = !p.saved; await savePost(p); toast(p.saved ? "Added to your Bookmarks" : "Removed from Bookmarks"); repaintCard(p); return; }
+  if (d.repost){ const p = S.posts.find(x => x.id === d.repost); if (!p) return; p.reposted = !p.reposted; p.kept = true; await savePost(p); toast(p.reposted ? "Reposted" : "Repost removed"); repaintCard(p); return; }
+  if (d.fanlike){ const m = (S.misc.fanLikes ||= {}); m[d.fanlike] = !m[d.fanlike]; await saveMisc(); const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if ("share" in d){ toast("Link copied"); return; }
+  if (d.postmenu){ postMenu(d.postmenu); return; }
+  if (d.fanmenu){ sheet(`<button class="opt" data-h="hide">${I.eyeOff} Not interested in this post</button>`, async el => { if (!el.closest("[data-h]")) return; closeSheet(); toast("Thanks. You'll see fewer posts like this."); }); return; }
+  if (d.expand){ expanded.add(d.expand); const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (d.loadmore){ shownTop[d.loadmore] = (shownTop[d.loadmore] || 6) + 8; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (d.clike && d.p){ const p = S.posts.find(x => x.id === d.p); if (!p) return; p.cVotes = { ...(p.cVotes || {}), [d.clike]: !(p.cVotes || {})[d.clike] }; p.kept = true; await savePost(p); const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (d.cmenu){ const p = S.posts.find(x => x.id === d.p); if (!p) return; const mine = (p.thread || []).find(x => x.id === d.cmenu && x.mine); sheet(`<button class="opt" data-h="hide">${I.eyeOff} ${mine ? "Delete my reply" : "Hide this reply"}</button>`, async el => { if (!el.closest("[data-h]")) return; closeSheet(); if (mine) p.thread = p.thread.filter(x => x.id !== d.cmenu && x.parent !== d.cmenu); else p.hiddenC = [...(p.hiddenC || []), d.cmenu]; treeCache.clear(); await savePost(p); render(); }); return; }
+  if (d.reply !== undefined){ replyTo = { p: route().a, id: d.reply, handle: d.handle }; render(); const i = $("#cin"); if (i) i.focus(); return; }
+  if ("cancelreply" in d){ replyTo = null; render(); return; }
+  if (d.addc){ const i = $("#cin"); const text = i && i.value.trim(); if (!text) return; const p = S.posts.find(x => x.id === d.addc); if (!p) return; const parent = replyTo && replyTo.p === p.id ? replyTo.id : ""; replyTo = null; await ownerReply(p, parent, text); if (parent) expanded.add(parent.split(".")[0]); render(); toast("Your reply was sent"); return; }
+  if (d.follow !== undefined){ followMap()[+d.follow] = !isFollowing(+d.follow); await saveMisc(); render(); return; }
+};
+// A search typed as a route (from a trend) lands in the box.
+const _search = APP.views.search;
+APP.views.search = (v, r) => { if (r.a !== undefined && r.a !== "") searchQ = r.a; _search(v, r); };
+boot();
+</script>
+</body>
+</html>
