@@ -429,10 +429,56 @@ const DB = {
   clear: st => DB.tx(st,"readwrite",s=>s.clear()),
 };
 
+/* ================= moving to another address ================= */
+// Everything the app keeps on this phone (settings, accounts, posts, chats and every photo and video) in one file, so the
+// app can move to another web address: export at the old one, import at the new one. The file is a header line, the
+// manifest's length in bytes, the manifest (JSON), then each media file's bytes one after another in manifest order.
+let exportFile = null;
+async function exportAll(progress){
+  const kv = {}; for (const k of await DB.keys("kv")) kv[k] = await DB.get("kv", k);
+  const posts = await DB.all("posts");
+  const local = {}; try { for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (k.startsWith("reel-")) local[k] = localStorage.getItem(k); } } catch(e){}
+  const keys = await DB.keys("media"), media = [], parts = [];
+  for (let i = 0; i < keys.length; i++){
+    const b = await DB.get("media", keys[i]); if (!(b instanceof Blob)) continue;
+    media.push({ key: keys[i], type: b.type || "", size: b.size }); parts.push(b);
+    if (progress && i % 10 === 0) progress(i, keys.length);
+  }
+  const man = new TextEncoder().encode(JSON.stringify({ v: 1, at: Date.now(), app: APP_VERSION, kv, posts, local, media }));
+  const d = new Date(), stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return new File([`REEL-EXPORT 1\n${man.length}\n`, man, ...parts], `reel-${stamp}.reelbackup`, { type: "application/octet-stream" });
+}
+// The share sheet (Save to Files) when the phone has one, otherwise a download.
+async function saveExport(){
+  const f = exportFile; if (!f) return;
+  if (navigator.canShare && navigator.canShare({ files: [f] })){
+    try { await navigator.share({ files: [f], title: f.name }); return; } catch(e){ if (e.name === "AbortError") return; }
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60e3);
+}
+// Replaces everything at this address with the file's contents.
+async function importAll(file, progress){
+  const m = /^REEL-EXPORT 1\n(\d+)\n/.exec(await file.slice(0, 64).text());
+  if (!m) throw new Error("that isn't a Reel export file");
+  let at = new TextEncoder().encode(m[0]).length;
+  const man = JSON.parse(await file.slice(at, at + +m[1]).text()); at += +m[1];
+  await DB.clear("media"); await DB.clear("posts"); await DB.clear("kv");
+  for (let i = 0; i < man.media.length; i++){
+    const x = man.media[i];
+    await DB.put("media", file.slice(at, at + x.size, x.type), x.key); at += x.size;
+    if (progress && i % 10 === 0) progress(i, man.media.length);
+  }
+  for (const p of man.posts) await DB.put("posts", p);
+  for (const [k, v] of Object.entries(man.kv)) await DB.put("kv", v, k);
+  try { for (const [k, v] of Object.entries(man.local || {})) localStorage.setItem(k, v); } catch(e){}
+  return man;
+}
+
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 82;
+const APP_VERSION = 83;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -2890,6 +2936,13 @@ function vSettings(v){
     <div class="card"><h3>New accounts</h3>
       <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
       <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
+    <div class="card"><h3>Move to another address</h3>
+      <div class="hint">Export packs everything on this phone (accounts, posts, chats, settings and every photo and video) into one file. Import that file in Reel at the new address and everything carries on where you left off.</div>
+      <button class="btn" type="button" data-exportprep>Export everything</button>
+      <button class="btn primary" type="button" data-exportsave id="exportsave" hidden>Save the file</button>
+      <button class="btn" type="button" data-importpick>Import from a file</button>
+      <input type="file" id="importFile" hidden>
+      <div class="hint">Import replaces everything in Reel at this address with what's in the file.</div></div>
     <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div>
       <a class="btn" href="#/new">Add photos from this phone instead</a>
       <button class="btn" type="button" data-newnames>New names for the fake accounts</button>
@@ -2903,6 +2956,14 @@ function vSettings(v){
   $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
   $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}. Rewriting everything now.`); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
+  $("#importFile").addEventListener("change", async e => {
+    const f = e.target.files[0], b = $("[data-importpick]"); if (!f || !b) return;
+    b.disabled = true; b.textContent = "Importing…";
+    try {
+      const man = await importAll(f, (i, n) => { b.textContent = `Importing… ${i} of ${n} photos and videos`; });
+      toast(`Imported ${man.posts.length} posts. Reloading…`); setTimeout(() => location.reload(), 900);
+    } catch(err){ b.disabled = false; b.textContent = "Import from a file"; toast("Couldn't import: " + err.message); }
+  });
   if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
 }
 
@@ -3263,6 +3324,16 @@ document.addEventListener("click", async e => {
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
   if ("newnames" in d){ S.settings.nameSeed = Math.floor(Math.random()*1e9); S.settings.nameBump = {}; acctCache.clear(); usedHandles.clear(); await saveSettings(); toast("New names for everyone"); render(); return; }
+  if ("exportprep" in d){
+    t.disabled = true; t.textContent = "Packing…";
+    try {
+      exportFile = await exportAll((i, n) => { t.textContent = `Packing… ${i} of ${n} photos and videos`; });
+      t.hidden = true; const sv = $("#exportsave"); if (sv){ sv.hidden = false; sv.textContent = `Save the file (${Math.max(1, Math.round(exportFile.size / 1048576))} MB)`; }
+    } catch(err){ t.disabled = false; t.textContent = "Export everything"; toast("Couldn't pack it: " + err.message); }
+    return;
+  }
+  if ("exportsave" in d){ await saveExport(); return; }
+  if ("importpick" in d){ const inp = $("#importFile"); if (inp) inp.click(); return; }
   if ("newpfps" in d){ S.settings.pfpSeed = Math.floor(Math.random()*1e9); S.settings.pfpBump = {}; pfpCache.clear(); pfpPerm = null; await saveSettings(); toast("New pictures for everyone"); render(); return; }
   if ("randhandle" in d){ const h = $("#ph"); if (h){ let x; do { x = gamerHandle(rng(Math.floor(Math.random()*1e9))); } while (S.accounts.some(o => o.handle === x)); h.value = x; } return; }
   if (d.umenu !== undefined){
