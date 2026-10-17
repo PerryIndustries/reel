@@ -427,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 59;
+const APP_VERSION = 61;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -808,11 +808,11 @@ const ownComments = a => (a.myComments || "").split("\n").map(x => x.trim()).fil
 const regularsOf = a => { const r = rng(hashStr("reg" + a.seed)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 function genComments(p){
   const oa = acctOf(p), own = ownComments(oa), onlyOwn = oa.comStyle === "mine" && own.length > 0;
-  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, oa.captionStyle, oa.level, (p.aiComments||[]).length, p.aiComments?.[0], oa.comStyle, oa.myComments].join("|");
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, oa.captionStyle, oa.level, (p.aiComments||[]).length, p.aiComments?.[0], oa.comStyle, oa.myComments, p.comTry].join("|");
   if (genCache.has(key)) return genCache.get(key);
   // Your own comment lines, word for word: each post starts at a different place in the list so posts don't all open the same way.
-  const start = own.length ? (p.seed >>> 0) % own.length : 0;
-  const r = rng(p.seed ^ 0x9e3779b9);
+  const start = own.length ? ((p.seed >>> 0) + (p.comTry || 0) * 7) % own.length : 0;
+  const r = rng((p.seed ^ 0x9e3779b9 ^ ((p.comTry || 0) * 0x85ebca6b)) >>> 0);
   const { totalC, totalL } = totals(p);
   const n = Math.min(totalC, 60);
   const out = [];
@@ -1343,6 +1343,28 @@ async function autoCaptions(){
     const c = genCaption(p); if (!c) continue;
     p.caption = c; p.captionAuto = true; await savePost(p);
   }
+}
+// One account's captions, comments or story text, new on every post including ones already up. The writer redoes
+// them when it's set up and allowed to write that part; otherwise they come from the built-in lines and your own.
+async function redoPart(a, part){
+  const ai = writerReady() && a.writer !== "off";
+  let n = 0;
+  for (const p of S.posts.filter(p => p.acct === a.id)){
+    if (part === "caption" && !isStory(p) && p.captionAuto && !p.captionManual){
+      if (ai && a.captionStyle !== "off") p.captionWritten = false;
+      else { p.capTry = (p.capTry || 0) + 1; p.caption = genCaption(p, p.capTry) || p.caption; }
+      capChanged(p);
+    } else if (part === "comments" && !isStory(p)){
+      p.comTry = (p.comTry || 0) + 1;
+      if (ai && !(a.comStyle === "mine" && ownComments(a).length)) p.commentsWritten = false; else p.aiComments = undefined;
+    } else if (part === "story" && isStory(p) && p.publishAt && p.publishAt > now() - D){
+      if (ai && a.storyStyle !== "off") p.storyWritten = false; else p.storyText = storyText(hashStr(uid("x")), a);
+    } else continue;
+    n++; await savePost(p);
+  }
+  genCache.clear();
+  if (ai) writerRun();
+  return { n, ai };
 }
 async function redoCaptions(a){
   const auto = S.posts.filter(p => !isStory(p) && p.captionAuto && (!a || p.acct === a.id));
@@ -2632,19 +2654,24 @@ function vAset(v, r){
       <div class="field"><label for="amycap">Your own captions, one per line</label><textarea id="amycap" placeholder="each line can become a caption">${esc(a.myCaptions||"")}</textarea></div>
       <div class="field"><label for="adcap">Direction for ${AI()}</label><textarea id="adcap" placeholder="e.g. short, cocky, lowercase, mention the outfit, one emoji max">${esc(a.capDirection||"")}</textarea></div>
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
-      <button class="btn" type="button" data-recapall="${id}">Redo this account's auto captions</button></div>
+      <button class="btn" type="button" data-redo="caption" data-acct="${id}">Redo captions</button>
+      <div class="hint">New captions on every post, including ones already up. Comments stay as they are, and captions you typed yourself are kept.</div></div>
     <div class="card"><h3>Comments</h3>
       ${seg("comstyle", a.comStyle || "auto", [["auto",AI()],["mine","Only mine"]])}
       <div class="field"><label for="amycom">Your own comments, one per line</label><textarea id="amycom" placeholder="each line becomes a comment, word for word">${esc(a.myComments||"")}</textarea></div>
       <div class="hint">${a.comStyle === "mine" ? "Every comment comes from your list exactly as you typed it, spread across posts." : `${AI()} copies the style of your lines, and they also show up word for word on posts.`}</div>
-      <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div></div>
+      <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div>
+      <button class="btn" type="button" data-redo="comments" data-acct="${id}">Redo comments</button>
+      <div class="hint">New comments on every post, including ones already up. Captions stay as they are, and comments you typed yourself are kept.</div></div>
     <div class="card"><h3>Story text</h3>
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
-      <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
+      <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div>
+      <button class="btn" type="button" data-redo="story" data-acct="${id}">Redo story text</button>
+      <div class="hint">New text on today's and upcoming stories.</div></div>
     <div class="card"><h3>Heat</h3>
       ${seg("heat", heatOf(a), [["suggestive","Suggestive"],["explicit","Explicit"]])}
-      <div class="hint">${heatOf(a) === "explicit" ? "Captions, comments, stories and DMs on this account are openly sexual. Your directions still decide the voice." : "Flirty thirst-trap style: teasing and suggestive, nothing graphic."} Tap Rewrite this account to redo posts already up.</div></div>
+      <div class="hint">${heatOf(a) === "explicit" ? "Captions, comments, stories and DMs on this account are openly sexual. Your directions still decide the voice." : "Flirty thirst-trap style: teasing and suggestive, nothing graphic."} Tap Redo everything on this account to redo posts already up.</div></div>
     <div class="card"><h3>How followers talk about you</h3>
       ${seg("pronouns", a.pronouns || "she", [["she","she / her"],["he","he / him"],["they","they / them"]])}
       <div class="hint">Comments, DMs and the built-in lines use these, like “who let her cook”.</div></div>
@@ -2655,9 +2682,8 @@ function vAset(v, r){
       <div class="field"><label for="admfan">How fans talk in DMs</label><textarea id="admfan" placeholder="e.g. mostly guys, shy at first then really forward, they ask to meet up, lots of 😳">${esc(a.dmFanDirection||"")}</textarea></div>
       <div class="field"><label for="admme">How @${esc(handleOf(a))} replies</label><textarea id="admme" placeholder="e.g. dry and teasing, makes them work for it, never more than a few words">${esc(a.dmMeDirection||"")}</textarea></div></div>
     <div class="card"><h3>Rewrite with ${AI()}</h3>
-      <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Rewrite this account</button>
-      <div class="seg"><button type="button" data-rewrite="caption" data-acct="${id}">Captions</button><button type="button" data-rewrite="comments" data-acct="${id}">Comments</button><button type="button" data-rewrite="story" data-acct="${id}">Stories</button></div>
-      <div class="hint">Replaces this account's auto captions, comments and story text, including on posts already up. Captions you typed yourself are kept.</div></div>
+      <button class="btn primary" type="button" data-rewrite="all" data-acct="${id}">Redo everything on this account</button>
+      <div class="hint">Redoes captions, comments and story text all at once, including on posts already up. To redo just one, use the Redo button in its own section above. Anything you typed yourself is kept.</div></div>
     <a class="btn" href="#/acct/${id}">Open profile</a>
   </div>`;
   $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
@@ -2864,6 +2890,8 @@ document.addEventListener("click", async e => {
   if (d.comstyle){ const a = accountById(d.acct) || A(); a.comStyle = d.comstyle; await saveAccounts(); genCache.clear(); render(); toast(d.comstyle === "mine" ? (ownComments(a).length ? "Comments now come only from your list" : "Type your comments in the box, one per line") : `${AI()} writes the comments again`); if (d.comstyle !== "mine") writerRun(); return; }
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
+  if (d.redo){ const a = accountById(d.acct) || A(); const what = { caption: "captions", comments: "comments", story: "story text" }[d.redo]; const { n, ai } = await redoPart(a, d.redo);
+    toast(!n ? `No ${what} to redo on @${handleOf(a)}` : ai ?`Redoing ${what} on ${n} ${n === 1 ? "post" : "posts"}. Next-up and newest go first.` : `New ${what} on ${n} ${n === 1 ? "post" : "posts"}`); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
   if (d.multi){ const a = accountById(d.acct) || A(); a.multi = d.multi; await saveAccounts(); if (d.multi !== "off") await regroupQueue(a); render(); toast(d.multi === "off" ? "One photo per post from now on" : "Queue regrouped: some posts now have several photos"); return; }
   if (d.order){ const a = accountById(d.acct) || A(); a.order = d.order; await saveAccounts(); if (d.order === "random"){ await shuffleQueue(a); toast("Queue shuffled"); } render(); return; }
