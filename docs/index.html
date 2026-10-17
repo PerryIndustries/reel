@@ -432,7 +432,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 76;
+const APP_VERSION = 77;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1414,7 +1414,7 @@ function avatarChooser(){
 }
 
 async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
-  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); }
+  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(writerRun, 400); setTimeout(autoPools, 800); }
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
@@ -1506,13 +1506,14 @@ const DEFAULT_STYLE = "Voice: the way real thirst-trap accounts on Instagram and
 const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji, lowercase, at most one or two emoji, no hashtags.";
 const isShe = a => !a || !a.pronouns || a.pronouns === "she";
 const WHO_COMMENTS = "\n\nWho is who: the owner is the woman posting. The commenters are horny men reacting to her: what they'd do to her, her body, begging her, losing it over her. Every comment is a man talking to her or about her. Never write as a woman or in her voice: no \"my pussy\", \"my tits\" or \"my clit\", never asking for his cock or his cum.";
-const WHO_CAPTIONS = "\n\nWho is who: the caption is the owner talking, the woman posting, teasing the men who follow her. It is never a man talking about her body.";
+const WHO_CAPTIONS = "\n\nWho is who: the woman in the photo is talking about herself, to the men watching. I/me/my is her, her body, her pussy, what she wants done to her. It is never a man talking about her body or what he'd do to her.";
+const HER_VOICE = ["come watch me play", "wet just thinking about it", "who's coming over to fix this", "bet you can't handle me", "my ass in your face would cure you", "i need it rough tonight", "guess what i'm not wearing", "be honest, would you fuck me", "touching myself to your comments", "ruin me", "your turn to beg"];
 const whoFor = (a, part) => !isShe(a) ? "" : part === "caption" || part === "story" ? WHO_CAPTIONS : part === "comments" ? WHO_COMMENTS : "";
 // Lines in the wrong voice: a comment that sounds like her, or a caption that sounds like a guy talking about her.
 function wrongVoice(t, a, part){
   if (!isShe(a)) return false;
   if (part === "comments") return /\bmy (pussy|clit|cunt|tits|titties|boobs|nipples)\b|\byour (cock|dick|cum|balls)\b/i.test(t);
-  return /\byour (pussy|clit|cunt|tits|titties|boobs|nipples)\b/i.test(t);
+  return /\b(your (pussy|clit|cunt|tits|titties|boobs|nipples|ass|thighs|legs|holes?|curves|body)|my (cock|dick|balls)|show me|spread (your|'?em)|i'?m (so )?(fucking )?hard|give me (that|a peek|your))\b/i.test(t);
 }
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
 const STORY_RULES = "Very short (2 to 8 words), the kind of line that makes followers reply.";
@@ -1649,9 +1650,10 @@ async function writeOne(j){
 }
 // Fills an account's own caption or comment list (the pool posts pull from) with a big batch written once, in the
 // account's direction and heat. The owner deletes what they don't like; with Only mine on, posts use just this list.
-const POOL_SIZE = { caption: 60, comments: 150 };
+const POOL_SIZE = { caption: 60, comments: 150, story: 40 };
 // Each batch leans a different way so the list doesn't turn into 150 versions of the same line.
 const POOL_ANGLES = {
+  story: ["teasing, saying little", "questions that make them reply", "bratty and cocky", "openly offering what she'd do", "fake-casual, like it's no big deal"],
   caption: ["teasing, saying little", "bait: questions and rate-me lines", "bratty and cocky", "just one or two emoji", "openly offering what she'd do", "fake-casual, like it's no big deal"],
   comments: ["short reactions: 1 to 3 words or just emoji", "what they'd do to the owner, spelled out", "about the owner's body", "begging, asking the owner for things, questions to the owner", "funny or unhinged", "what he'd do if he had her for one night", "guys who are speechless or losing it"],
 };
@@ -1659,28 +1661,59 @@ const POOL_ANGLES = {
 const opener = t => normT(t).split(" ").slice(0, 3).join(" ");
 const firstWord = t => normT(t).split(" ")[0] || "";
 async function fillPool(a, part, progress){
-  const field = part === "caption" ? "myCaptions" : "myComments";
+  const field = { caption: "myCaptions", comments: "myComments", story: "myStoryTexts" }[part];
   const have = () => (a[field] || "").split("\n").map(x => x.trim()).filter(Boolean);
   const firsts = {}; for (const x of have()){ const w = firstWord(x); firsts[w] = (firsts[w] || 0) + 1; }
   const seen = new Set(have().map(normT)), opens = new Set(have().filter(x => normT(x).split(" ").length > 3).map(opener));
-  const rules = part === "caption" ? CAPTION_RULES : COMMENT_RULES;
-  const what = part === "caption" ? "Instagram captions this account posts under its own photos" : "comments different followers leave under this account's posts, each from a different person (viewers reacting, never the poster)";
-  const dir = part === "caption" ? a.capDirection : a.comDirection;
+  const rules = { caption: CAPTION_RULES, comments: COMMENT_RULES, story: STORY_RULES }[part];
+  const what = part === "story" ? "short texts this account puts over its own Instagram stories" : part === "caption" ? "Instagram captions this account posts under its own photos" : "comments different followers leave under this account's posts, each from a different person (viewers reacting, never the poster)";
+  const dir = { caption: a.capDirection, comments: a.comDirection, story: a.storyDirection || a.capDirection }[part];
   const sys = `${contextFor(a)}${whoFor(a, part)}\n\nWrite ${what}. They have to work under any of the account's photos, so never describe anything specific in a photo (no outfit, place, colors or pose).\n\n${styleFor(dir, (a[field] || "").split("\n").slice(-25).join("\n"), rules, part, a)}`;
-  let added = 0;
-  for (let call = 0; call < 12 && added < POOL_SIZE[part]; call++){
+  let added = 0, empty = 0;
+  for (let call = 0; call < 14 && added < POOL_SIZE[part]; call++){
     const recent = [...have()].sort(() => Math.random() - .5).slice(0, 12);
     const angles = POOL_ANGLES[part], angle = angles[(call + Math.floor(Math.random() * angles.length)) % angles.length];
-    const out = await ask(sys, [{ type: "text", text: `${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. This batch leans this way: ${angle}. Every line starts differently: never more than two that open with the same word (not a run of Fuck, Mmmm or Damn). Each one is a whole thought a real person would post, said by a follower to or about the owner, not a fragment. Mix very short ones with longer ones.${remind(a, [[part === "caption" ? "Captions" : "Comments", dir]])}` }], undefined, 900);
+    const her = isShe(a) && part !== "comments" ? `Her voice, for the feel only (write new ones): ${[...HER_VOICE].sort(() => Math.random() - .5).slice(0, 5).join(" / ")}\nEvery line is her talking about herself: I/me/my means her.\n\n` : "";
+    const out = await ask(sys, [{ type: "text", text: `${her}${recent.length ? `Already in the list (write different ones):\n${recent.map(x => "- " + x).join("\n")}\n\n` : ""}Write 25 new ones, one per line, nothing else. This batch leans this way: ${angle}. Every line starts differently: never more than two that open with the same word (not a run of Fuck, Mmmm or Damn). Each one is a whole thought a real person would post, said by a follower to or about the owner, not a fragment. Mix very short ones with longer ones.${remind(a, [[{ caption: "Captions", comments: "Comments", story: "Story text" }[part], dir]])}` }], undefined, 900);
     if (!out) break;
     const fresh = out.split("\n").map(x => cleanLine(x.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")))
       .filter(x => x && x.length <= 200 && !wrongVoice(x, a, part) && !/:$/.test(x) && !/^(here (are|is)|sure|okay,? here)/i.test(x) && !copiesDirection(x, a))
       .filter(x => { const k = normT(x) || x; if (seen.has(k)) return false; const o = k.split(" ").length > 3 ? opener(x) : ""; if (o && opens.has(o)) return false; const w = firstWord(x); if (w && (firsts[w] || 0) >= Math.max(4, POOL_SIZE[part] / 20)) return false; firsts[w] = (firsts[w] || 0) + 1; seen.add(k); if (o) opens.add(o); return true; });
-    if (!fresh.length) break;
+    if (!fresh.length){ if (++empty >= 3) break; continue; }
+    empty = 0;
     a[field] = [...have(), ...fresh].join("\n"); added += fresh.length;
     await saveAccounts(); progress && progress(added, a[field]);
   }
   return added;
+}
+// Once per account, by itself: fills the caption, comment and story text lists, switches the account to them (Only mine)
+// and gives every post new ones from them, the ones already up included. If the PC can't be reached part way, it
+// carries on the next time the app opens. Fill this list for me still adds more by hand.
+let poolsRunning = false;
+async function autoPools(){
+  if (poolsRunning || !ollamaURL()) return;
+  poolsRunning = true;
+  let changed = false;
+  try {
+    for (const a of S.accounts){
+      if (a.writer === "off" || a.poolsDone) continue;
+      setWriter(`Writing @${handleOf(a)}'s caption, comment and story lists…`);
+      for (const part of ["caption", "comments", "story"]) if (!(a["poolFilled_" + part])){ if (await fillPool(a, part)){ a["poolFilled_" + part] = 1; await saveAccounts(); } }
+      if (!a.poolFilled_caption || !a.poolFilled_comments || !a.poolFilled_story) continue;
+      a.captionStyle = "off"; a.comStyle = "mine"; a.storyStyle = "off"; a.poolsDone = 1; await saveAccounts();
+      genCache.clear();
+      await redoCaptions(a);
+      for (const p of S.posts.filter(p => p.acct === a.id)){
+        if (isStory(p)) p.storyText = storyText(hashStr(uid("x")), a);
+        else p.comTry = (p.comTry || 0) + 1;
+        await savePost(p);
+      }
+      genCache.clear(); changed = true;
+      toast(`@${handleOf(a)} now uses its new lists on every post`);
+    }
+  } catch(e){}
+  finally { poolsRunning = false; setWriter(""); }
+  if (changed && route().name === "home"){ homeOrder = null; safeRender(); }
 }
 let writing = false;
 // Marks an account's posts (live and queued) to be written again and starts the writer; the newest go first.
