@@ -478,7 +478,7 @@ async function importAll(file, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 83;
+const APP_VERSION = 84;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1559,12 +1559,14 @@ const WHO_CAPTIONS = "\n\nWho is who: the woman in the photo is talking about he
 const HER_VOICE = ["come watch me play", "wet just thinking about it", "who's coming over to fix this", "bet you can't handle me", "my ass in your face would cure you", "i need it rough tonight", "guess what i'm not wearing", "be honest, would you fuck me", "touching myself to your comments", "ruin me", "your turn to beg"];
 const whoFor = (a, part) => !isShe(a) ? "" : part === "caption" || part === "story" ? WHO_CAPTIONS : part === "comments" ? WHO_COMMENTS : "";
 // Lines in the wrong voice: a comment that sounds like her, or a caption that sounds like a guy talking about her.
+// Her explicit lines: openly sexual the way real thirst-trap posts are, not a crude order.
+const HER_EXPLICIT = "This one is openly sexual, but playful and teasing in her short online voice, the way real thirst-trap posts are (\"Felt cute, might moan later 💦\", \"Use me as target practice 😈\"), never a crude order like \"eat my pussy\".";
 const MINORISH = /\b(teens?|schoolgirl|school|underage|minor|barely legal|little girl|young girl|daddy'?s little|jailbait|loli)\b/i;
 function wrongVoice(t, a, part){
   if (MINORISH.test(t)) return true;
   if (!isShe(a)) return false;
   if (part === "comments") return /\bmy (pussy|clit|cunt|tits|titties|boobs|nipples)\b|\byour (cock|dick|cum|balls)\b|\b(bend me over|take me now|use me|breed me|fill me|stretch me|choke me|ride me raw)\b/i.test(t);
-  return /\b(your (pussy|clit|cunt|tits|titties|boobs|nipples|ass|thighs|legs|holes?|curves|body)|my (cock|dick|balls)|show me|spread (your|'?em)|i'?m (so )?(fucking )?hard|give me (that|a peek|your))\b/i.test(t);
+  return /\b(your (pussy|clit|cunt|tits|titties|boobs|nipples|ass|thighs|legs|holes?|curves|body)|my (cock|dick|balls)|show me|spread (your|'?em)|i'?m (so )?(fucking )?hard|give me (that|a peek|your))\b|^(eat|lick|fuck|rub|spank|fill|suck|finger|pound|choke|breed|spit on) (my|me)\b|(this|my) ?(dick|cock)\b/i.test(t);
 }
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
 const STORY_RULES = "Very short (2 to 8 words), the kind of line that makes followers reply.";
@@ -1723,7 +1725,7 @@ async function writePc(j){
   const desc = p.photoDesc ? `${p.photoIsVideo ? "The post is a video. What happens in it" : "The photo"}: ${p.photoDesc}` : "You can't see the photo, so don't describe anything specific in it.";
   if (j.kind === "story"){
     const sp = st.story || st.caption, m = pickMode(sp.modes, rng((p.seed ^ hashStr("pcs")) >>> 0));
-    const out = await ask(`${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${sp.voice}\n\nThis story's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one thirsty but not graphic."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the text only, no quotes.`,
+    const out = await ask(`${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${sp.voice}\n\nThis story's style: ${m.how}.\n${m.explicit ? HER_EXPLICIT : "Keep this one thirsty but not graphic."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the text only, no quotes.`,
       [{ type: "text", text: `${desc}\nThe text sits over her story and can play off it.\n\nWrite her story text.` }], undefined, 40);
     const c = listLines(out)[0];
     if (c && !m.ex.map(normT).includes(normT(c)) && !wrongVoice(c, a, "story") && normT(c).split(" ").length <= 12) p.storyText = c;
@@ -1732,7 +1734,7 @@ async function writePc(j){
   if (j.cap){
     const m = pickMode(st.caption.modes, rng((p.seed ^ hashStr("pcm" + (p.capTry || 0))) >>> 0));
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-12).map(x => "- " + x.caption).join("\n");
-    const sys = `${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${st.caption.voice}\n\nThis caption's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one thirsty and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the caption only, no quotes.`;
+    const sys = `${CONTEXT}\n\n${WHO_CAPTIONS.trim()}\n\n${st.caption.voice}\n\nThis caption's style: ${m.how}.\n${m.explicit ? HER_EXPLICIT : "Keep this one thirsty and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${m.ex.map(x => "- " + x).join("\n")}\n\nReply with the caption only, no quotes.`;
     const out = await ask(sys, [{ type: "text", text: `${desc}\nThe caption can play off the photo, but it isn't a description of it.${recent ? `\n\nRecent captions on this account (don't repeat or echo them):\n${recent}` : ""}\n\nWrite her caption.` }], undefined, 60);
     const c = listLines(out)[0];
     if (c && !m.ex.map(normT).includes(normT(c)) && !wrongVoice(c, a, "caption") && normT(c).split(" ").length <= 12){ p.caption = c; capChanged(p); }
@@ -1741,7 +1743,7 @@ async function writePc(j){
   if (j.com){
     const want = Math.max(6, Math.min(20, st.comments.perPost || 12));
     const tw = st.comments.modes.reduce((s, m) => s + m.w, 0), hot = Math.round(want * st.comments.modes.filter(m => m.explicit).reduce((s, m) => s + m.w, 0) / tw);
-    const sys = `${CONTEXT}${WHO_COMMENTS}\n\n${st.comments.voice}\n\nThe kinds of guys in the comments (the examples only show the feel: never reuse them, write new ones about this post):\n${st.comments.modes.map(m => `- ${m.how}${m.explicit ? ", fully explicit with no softening" : ""}. Feel: ${[...m.ex].sort(() => Math.random() - .5).slice(0, 3).join(" / ")}`).join("\n")}\n\nEvery comment reacts to this post: her caption or the photo. Never label a comment with its kind and never add notes in brackets. Reply with one comment per line, nothing else.`;
+    const sys = `${CONTEXT}${WHO_COMMENTS}\n\n${st.comments.voice}\n\nThe kinds of guys in the comments (the examples only show the feel: never reuse them, write new ones about this post):\n${st.comments.modes.map(m => `- ${m.how}${m.explicit ? ", openly horny but short and blunt like real reply guys, not porn dialogue" : ""}. Feel: ${[...m.ex].sort(() => Math.random() - .5).slice(0, 3).join(" / ")}`).join("\n")}\n\nEvery comment reacts to this post: her caption or the photo. Never label a comment with its kind and never add notes in brackets. Reply with one comment per line, nothing else.`;
     const got = [], cap = normT(p.caption), ex = new Set(st.comments.modes.flatMap(m => m.ex).map(normT));
     for (let call = 0; call < 3 && got.length < want; call++){
       const out = await ask(sys, [{ type: "text", text: `Her caption: ${p.caption || "(none)"}\n${desc}${got.length ? `\n\nAlready under the post (write different ones):\n${got.map(c => "- " + c).join("\n")}` : ""}\n\nWrite ${want - got.length} comments from different guys${hot && !got.length ? `, about ${hot} of them fully explicit` : ""}.` }], undefined, 700);
