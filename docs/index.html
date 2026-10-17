@@ -55,6 +55,8 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .tabbar .in{height:var(--bar);display:grid;grid-template-columns:repeat(5,1fr);max-width:640px;margin:0 auto}
 .tabbar button{display:grid;place-items:center;position:relative}
 .tabbar svg{width:26px;height:26px}
+.tabbar .cnt{top:6px;right:auto;left:calc(50% + 4px)}
+.top .dot{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--heart)}
 .tabbar .dot{position:absolute;top:10px;left:calc(50% + 8px);width:8px;height:8px;border-radius:50%;background:var(--heart)}
 .tabbar .me{width:28px;height:28px;border-radius:50%;overflow:hidden;border:2px solid transparent;background-origin:border-box}
 .tabbar .on .me{border-color:var(--fg)}
@@ -305,6 +307,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .xt{display:block;overflow:hidden;background:var(--soft)}
 .xt.big{grid-row:span 2}
 .xt img,.xt video{width:100%;height:100%;object-fit:cover;display:block}
+.xt img[data-media]{opacity:0;transition:opacity .2s ease}.xt img.ld{opacity:1}
 .xt{position:relative}.xt .ic{position:absolute;top:6px;right:6px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}.xt .ic svg{width:18px;height:18px}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
@@ -314,9 +317,9 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 <main id="view"></main>
 <nav class="tabbar"><div class="in">
   <button type="button" data-tab="home" aria-label="Home"></button>
-  <button type="button" data-tab="explore" aria-label="Explore"></button>
   <button type="button" data-tab="reels" aria-label="Reels"></button>
-  <button type="button" data-tab="activity" aria-label="Activity"></button>
+  <button type="button" data-tab="dm" aria-label="Messages"></button>
+  <button type="button" data-tab="explore" aria-label="Search"></button>
   <button type="button" data-tab="me" aria-label="Profile"></button>
 </div></nav>
 <div class="ptr" id="ptr"><i></i></div>
@@ -340,6 +343,7 @@ const I = {
   heartOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
   comment:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
   share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21.5 3 10 14M21.5 3 15 21l-5-7-7-3z"/></svg>',
+  shareOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linejoin="round"><path d="M21.5 3 10 14M21.5 3 15 21l-5-7-7-3z"/></svg>',
   save:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
   saveOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
   back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5 8 12l7 7"/></svg>',
@@ -423,7 +427,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 45;
+const APP_VERSION = 47;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -660,7 +664,7 @@ let pfpIndex = null, pfpLoading = null;
 const pfpCache = new Map();
 function loadPfps(){
   if (pfpLoading) return pfpLoading;
-  pfpLoading = fetch("pfp/index.json").then(r => r.json()).then(j => { pfpIndex = j; pfpCache.clear(); safeRender(); }).catch(() => { pfpLoading = null; });
+  pfpLoading = fetch("pfp/index.json").then(r => r.json()).then(j => { pfpIndex = j; pfpCache.clear(); safeRender(); return j; }).catch(() => { pfpLoading = null; });
   return pfpLoading;
 }
 const BLANK_PFP = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#dbdbdb"/><circle cx="50" cy="39" r="17" fill="#fff"/><path d="M18 92c3-20 17-30 32-30s29 10 32 30z" fill="#fff"/></svg>');
@@ -751,11 +755,15 @@ function engage(p){
   return { likes, comments, views, ...t };
 }
 const genCache = new Map();
+const ownComments = a => (a.myComments || "").split("\n").map(x => x.trim()).filter(Boolean);
 // About 15 fans per account who show up again and again in the comments.
 const regularsOf = a => { const r = rng(hashStr("reg" + a.seed)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 function genComments(p){
-  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, acctOf(p).captionStyle, acctOf(p).level, (p.aiComments||[]).length, p.aiComments?.[0]].join("|");
+  const oa = acctOf(p), own = ownComments(oa), onlyOwn = oa.comStyle === "mine" && own.length > 0;
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, oa.captionStyle, oa.level, (p.aiComments||[]).length, p.aiComments?.[0], oa.comStyle, oa.myComments].join("|");
   if (genCache.has(key)) return genCache.get(key);
+  // Your own comment lines, word for word: each post starts at a different place in the list so posts don't all open the same way.
+  const start = own.length ? (p.seed >>> 0) % own.length : 0;
   const r = rng(p.seed ^ 0x9e3779b9);
   const { totalC, totalL } = totals(p);
   const n = Math.min(totalC, 60);
@@ -767,6 +775,7 @@ function genComments(p){
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (p.aiComments?.length) text = p.aiComments[k % p.aiComments.length];
+    if (own.length && (onlyOwn || r() < .3)) text = own[(start + k) % own.length];
     out.push({ id:"g"+k, acct:ai, text, at: p.publishAt + off, likes: Math.floor(Math.pow(r(),4)*Math.max(3,totalL*.015)) });
   }
   genCache.set(key, out); return out;
@@ -1389,7 +1398,7 @@ async function writeOne(j){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
     const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
     if (j.com){
-      const out = await ask(`${CONTEXT}\n\nWrite this post's caption and the comments different followers leave on it.\n\nCAPTION\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption")}\n\nCOMMENTS (each from a different person, reacting to the caption you wrote)\n${styleFor(a.comDirection, "", COMMENT_RULES, "comments")}${blind}${avoid}`,
+      const out = await ask(`${CONTEXT}\n\nWrite this post's caption and the comments different followers leave on it.\n\nCAPTION\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption")}\n\nCOMMENTS (each from a different person, reacting to the caption you wrote)\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments")}${blind}${avoid}`,
         withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.${remind([capDir, comDir])}`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
       if (out && out.caption) p.caption = cleanLine(out.caption);
       p.captionWritten = true;
@@ -1400,7 +1409,7 @@ async function writeOne(j){
       p.captionWritten = true;
     }
   } else {
-    const out = await ask(`${CONTEXT}\n\nWrite the comments that different followers leave on this post, each from a different person.\n\n${styleFor(a.comDirection, "", COMMENT_RULES, "comments")}${blind}`,
+    const out = await ask(`${CONTEXT}\n\nWrite the comments that different followers leave on this post, each from a different person.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments")}${blind}`,
       withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.${remind([comDir])}`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
     if (out) setComments(out.comments); else p.commentsWritten = true;
   }
@@ -1420,7 +1429,7 @@ async function writerRun(){
       if (a.writer === "off") continue;
       // "Only mine" keeps the owner's own captions and story text; the AI still writes the comments.
       if (isStory(p)){ if (a.storyStyle !== "off" && !p.storyWritten && p.publishAt && p.publishAt > now() - D && p.publishAt < now() + D) jobs.push({ p, kind: "story" }); continue; }
-      const cap = !!(p.captionAuto && !p.captionWritten && a.captionStyle !== "off"), com = !p.commentsWritten;
+      const cap = !!(p.captionAuto && !p.captionWritten && a.captionStyle !== "off"), com = !p.commentsWritten && !(a.comStyle === "mine" && ownComments(a).length);
       if (cap || com) jobs.push({ p, kind: "post", cap, com });
     }
     const when = p => Math.abs((p.publishAt || now() + 30*D) - now());
@@ -1450,6 +1459,8 @@ for (const ev of ["scroll","touchstart","touchmove","wheel"]) window.addEventLis
 function safeRender(){
   const wait = 3000 - (Date.now() - lastInteract);
   if (wait > 0){ clearTimeout(renderLater); renderLater = setTimeout(safeRender, wait + 50); return; }
+  // Explore has nothing that changes by itself, and a redraw there reloads every tile and clears the search.
+  if (route().name === "explore") return;
   if (!$("#layer").innerHTML && !$("#full").innerHTML && !["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) render();
 }
 
@@ -1705,7 +1716,7 @@ document.addEventListener("touchend", e => {
   if (Math.abs(dx) < 70 || Math.abs(dy) > Math.abs(dx) * .6 || Date.now() - s.at > 800) return;
   if (s.inner && s.x > 30) return;
   if ($("#layer").innerHTML || $("#full").innerHTML) return;
-  if (["home","explore","reels","activity","me","all"].includes(route().name)) return;
+  if (["home","explore","reels","activity","me","all"].includes(route().name) || (route().name === "dm" && !route().b)) return;
   const vw = $("#view"); vw.style.transition = "transform .18s ease-out, opacity .18s"; vw.style.transform = `translateX(${dx > 0 ? 40 : -40}%)`; vw.style.opacity = "0";
   setTimeout(() => { vw.style.transition = ""; vw.style.transform = ""; vw.style.opacity = ""; if (history.length > 1) history.back(); else go("#/"); }, 170);
 }, { passive:true });
@@ -1720,7 +1731,7 @@ function render(){
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
     if (t === "reels") b.innerHTML = on ? I.reelsOn : I.reels;
     if (t === "explore") b.innerHTML = on ? I.searchOn : I.search;
-    if (t === "activity") b.innerHTML = (on ? I.heartOn : I.heart) + (unseen() ? '<span class="dot"></span>' : "");
+    if (t === "dm"){ const n = S.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.shareOn : I.share) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
@@ -1778,7 +1789,7 @@ function storyTray(){
 function vDM(v, r){
   const a = accountById(r.a) || A();
   if (r.b !== undefined && r.b !== ""){ vDMThread(v, a, +r.b); return; }
-  setTop(`${backBtn}<h1>${esc(handleOf(a))}</h1>`);
+  setTop(`<h1>${esc(handleOf(a))}</h1>`);
   const tab = r.c === "requests" ? "requests" : "primary";
   const all = dmThreads(a);
   const list = all.filter(t => (tab === "primary") === dmPrimary(a, t.i));
@@ -1826,7 +1837,7 @@ function vDMThread(v, a, i){
 }
 /* ================= explore ================= */
 // A new mix every visit; scrolling down keeps adding more.
-let exploreSeed = 0, exploreShown = 0, exploreIO = null, exploreSeedUsed = 0;
+let exploreSeed = 0, exploreShown = 0, exploreIO = null, exploreSeedUsed = 0, exploreTerm = "";
 function exploreTiles(from, n){
   const r = rng((exploreSeed + from * 7919) >>> 0);
   return Array.from({ length: n }, (_, j) => { const i = Math.floor(r() * POOL), k = Math.floor(r() * 24); return { i, k, big: (from + j) % 10 === 2 || (from + j) % 10 === 9 }; });
@@ -1854,8 +1865,7 @@ function suggestedFor(){
 }
 function vExplore(v){
   if (!exploreSeed) exploreSeed = Math.floor(Math.random() * 1e9);
-  if (!pfpIndex) loadPfps();
-  setTop(`<div class="xsearch">${I.search}<input type="search" id="xq" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off"></div>`);
+  setTop(`<div class="xsearch">${I.search}<input type="search" id="xq" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off" value="${esc(exploreTerm)}"></div>`);
   const mine = exploreMine();
   exploreShown = Math.min(mine.length, exploreSeedUsed === exploreSeed && exploreShown ? exploreShown : 30); exploreSeedUsed = exploreSeed;
   v.innerHTML = `<div id="xresults"></div><div id="xbody">
@@ -1868,22 +1878,26 @@ function vExplore(v){
     exploreIO.observe($("#xmore"));
   }
   const q = $("#xq");
-  q.addEventListener("input", () => {
+  const search = () => {
+    exploreTerm = q.value;
     const term = q.value.trim().toLowerCase().replace(/^@/, "");
     $("#xbody").hidden = !!term;
     if (!term){ $("#xresults").innerHTML = ""; return; }
+    // fan pictures load once; the results redraw themselves when they arrive instead of the whole page
+    if (!pfpIndex){ loadPfps().then(() => { if ($("#xq") === q) search(); }); }
     const mine = S.accounts.filter(a => handleOf(a).toLowerCase().includes(term) || (a.name || "").toLowerCase().includes(term));
     const fans = []; for (let i = 0; i < POOL && fans.length < 40; i++){ const a = acct(i); if (a.handle.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)) fans.push(a); }
     fans.sort((x, y) => (y.handle.toLowerCase().startsWith(term) ? 1 : 0) - (x.handle.toLowerCase().startsWith(term) ? 1 : 0) || y.followers - x.followers);
     $("#xresults").innerHTML = `<div class="pad list">${mine.map(a => `<a class="row dmrow" href="#/acct/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b>${checkMark(a.verified)}<div class="muted small">${[a.name, fmt(followersNow(a)) + " followers"].filter(Boolean).map(esc).join(" · ")}</div></div></a>`).join("")}${fans.map(a => `<a class="row dmrow" href="#/u/${a.i}">${acctAv(a, 44)}<div class="who"><b>${esc(a.handle)}</b>${checkMark(a.verified)}<div class="muted small">${esc(a.name)} · ${fmt(a.followers)} followers${isFollowing(a.i) ? " · Following" : ""}</div></div></a>`).join("")}${!mine.length && !fans.length ? `<div class="empty"><h2>No results</h2><p>Nobody matches “${esc(term)}”.</p></div>` : ""}</div>`;
     hydrate($("#xresults"));
-  });
+  };
+  let typing = 0;
+  q.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(search, 120); });
+  if (exploreTerm) search();
 }
 let homeOrder = null;
 function vHome(v){
-  const dmN = S.accounts.reduce((n, a) => n + dmUnreadCount(a), 0);
-  const firstUnread = S.accounts.find(a => dmUnreadCount(a)) || A();
-  setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/dm/${esc(firstUnread.id)}" aria-label="Messages">${I.share}${dmN ? `<b class="cnt">${dmN > 99 ? "99+" : dmN}</b>` : ""}</a>`);
+  setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
   if (!homeOrder){ const fresh = all.filter(p => !S.postSeen[p.id]); homeOrder = { ids: [...fresh, ...all.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: fresh.length }; }
@@ -2099,7 +2113,7 @@ function vActivity(v){
   const ev = allEvents();
   const seen = S.seenAt.all || 0;
   S.seenAt.all = now(); saveMisc();
-  document.querySelector('.tabbar [data-tab="activity"] .dot')?.remove();
+  document.querySelector('.top .dmicon .dot')?.remove();
   if (!ev.length){ v.innerHTML = `<div class="empty"><h2>No activity yet</h2><p>Likes, comments and new followers show up here once the bot has posted.</p></div>`; return; }
   const groups = [["New", e => e.at > seen], ["Today", e => now()-e.at < D], ["This week", e => now()-e.at < 7*D], ["Earlier", () => true]];
   const used = new Set(); let html = "";
@@ -2434,6 +2448,9 @@ function vAset(v, r){
       <div class="hint">Your lines are picked three times as often as the built-in ones. Thirst trap mode also makes the commenters thirsty.</div>
       <button class="btn" type="button" data-recapall="${id}">Redo this account's auto captions</button></div>
     <div class="card"><h3>Comments</h3>
+      ${seg("comstyle", a.comStyle || "auto", [["auto",AI()],["mine","Only mine"]])}
+      <div class="field"><label for="amycom">Your own comments, one per line</label><textarea id="amycom" placeholder="each line becomes a comment, word for word">${esc(a.myComments||"")}</textarea></div>
+      <div class="hint">${a.comStyle === "mine" ? "Every comment comes from your list exactly as you typed it, spread across posts." : `${AI()} copies the style of your lines, and they also show up word for word on posts.`}</div>
       <div class="field"><label for="adcom">Direction for ${AI()}</label><textarea id="adcom" placeholder="e.g. mostly guys, very thirsty, some ask for my number, lots of emoji">${esc(a.comDirection||"")}</textarea></div></div>
     <div class="card"><h3>Story text</h3>
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
@@ -2474,6 +2491,7 @@ function vAset(v, r){
     else toast("Direction saved");
   });
   for (const [el, field] of [["admfan","dmFanDirection"],["admme","dmMeDirection"]]) $("#"+el).addEventListener("change", async e => { a[field] = e.target.value; await saveAccounts(); toast("Saved. The next DMs follow it."); });
+  $("#amycom").addEventListener("change", async e => { a.myComments = e.target.value; await saveAccounts(); genCache.clear(); toast(a.comStyle === "mine" ? "Comments saved. Every post uses them now." : "Comments saved"); });
   $("#amycap").addEventListener("change", async e => {
     a.myCaptions = e.target.value; await saveAccounts();
     if (aiOn() && a.captionStyle !== "off"){ await requeue({ cap: 1 }); toast(`Captions saved. ${AI()} copies their style on upcoming posts.`); }
@@ -2607,6 +2625,7 @@ document.addEventListener("click", async e => {
     return;
   }
   if (d.tab === "explore" && route().name === "explore"){ exploreSeed = 0; window.scrollTo({ top: 0, behavior: "smooth" }); render(); return; }
+  if (d.tab === "dm"){ go("#/dm/" + (S.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/"+d.tab); return; }
   if (d.accgo){ if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
   if ("testai" in d){
@@ -2640,6 +2659,7 @@ document.addEventListener("click", async e => {
   if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
   if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
   if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `${AI()} sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `${AI()} is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
+  if (d.comstyle){ const a = accountById(d.acct) || A(); a.comStyle = d.comstyle; await saveAccounts(); genCache.clear(); render(); toast(d.comstyle === "mine" ? (ownComments(a).length ? "Comments now come only from your list" : "Type your comments in the box, one per line") : `${AI()} writes the comments again`); if (d.comstyle !== "mine") writerRun(); return; }
   if (d.capstyle){ const a = accountById(d.acct) || A(); a.captionStyle = d.capstyle; await saveAccounts(); genCache.clear(); await redoCaptions(a); await autoCaptions(); render(); return; }
   if (d.storystyle){ const a = accountById(d.acct) || A(); a.storyStyle = d.storystyle; await saveAccounts(); render(); return; }
   if (d.recapall !== undefined){ await redoCaptions(accountById(d.recapall)); toast("Captions redone"); render(); return; }
