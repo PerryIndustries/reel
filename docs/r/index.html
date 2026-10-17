@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1113" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Thread">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<title>Thread</title>
+<link rel="stylesheet" href="../kit/base.css">
+<style>
+:root{
+  --bg:#ffffff; --fg:#181c1f; --muted:#576f76; --line:#e5ebee; --soft:#f2f5f6; --card:#ffffff;
+  --accent:#d93a00; --accent-fg:#ffffff; --up:#d93a00; --down:#6a5cff; --link:#0a449b; --heart:#ff3040; --join:#0045ac;
+  --font:-apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  --display:-apple-system,"SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --bar:54px;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0e1113; --fg:#eef1f3; --muted:#8ba2ad; --line:#262d31; --soft:#181c1f; --card:#0e1113;
+  --accent:#ff4500; --accent-fg:#ffffff; --up:#ff4500; --down:#7193ff; --link:#648efc; --heart:#ff3b55; --join:#648efc; color-scheme:dark}}
+.top .row{height:52px}
+.logo-mark{width:30px;height:30px;flex:none}
+.hometitle{display:flex;align-items:center;gap:4px;font:700 18px var(--display)}
+.hometitle svg{width:18px;height:18px}
+/* sort row */
+.sorts{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;scrollbar-width:none}
+.sorts::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:7px 14px;background:var(--soft);font-weight:600;font-size:14px;flex:none;white-space:nowrap}
+.chip.on{background:var(--fg);color:var(--bg)}
+.chip svg{width:16px;height:16px}
+/* post card */
+.post{border-bottom:1px solid var(--line);padding:10px 0 8px;background:var(--card)}
+.phead{display:flex;align-items:center;gap:8px;padding-bottom:8px}
+.phead .who{flex:1;min-width:0;line-height:1.25}
+.phead .who b{font-weight:700;font-size:13px}
+.phead .who .small{font-size:12px}
+.subav{width:32px;height:32px;border-radius:50%;display:inline-grid;place-items:center;font-size:17px;flex:none;color:#fff}
+.subav.s24{width:24px;height:24px;font-size:13px}
+.subav.s62{width:62px;height:62px;font-size:32px;border:3px solid var(--bg)}
+.join{background:var(--join);color:#fff;border-radius:999px;padding:6px 14px;font-weight:700;font-size:13px}
+.join.on{background:var(--soft);color:var(--fg)}
+.title{margin:0 0 8px;font:600 17px/1.3 var(--display);overflow-wrap:anywhere}
+.flairs{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:8px}
+.flair{font-size:12px;font-weight:600;border-radius:999px;padding:2px 8px;background:var(--soft)}
+.flair.nsfw{background:var(--accent);color:#fff}
+.media{position:relative;margin:0 16px;border-radius:14px;overflow:hidden;background:#0d0d0d}
+.media .pic{aspect-ratio:var(--ar,4/5);max-height:70vh;width:100%;background:#0d0d0d}
+.media .pic img{object-fit:contain;background:#0d0d0d}
+.gallery{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
+.gallery::-webkit-scrollbar{display:none}
+.gallery .pic{flex:0 0 100%;scroll-snap-align:center;aspect-ratio:var(--gar,4/5);max-height:70vh}
+.media .count{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);color:#fff;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;z-index:2}
+.media .dots{position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:4px;z-index:2}
+.media .dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.45)}
+.media .dots i.on{background:#fff}
+.pbar{display:flex;gap:8px;padding-top:10px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;background:var(--soft);padding:6px 10px;font-weight:700;font-size:13px;height:34px}
+.pill svg{width:20px;height:20px}
+.pill.vote{padding:0 4px}
+.pill.vote button{width:30px;height:34px;display:grid;place-items:center}
+.pill.vote.up{background:var(--up);color:#fff}
+.pill.vote.down{background:var(--down);color:#fff}
+.pill.vote b{min-width:22px;text-align:center}
+.pill .spin{flex:1}
+.pbar .sp{flex:1}
+.pbar .pill.saved{color:var(--accent)}
+.crosspost{font-size:12px;color:var(--muted);padding:8px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
+.crosspost a{color:var(--link);font-weight:600}
+/* comments */
+.cmts{padding:4px 12px 90px}
+.cmt{position:relative;padding:6px 0 2px;margin-left:calc(var(--d) * 14px)}
+.cmt .cline{position:absolute;left:-8px;top:34px;bottom:0;width:14px;cursor:pointer}
+.cmt .cline::before{content:"";position:absolute;left:5px;top:0;bottom:4px;width:2px;border-radius:1px;background:var(--line)}
+.cmt.collapsed .cline::before{background:var(--muted)}
+.cmt .chead{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);line-height:1.2}
+.cmt .chead b{color:var(--fg);font-weight:700}
+.cmt .chead .op{color:var(--link);font-weight:800;font-size:11px;background:color-mix(in srgb,var(--link) 14%,transparent);padding:1px 5px;border-radius:4px}
+.cmt .ctext{padding:5px 0 2px 30px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px}
+.cmt .cbar{display:flex;align-items:center;gap:4px;padding-left:22px;color:var(--muted);font-size:12px;font-weight:600}
+.cmt .cbar button{display:inline-flex;align-items:center;gap:3px;padding:6px 6px;border-radius:999px}
+.cmt .cbar svg{width:18px;height:18px}
+.cmt .cbar .v.up{color:var(--up)}.cmt .cbar .v.down{color:var(--down)}
+.cmt .cbar b{min-width:16px;text-align:center}
+.cmt.collapsed .ctext,.cmt.collapsed .cbar,.cmt.collapsed .replies{display:none}
+.cmt .more{color:var(--link);font-weight:700;font-size:13px;padding:8px 0 8px 30px;display:flex;align-items:center;gap:6px}
+.cmt .more svg{width:16px;height:16px}
+.cmt .folded{display:none;color:var(--muted);font-size:12px;padding:0 0 6px 30px}
+.cmt.collapsed .folded{display:block}
+.loadmore{display:block;width:100%;text-align:center;padding:14px;color:var(--link);font-weight:700}
+.reply-to{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 16px 0}
+.reply-to button{color:var(--link);font-weight:700}
+.cbox .row{align-items:center}
+.cbox input{background:var(--soft)}
+/* community */
+.banner{height:92px;background:linear-gradient(120deg,hsl(var(--h) 70% 45%),hsl(calc(var(--h) + 40) 70% 55%));position:relative}
+.banner.photo{background:#000}
+.banner.photo img{width:100%;height:100%;object-fit:cover;opacity:.75}
+.chead2{display:flex;align-items:flex-end;gap:12px;padding:0 16px;margin-top:-26px;position:relative}
+.chead2 .meta{flex:1;min-width:0;padding-bottom:4px}
+.chead2 h2{margin:0;font:800 20px var(--display)}
+.chead2 .join{margin-bottom:6px}
+.cdesc{padding:10px 16px 0;font-size:14px}
+.rules{margin:10px 16px 0;border:1px solid var(--line);border-radius:12px;padding:8px 12px}
+.rules summary{font-weight:700;font-size:14px;cursor:pointer}
+.rules ol{margin:6px 0 2px;padding-left:20px;font-size:13px;color:var(--muted)}
+.crow{display:flex;align-items:center;gap:12px;padding:10px 16px;width:100%}
+.crow .who{flex:1;min-width:0}
+.crow .who b{font-size:15px}
+.crow .who div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* profile */
+.prof{padding:14px 16px 0;display:flex;gap:14px;align-items:center}
+.prof .meta{flex:1;min-width:0}
+.prof h2{margin:0;font:800 20px var(--display)}
+.pstats{display:flex;gap:18px;padding:12px 16px 0}
+.pstats div{display:flex;flex-direction:column}
+.pstats b{font-size:16px}
+.pstats span{font-size:12px;color:var(--muted)}
+.ptabs{display:grid;grid-template-columns:repeat(2,1fr);margin-top:12px;border-bottom:1px solid var(--line)}
+.ptabs button{padding:12px;text-align:center;font-weight:700;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+.ptabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
+.astrip{display:flex;gap:14px;overflow-x:auto;padding:10px 16px;scrollbar-width:none;border-bottom:1px solid var(--line)}
+.astrip::-webkit-scrollbar{display:none}
+.astrip button{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;flex:none;font-size:12px}
+.astrip .ring{padding:2px;border:2px solid transparent;border-radius:50%}
+.astrip .on .ring{border-color:var(--accent)}
+.astrip .n{max-width:64px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.astrip .on .n{font-weight:700}
+.mycmt{padding:12px 16px;border-bottom:1px solid var(--line);display:block}
+.mycmt .ctx{font-size:12px;color:var(--muted);margin-bottom:4px}
+.mycmt .ctx b{color:var(--fg)}
+/* inbox */
+.note{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);align-items:flex-start}
+.note.un{background:color-mix(in srgb,var(--link) 7%,transparent)}
+.note .t{flex:1;min-width:0;font-size:14px;overflow-wrap:anywhere}
+.note .t .q{color:var(--muted);display:block;margin-top:2px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note .th{width:44px;height:44px;border-radius:6px;overflow:hidden;background:var(--soft);flex:none}
+.note .th img{width:100%;height:100%;object-fit:cover}
+.badge{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--soft);flex:none;font-size:18px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips .chip{padding:5px 12px 5px 5px}
+.chips .cnt{background:var(--accent);color:#fff;font-size:11px;line-height:16px;min-width:16px;padding:0 4px;border-radius:999px;text-align:center}
+.caught{text-align:center;padding:22px 16px 18px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header class="top"><div class="row" id="top"></div></header>
+<main id="view"></main>
+<nav class="tabbar"><div class="row">
+  <button type="button" data-tab="home" aria-label="Home"></button>
+  <button type="button" data-tab="communities" aria-label="Communities"></button>
+  <button type="button" data-tab="create" aria-label="Create"></button>
+  <button type="button" data-tab="chat" aria-label="Chat"></button>
+  <button type="button" data-tab="inbox" aria-label="Inbox"></button>
+</div></nav>
+<div class="ptr" id="ptr"><i></i></div>
+<div id="layer"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 1, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
+</script>
+<script src="../kit/core.js"></script>
+<script>
+"use strict";
+// Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
+const APP_VERSION = 1;
+/* ================= icons ================= */
+const I = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  homeOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+  comm:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0z"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 5.8H17"/></svg>',
+  commOn:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0z"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2a5 5 0 0 1 5.5 5.8H17z"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  chat:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  chatOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4" stroke-linecap="round"/></svg>',
+  bellOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 21h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 4 4 13h5v7h6v-7h5z"/></svg>',
+  upOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4 4 13h5v7h6v-7h5z"/></svg>',
+  down:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20 4 11h5V4h6v7h5z"/></svg>',
+  downOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20 4 11h5V4h6v7h5z"/></svg>',
+  comment:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
+  award:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v3M9 20h6M12 17l-3 3M12 17l3 3"/></svg>',
+  share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5l6 6-6 6M20 11H9a5 5 0 0 0-5 5v2"/></svg>',
+  save:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  saveOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3h14v18l-7-5-7 5z"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>',
+  dots:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
+  dn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  menu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+  eyeOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.2A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7c1.6 0 3-.4 4.3-1"/></svg>',
+  fold:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
+  hot:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3s5 4 5 10a5 5 0 0 1-10 0c0-2 1-3.5 1-3.5s1 1.5 2.5 1.5C11 9 12 3 12 3z"/></svg>',
+  neww:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M5.6 18.4l2.2-2.2M16.2 7.8l2.2-2.2"/></svg>',
+  top:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 10 10l4 4 6-8M20 6v5M20 6h-5"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  cake:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 20h16v-6H4zM6 14v-4h12v4M12 3v4M9 7h6"/></svg>',
+};
+// The mark: a looping thread on a rounded square.
+const MARK = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#ff4500"/><path d="M14 44c4-8 10-8 14-2s9 6 13-2 9-8 13-2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path d="M14 26c4-8 10-8 14-2s9 6 13-2 9-8 13-2" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".6"/></svg>';
+APP.mark = MARK;
+APP.handleStyle = a => "u/" + handleOf(a);
+APP.followersWord = "followers";
+
+/* ================= communities ================= */
+// Made-up adult communities. Editable in Settings; a post lives in one and is crossposted to up to two more.
+const DEFAULT_SUBS = [
+  { name: "AfterDarkSelfies", title: "After Dark Selfies", desc: "Self shots taken after the lights go down. Adults only. Be horny, be kind.", members: 1240000, hue: 14, icon: "🌙", rules: ["18+ only, no exceptions", "OC only, verify once", "No contact info in titles", "Be horny, not hateful", "No reposting from other subs within 24h"], flairs: ["OC", "Verified ✓", "Tease", "Full set in comments"] },
+  { name: "HerPrivateFeed", title: "Her Private Feed", desc: "What she posts when the main account is too tame. Verified posters only.", members: 486000, hue: 330, icon: "🔒", rules: ["Verified posters only", "Comments must stay about the post", "No begging in titles, beg in the comments"], flairs: ["Exclusive", "Request", "Verified ✓"] },
+  { name: "LateNightTease", title: "Late Night Tease", desc: "For the ones who stay up. Teases, slow reveals and whatever happens after midnight.", members: 912000, hue: 265, icon: "😈", rules: ["Everyone 18+", "Mark titles with [F] or [M]", "Keep it consensual"], flairs: ["Tease", "Good morning", "Bedtime", "OC"] },
+  { name: "MirrorDrops", title: "Mirror Drops", desc: "Mirror shots only. Fits coming off, fits already off.", members: 338000, hue: 200, icon: "🪞", rules: ["A mirror has to be in the shot", "OC only", "18+"], flairs: ["Mirror", "OC", "Before & after"] },
+  { name: "BedroomPosts", title: "Bedroom Posts", desc: "Posted from bed. Mornings, nights and the long afternoons in between.", members: 2100000, hue: 350, icon: "🛏️", rules: ["18+", "No faces of other people", "Titles in your own words"], flairs: ["Bed", "Morning", "Lingerie", "Verified ✓"] },
+  { name: "ThirstTrapThursday", title: "Thirst Trap Thursday", desc: "It's Thursday somewhere. Rate, react, repeat.", members: 275000, hue: 45, icon: "💦", rules: ["Be honest in the ratings", "18+", "No links in comments"], flairs: ["Thursday", "Rate me", "OC"] },
+  { name: "SoftcoreSundays", title: "Softcore Sundays", desc: "Slow Sundays, soft light, nothing on. The gentler end of the week.", members: 640000, hue: 150, icon: "☁️", rules: ["Softcore means softcore in the photo, not the comments", "18+", "OC"], flairs: ["Softcore", "Sunday", "Lazy"] },
+  { name: "PeekAndTell", title: "Peek And Tell", desc: "She shows, you tell her exactly what you'd do. Then she answers.", members: 157000, hue: 25, icon: "👀", rules: ["Comment or don't bother", "18+", "She decides what's too far"], flairs: ["Peek", "Tell", "Caught"] },
+  { name: "NoPantiesClub", title: "No Panties Club", desc: "Membership has one rule and it's in the name.", members: 790000, hue: 300, icon: "🍑", rules: ["18+", "OC only", "Verify before your first post"], flairs: ["Club rules", "OC", "Proof"] },
+  { name: "CurvesAfterMidnight", title: "Curves After Midnight", desc: "Hips, thighs, ass and everything the daytime subs blur out.", members: 1030000, hue: 230, icon: "🌃", rules: ["18+", "No body shaming", "OC only"], flairs: ["Curves", "Midnight", "OC"] },
+];
+const subs = () => (Array.isArray(S.settings.subs) && S.settings.subs.length ? S.settings.subs : DEFAULT_SUBS);
+const subOf = name => subs().find(s => s.name === name) || subs()[0];
+const onlineOf = s => Math.round(s.members * (.002 + rng(hashStr(s.name + Math.floor(now() / H)))() * .008));
+const joined = name => { const j = S.misc.joined || {}; return name in j ? j[name] : rng(hashStr("join" + name + S.settings.seed))() < .7; };
+const subAv = (s, cls) => `<span class="subav ${cls || ""}" style="background:hsl(${s.hue} 72% 46%)">${s.icon || s.name[0]}</span>`;
+// A post lands in one community (its first), crossposted to up to two more, with that community's flair now and then.
+APP.decorate = (p, a, r) => {
+  const list = subs().slice().sort(() => r() - .5);
+  const n = r() < .55 ? 1 : r() < .85 ? 2 : 3;
+  p.subs = list.slice(0, n).map(s => s.name);
+  const s = subOf(p.subs[0]);
+  p.flair = s.flairs && s.flairs.length && r() < .55 ? pick(s.flairs, r) : "";
+};
+const postSubs = p => (p.subs && p.subs.length ? p.subs : [subs()[0].name]).filter(n => subs().some(s => s.name === n));
+const primarySub = p => subOf(postSubs(p)[0]);
+
+/* ================= Reddit-style numbers ================= */
+// Upvotes, the share of upvotes, awards and the comment count: from the post's seeded totals plus your own vote.
+function ups(p){ const e = engage(p); return e.likes + (p.vote || 0); }
+function ratio(p){ return Math.round(86 + rng(p.seed ^ 0x2545f491)() * 13); }
+function awards(p){ const r = rng(p.seed ^ 0x27d4eb2f); const { L } = totals(p); const n = L > 3000 ? Math.floor(r() * 6) : L > 800 ? Math.floor(r() * 3) : r() < .2 ? 1 : 0; return n; }
+const nComments = p => Math.max(engage(p).comments, countTree(commentTree(p)));
+const hot = p => ups(p) / Math.pow((now() - p.publishAt) / H + 2, 1.4);
+function sortPosts(L, sort){
+  if (sort === "new") return L.slice().sort((x, y) => y.publishAt - x.publishAt);
+  if (sort === "top") return L.slice().sort((x, y) => ups(y) - ups(x));
+  return L.slice().sort((x, y) => hot(y) - hot(x));
+}
+// Karma: her posts' upvotes plus a base that grew with the account, and her replies' votes.
+function karmaOf(a){
+  const base = rng(hashStr("karma" + a.seed)), days = Math.max(1, (now() - (a.startedAt || now() - 30*D)) / D);
+  const post = Math.round(days * (40 + base() * 160)) + live(a.id).reduce((n, p) => n + ups(p), 0);
+  const comment = Math.round(days * (6 + base() * 30)) + S.posts.reduce((n, p) => n + flattenTree(commentTree(p)).filter(c => c.op).reduce((m, c) => m + c.score, 0), 0);
+  return { post, comment };
+}
+const cakeDay = a => (a.startedAt || now() - 30*D) - Math.floor(rng(hashStr("cake" + a.seed))() * 900) * D;
+
+/* ================= lines of this platform ================= */
+// Reddit titles in her voice; a tag like [24F] goes on about half of them (her real age only).
+const TITLES = ["first post here, be gentle. or don't", "my ex said my ass was average. thoughts?", "would you still fuck me with the lights on?", "lazy sunday, no plans, no clothes", "verification was easy. keeping my hands off myself is not", "do you prefer the front or the back", "finally brave enough to post the full set", "someone come put this ass to use", "i'm the quiet girl at your office. this is what i do after work", "is this too much for a tuesday", "told my roommate i was 'just taking a selfie'", "pov: you came over to 'watch a movie'", "be honest, am i a one-more-round kind of girl", "rate my body and i'll rate your comment", "no bra, no problem, no shame", "guess what i was doing right before this", "my tits need a hand. or two", "took these for someone who never texted back. enjoy them instead", "is anyone else awake and horny or just me", "bent over and waiting. for what? you tell me", "i get wetter the more upvotes this gets. test me", "finally posting the one i was scared to", "would you let me sit on your face", "first time showing my ass on here. be nice. or don't be", "cum tell me what you'd do", "my body after a week of not being touched. fix it", "soft, horny and alone on a friday", "mirror pic because nobody's here to take it for me", "does this count as dressed", "i read every comment in bed with my hand between my legs", "the lighting was good and so was my mood", "just got out of the shower and already thinking about getting dirty again", "what would you do if you walked in on this", "my thighs could use some company", "posting this instead of sleeping", "i want to be someone's bad decision tonight", "tell me i'm your type", "only my second post and i'm already addicted to your comments", "took 40 photos, this is the one that made me wet", "be the reason i can't walk tomorrow", "pretty face, dirty mind, empty bed", "the full set is in my dms for whoever asks nicest", "thought about you while taking this. yes you", "my ass wants to know if you're free tonight", "i come harder when i know people are watching", "good girls post on sundays too", "not wearing anything under this, obviously", "undress me with your comments", "i'll answer every question in the comments. every one", "what should i take off next"];
+// Reddit flavour for the men, mixed in with the shared lines.
+const REDDIT_MEN = ["upvoted and saved. then upvoted again somehow", "this sub is blessed today", "the way i stopped scrolling", "this community never misses", "OP you're killing me", "OP i'm begging you. the full set", "came here from the front page and i'm staying", "verified hottest post of the week", "first time commenting on here, had to for this", "OP marry me", "OP what's your schedule, i need to plan my day around it", "i've been following your posts across three subs, you're unreal", "OP please tell me there's more", "gave this my free award, it deserved a paid one", "this one goes in the saved folder with the other 40 of yours", "the title alone had me hard", "OP you answer comments?? brb thinking of something good", "best post on here in weeks", "OP please, my dms are open and so is my schedule", "new to this sub and this is what greets me. i'm never leaving"];
+APP.bank = {
+  comment: (a, r) => r() < .2 ? pick(REDDIT_MEN, r) : menLine(a, r),
+  reply: (a, r) => r() < .55 ? pick(MEN_BANTER, r) : menLine(a, r),
+  op: (a, r) => pick(OP_REPLIES, r),
+};
+// What a post's title reads as when the writer hasn't written one: a line in her voice with Reddit's tags.
+APP.fallbackText = p => {
+  const a = acctOf(p), r = rng(p.seed ^ 0x51ed27 ^ ((p.textTry || 0) * 977));
+  const line = r() < .55 ? pick(TITLES, r) : herLine(a, r);
+  const age = ageOf(a), g = isShe(a) ? "F" : a.pronouns === "he" ? "M" : "";
+  const x = r();
+  const tag = !g ? "" : x < .25 ? `[${g}]` : x < .4 ? `(${g.toLowerCase()})` : x < .6 ? `[${age}${g}]` : x < .68 ? `${g}${age}` : x < .78 ? "[OC]" : "";
+  if (!tag) return line;
+  return r() < .6 ? `${tag} ${line}` : `${line} ${tag}`;
+};
+const titleOf = p => textOf(p);
+
+/* ================= the writer: titles, comments, her replies ================= */
+APP.writeOne = async p => {
+  const a = acctOf(p), st = PC(), s = primarySub(p);
+  if (!p.textWritten){
+    const m = herMode(p, "title");
+    const sys = `${contextFor(a)}${whoFor(a, "caption")}\n\n${voiceOf("caption")}\n\nShe is posting a photo of herself to an adult subreddit, r/${s.name} (${s.desc}). Write the Reddit title of the post, in her voice. Reddit style: lowercase or plain sentence case, 3 to 16 words, no hashtags, no emoji or at most one. Posts there often carry a tag like [F], (f), [${ageOf(a)}F] or [OC]: use one in about half the titles, and only her real age, ${ageOf(a)}.\nThis title's style: ${m.how}.\n${m.explicit ? HEAT_EXPLICIT : "Keep this one teasing and suggestive, no graphic words."}\n\nExamples of this style (for the feel; write a new one):\n${(m.ex || []).map(x => "- " + x).join("\n")}\n\nReply with the title only, no quotes.`;
+    const recent = S.posts.filter(x => x.acct === p.acct && x !== p && hasText(x.text)).slice(-12).map(x => "- " + x.text).join("\n");
+    const out = await ask(sys, [{ type: "text", text: `${p.files.length > 1 ? `It's a set of ${p.files.length} photos.` : "It's one photo."} You can't see it, so don't describe anything specific in it.${recent ? `\n\nRecent titles on this account (don't repeat or echo them):\n${recent}` : ""}\n\nWrite her title.` }], undefined, 60);
+    const c = listLines(out)[0];
+    if (c && !wrongVoice(c, a, "caption") && normT(c).split(" ").length <= 20) p.text = c;
+    p.textWritten = true;
+    await savePost(p);
+  }
+  if (!p.commentsWritten){
+    const title = titleOf(p);
+    const want = clamp((st && st.comments && st.comments.perPost) || 12, 8, 16);
+    const sysC = `${CONTEXT}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\nThe post: her photo on r/${s.name}, titled "${title}". Write the top-level comments different men leave under it. Reddit style: full sentences more often than on Instagram, a mix of one-liners and a few longer ones, some reacting to her title, some asking her things she might answer, some begging for more or for her DMs, a few calling her OP.\nThe kinds of guys in the comments (the examples only show the feel: never reuse them):\n${modeList(menModes())}\n\nNever label a comment with its kind and never add notes in brackets. One comment per line, nothing else.`;
+    p.aiComments = await askLines(sysC, `Her title: ${title}`, want, "comments", a, 700);
+    const sysR = `${CONTEXT}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\nInside the thread under her Reddit post titled "${title}", men reply to each other and to her. Write those replies: a man agreeing with or one-upping another man's comment, telling him to get in line, joking about how down bad they all are, and men answering her when she (OP) replies to them, losing it that she answered. Short, Reddit style, casual spelling.\n\nOne reply per line, nothing else.`;
+    p.aiReplies = await askLines(sysR, `Her title: ${title}\nSome comments already under the post:\n${p.aiComments.slice(0, 6).map(c => "- " + c).join("\n")}`, 10, "comments", a, 500);
+    const sysO = `${contextFor(a)}${whoFor(a, "caption")}\n\n${voiceOf("caption")}\n\nShe is OP, answering some of the men under her own Reddit post titled "${title}". Write her replies: short (1 to 12 words), teasing, cocky, filthy when she feels like it, answering what they said, never a polite thank-you.${heatOf(a) === "explicit" ? "\n\n" + HEAT_EXPLICIT : ""}\n\nOne reply per line, nothing else.`;
+    p.aiOp = await askLines(sysO, `Comments she's answering:\n${p.aiComments.slice(0, 8).map(c => "- " + c).join("\n")}`, 6, "caption", a, 300);
+    p.commentsWritten = true; treeCache.clear();
+    await savePost(p);
+  }
+};
+// A fan answering something she just wrote in the thread.
+APP.fanReplyPrompt = (p, f, herText) => [
+  `${contextFor(acctOf(p))}${WHO_COMMENTS}\n\n${voiceOf("comments")}\n\nUnder her Reddit post titled "${titleOf(p)}", she (OP) just replied to @${f.handle}. Write his answer: one short Reddit reply, reacting to what she said, losing it a little that she answered, horny and direct.\n\nWHO HE IS\n${fanPersona(f)}\n\nReply with the one line only.`,
+  `She wrote: ${herText}\n\nWrite his reply.`];
+
+/* ================= views ================= */
+APP.views = {};
+APP.renderTabs = r => {
+  for (const b of document.querySelectorAll(".tabbar [data-tab]")){
+    const t = b.dataset.tab; const on = t === r.name || (t === "home" && ["c", "p"].includes(r.name)) || (t === "chat" && r.name === "chat");
+    b.classList.toggle("on", on);
+    if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
+    if (t === "communities") b.innerHTML = on ? I.commOn : I.comm;
+    if (t === "create") b.innerHTML = I.plus;
+    if (t === "chat"){ const n = LIB.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.chatOn : I.chat) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "inbox"){ const n = unreadNotes(); b.innerHTML = (on ? I.bellOn : I.bell) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+  }
+};
+const nsfwCover = id => `<button type="button" class="nsfwcover" data-reveal="${esc(id)}">${I.eyeOff}<b>NSFW</b><span>This post may contain adult content</span><span class="tag">Tap to view</span></button>`;
+function mediaHTML(p){
+  if (!p.files.length) return "";
+  const blur = blurOn() && !revealed.has(p.id);
+  const many = p.files.length > 1;
+  const gar = DIMS[p.files[0].key] ? ` style="--gar:${DIMS[p.files[0].key]}"` : "";
+  const inner = many
+    ? `<div class="gallery"${gar}>${p.files.map(f => picBox(f, "pic", {})).join("")}</div><span class="count">1/${p.files.length}</span><div class="dots">${p.files.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>`
+    : picBox(p.files[0], "pic", {});
+  return `<div class="media ${blur ? "nsfw" : ""}" data-gal="${esc(p.id)}">${inner}${blur ? nsfwCover(p.id) : ""}</div>`;
+}
+function postCard(p, opts = {}){
+  const a = acctOf(p), s = opts.sub ? subOf(opts.sub) : primarySub(p);
+  const e = ups(p), n = nComments(p), aw = awards(p), cross = opts.sub && postSubs(p)[0] !== opts.sub;
+  return `<article class="post" data-post="${esc(p.id)}">
+    <div class="phead pad">
+      <a href="#/c/${esc(s.name)}">${subAv(s)}</a>
+      <div class="who"><a href="#/c/${esc(s.name)}"><b>r/${esc(s.name)}</b></a> <span class="muted small">· ${esc(ago(p.publishAt))}</span>${cross ? ` <span class="muted small">· crosspost</span>` : ""}<div class="small muted"><a href="#/me" data-href="#/acct/${esc(a.id)}">u/${esc(handleOf(a))}</a></div></div>
+      ${joined(s.name) ? `<button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button>` : `<button class="join" type="button" data-join="${esc(s.name)}">Join</button>`}
+    </div>
+    <h2 class="title pad ${opts.full ? "" : ""}"><a href="#/p/${esc(p.id)}">${esc(titleOf(p))}</a></h2>
+    <div class="flairs pad">${p.flair ? `<span class="flair">${esc(p.flair)}</span>` : ""}<span class="flair nsfw">NSFW</span>${p.files.length > 1 ? `<span class="flair">${p.files.length} photos</span>` : ""}</div>
+    ${mediaHTML(p)}
+    <div class="pbar pad">
+      <div class="pill vote ${p.vote > 0 ? "up" : p.vote < 0 ? "down" : ""}"><button type="button" data-vote="1" data-p="${esc(p.id)}" aria-label="Upvote">${p.vote > 0 ? I.upOn : I.up}</button><b class="num">${fmt(e)}</b><button type="button" data-vote="-1" data-p="${esc(p.id)}" aria-label="Downvote">${p.vote < 0 ? I.downOn : I.down}</button></div>
+      <a class="pill" href="#/p/${esc(p.id)}">${I.comment}<span class="num">${fmt(n)}</span></a>
+      ${aw ? `<span class="pill">🏆 ${aw}</span>` : ""}
+      <span class="sp"></span>
+      <button class="pill ${p.saved ? "saved" : ""}" type="button" data-save="${esc(p.id)}" aria-label="Save">${p.saved ? I.saveOn : I.save}</button>
+      <button class="pill" type="button" data-share aria-label="Share">${I.share}</button>
+    </div>
+  </article>`;
+}
+function wireGalleries(root){
+  for (const g of root.querySelectorAll(".gallery")){
+    const box = g.closest(".media"), cnt = box.querySelector(".count"), dots = box.querySelectorAll(".dots i");
+    g.addEventListener("scroll", () => { const i = Math.round(g.scrollLeft / g.clientWidth); if (cnt) cnt.textContent = (i+1)+"/"+g.children.length; dots.forEach((d,k) => d.classList.toggle("on", k===i)); }, { passive: true });
+  }
+}
+const sortChips = (cur, base) => `<div class="sorts">${[["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]].map(([k,l,ic]) => `<a class="chip ${cur===k?"on":""}" href="${base}${k}">${ic}${l}</a>`).join("")}</div>`;
+let homeOrder = null;
+APP.feedReset = () => { homeOrder = null; };
+APP.views.home = (v, r) => {
+  const sort = ["hot","new","top"].includes(r.a) ? r.a : "hot";
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><h1><button type="button" class="hometitle" data-sortsheet="${sort}">${sort === "hot" ? "Home" : sort === "new" ? "New" : "Top"} ${I.dn}</button></h1><a class="iconbtn" href="#/communities" aria-label="Search">${I.search}</a><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const all = allLive().filter(p => acctSet(acctOf(p)).on);
+  if (!all.length){ v.innerHTML = `<div class="empty"><h2>Nothing posted yet</h2><p>The bot posts by itself from the photos Reel fetched. ${queued(A().id).length ? `Next post goes up ${esc(until(queued(A().id)[0].publishAt))}.` : "Pull down to refresh."}</p></div>`; return; }
+  const L = sortPosts(all, sort);
+  const writingNow = /^Writing/.test(S.writerMsg || "");
+  v.innerHTML = sortChips(sort, "#/home/") + (writingNow ? `<div class="hint pad" style="padding-bottom:8px">${esc(S.writerMsg)} Pull down to see the new ones.</div>` : "") + L.map(p => postCard(p)).join("") + `<div class="caught"><b>That's everything for now</b><div class="hint">Pull down later for more</div></div>`;
+  wireGalleries(v);
+};
+APP.views.c = (v, r) => {
+  const s = subs().find(x => x.name === r.a);
+  if (!s){ v.innerHTML = `<div class="empty"><h2>No such community</h2></div>`; setTop(`${backBtn}<h1>r/?</h1>`); return; }
+  const sort = ["hot","new","top"].includes(r.b) ? r.b : "hot";
+  setTop(`${backBtn}<h1>r/${esc(s.name)}</h1><button class="iconbtn" type="button" data-editsub="${esc(s.name)}" aria-label="Edit">${I.dots}</button>`);
+  const L = sortPosts(allLive().filter(p => postSubs(p).includes(s.name)), sort);
+  v.innerHTML = `<div class="banner" style="--h:${s.hue}"></div>
+    <div class="chead2">${subAv(s, "s62")}<div class="meta"><h2>r/${esc(s.name)}</h2><div class="hint num">${fmt(s.members)} members · ${fmt(onlineOf(s))} online</div></div><button class="join ${joined(s.name) ? "on" : ""}" type="button" data-join="${esc(s.name)}">${joined(s.name) ? "Joined" : "Join"}</button></div>
+    <div class="cdesc">${esc(s.title)}${s.desc ? ` · ${esc(s.desc)}` : ""}</div>
+    ${s.rules && s.rules.length ? `<details class="rules"><summary>r/${esc(s.name)} rules</summary><ol>${s.rules.map(x => `<li>${esc(x)}</li>`).join("")}</ol></details>` : ""}
+    ${s.flairs && s.flairs.length ? `<div class="flairs pad" style="padding-top:10px">${s.flairs.map(f => `<span class="flair">${esc(f)}</span>`).join("")}</div>` : ""}
+    ${sortChips(sort, `#/c/${esc(s.name)}/`)}
+    ${L.length ? L.map(p => postCard(p, { sub: s.name })).join("") : `<div class="empty"><h2>Nothing here yet</h2><p>Posts land in r/${esc(s.name)} when the bot picks it.</p></div>`}`;
+  wireGalleries(v);
+};
+let commQ = "";
+APP.views.communities = v => {
+  setTop(`<h1>Communities</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const list = subs().filter(s => !commQ || (s.name + " " + s.title).toLowerCase().includes(commQ.toLowerCase()));
+  v.innerHTML = `<div class="pad" style="padding-top:10px"><input type="search" id="cq" placeholder="Search communities" value="${esc(commQ)}" autocomplete="off" autocapitalize="off"></div>
+    <div class="sect pad">${commQ ? "Results" : "Your communities"}</div>
+    ${list.map(s => `<a class="crow" href="#/c/${esc(s.name)}">${subAv(s)}<div class="who"><b>r/${esc(s.name)}</b><div class="hint num">${fmt(s.members)} members · ${fmt(onlineOf(s))} online · ${allLive().filter(p => postSubs(p).includes(s.name)).length} posts</div></div><button class="join ${joined(s.name) ? "on" : ""}" type="button" data-join="${esc(s.name)}">${joined(s.name) ? "Joined" : "Join"}</button></a>`).join("")}
+    ${!list.length ? `<div class="empty"><h2>No results</h2></div>` : ""}
+    <div class="pad" style="padding-top:14px"><a class="btn" href="#/settings">Edit communities</a></div>`;
+  const q = $("#cq"); let typing = 0;
+  q.addEventListener("input", () => { commQ = q.value; clearTimeout(typing); typing = setTimeout(() => { const y = window.scrollY; render(); $("#cq").focus(); window.scrollTo(0, y); }, 150); });
+};
+// Post page: the post, where else it went, then the thread.
+const collapsed = new Set(), expanded = new Set();
+let replyTo = null, shownTop = {};
+const sortTree = (list, sort) => sort === "new" ? list.slice().sort((x, y) => y.at - x.at) : sort === "top" ? list.slice().sort((x, y) => y.score - x.score) : list.slice().sort((x, y) => (y.score + (y.replies.length * 2) - (now() - y.at) / (8*H)) - (x.score + (x.replies.length * 2) - (now() - x.at) / (8*H)));
+function commentHTML(p, c, sort){
+  const a = acctOf(p), f = c.acct >= 0 ? acct(c.acct) : null;
+  const v = (p.cVotes || {})[c.id] || 0, score = c.score + v;
+  const deep = c.depth >= 3 && c.replies.length && !expanded.has(c.id);
+  const kids = sortTree(c.replies, sort);
+  return `<div class="cmt ${collapsed.has(c.id) ? "collapsed" : ""}" data-cid="${esc(c.id)}" style="--d:${Math.min(c.depth, 6)}">
+    ${c.depth ? `<div class="cline" data-collapse="${esc(c.id)}"></div>` : ""}
+    <div class="chead" data-collapse="${esc(c.id)}">${f ? `<a href="#/user/${f.i}">${acctAv(f, 24)}</a><a href="#/user/${f.i}"><b>u/${esc(f.handle)}</b></a>` : `${myAv(24, a)}<b>u/${esc(handleOf(a))}</b><span class="op">OP</span>`}<span>· ${esc(ago(c.at))}</span></div>
+    <div class="folded">${countTree(c.replies) + 1} ${countTree(c.replies) ? "comments" : "comment"} collapsed</div>
+    <div class="ctext">${esc(c.text)}</div>
+    <div class="cbar"><button type="button" data-cmenu="${esc(c.id)}" data-p="${esc(p.id)}" aria-label="Options">${I.dots}</button><button type="button" data-reply="${esc(c.id)}" data-handle="${esc(f ? f.handle : handleOf(a))}">${I.comment} Reply</button><span style="flex:1"></span><button type="button" class="v ${v > 0 ? "up" : ""}" data-cvote="1" data-c="${esc(c.id)}" data-p="${esc(p.id)}" aria-label="Upvote">${v > 0 ? I.upOn : I.up}</button><b class="num">${fmt(score)}</b><button type="button" class="v ${v < 0 ? "down" : ""}" data-cvote="-1" data-c="${esc(c.id)}" data-p="${esc(p.id)}" aria-label="Downvote">${v < 0 ? I.downOn : I.down}</button></div>
+    <div class="replies">${deep ? `<button type="button" class="more" data-expand="${esc(c.id)}">${I.fold} ${countTree(c.replies)} more ${countTree(c.replies) === 1 ? "reply" : "replies"}</button>` : kids.map(k => commentHTML(p, k, sort)).join("")}</div>
+  </div>`;
+}
+APP.views.p = (v, r) => {
+  const p = S.posts.find(x => x.id === r.a);
+  setTop(`${backBtn}<h1>${p ? "r/" + esc(primarySub(p).name) : "Post"}</h1>${p ? `<button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button>` : ""}`);
+  if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2><p>It came down. Posts you vote on, save or reply to stay up.</p></div>`; return; }
+  if (!p.kept){ p.kept = true; savePost(p); }
+  const sort = ["best","top","new"].includes(r.b) ? r.b : "best";
+  const a = acctOf(p);
+  const tree = sortTree(commentTree(p), sort);
+  const shown = shownTop[p.id] || 8;
+  const others = postSubs(p).slice(1);
+  const extra = Math.max(0, engage(p).comments - countTree(tree));
+  v.innerHTML = postCard(p, { full: true }) +
+    (others.length ? `<div class="crosspost">Also posted in ${others.map(n => `<a href="#/c/${esc(n)}">r/${esc(n)}</a>`).join(" ")}</div>` : "") +
+    `<div class="sorts"><button type="button" class="chip" data-csort="${sort}" data-p="${esc(p.id)}">${sort === "best" ? "Best" : sort === "top" ? "Top" : "New"} ${I.dn}</button><span class="hint" style="align-self:center">${fmt(nComments(p))} comments · ${ratio(p)}% upvoted</span></div>
+    <div class="cmts">${tree.slice(0, shown).map(c => commentHTML(p, c, sort)).join("")}
+      ${tree.length > shown ? `<button type="button" class="loadmore" data-loadmore="${esc(p.id)}">View ${Math.min(10, tree.length - shown)} more comments</button>` : extra ? `<div class="hint" style="padding:12px 0;text-align:center">${full(extra)} more ${extra === 1 ? "comment" : "comments"} coming in</div>` : ""}
+      ${!tree.length ? `<div class="empty"><h2>No comments yet</h2><p>They start coming in a few minutes after posting.</p></div>` : ""}
+    </div>
+    <div class="cbox">${replyTo && replyTo.p === p.id ? `<div class="reply-to">Replying to u/${esc(replyTo.handle)} as OP <button type="button" data-cancelreply>Cancel</button></div>` : ""}<div class="row pad">${myAv(32, a)}<input type="text" id="cin" placeholder="${replyTo && replyTo.p === p.id ? "Reply as u/" + esc(handleOf(a)) : "Add a comment as u/" + esc(handleOf(a))}" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
+  wireGalleries(v);
+};
+// Profile: hers (u/handle, with the account switcher) and a fan's.
+function acctStrip(){
+  if (LIB.accounts.length < 2) return "";
+  return `<div class="astrip">${LIB.accounts.map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
+}
+APP.views.acct = async (v, r) => { if (accountById(r.a) && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+APP.views.me = (v, r) => {
+  const a = A(), tab = r.a === "comments" ? "comments" : "posts";
+  setTop(`<h1><button type="button" data-switch>u/${esc(handleOf(a))} ${I.dn}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const k = karmaOf(a), L = sortPosts(live(a.id), "new");
+  let body;
+  if (tab === "posts") body = L.length ? L.map(p => postCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>${acctSet(a).on ? "The bot's first post goes up soon." : "This account doesn't post here. Turn it on in Settings."}</p></div>`;
+  else {
+    const mine = S.posts.flatMap(p => flattenTree(commentTree(p)).filter(c => c.op).map(c => ({ c, p }))).sort((x, y) => y.c.at - x.c.at).slice(0, 60);
+    body = mine.length ? mine.map(({ c, p }) => `<a class="mycmt" href="#/p/${esc(p.id)}"><div class="ctx"><b>u/${esc(handleOf(a))}</b> replied ${c.parent && c.parent.acct >= 0 ? `to u/${esc(acct(c.parent.acct).handle)} ` : ""}in <b>r/${esc(primarySub(p).name)}</b> · ${esc(ago(c.at))}</div><div>${esc(c.text)}</div><div class="hint" style="margin-top:4px">${I.up.replace("<svg", '<svg style="width:14px;height:14px;vertical-align:-2px"')} ${fmt(c.score)} · on "${esc(titleOf(p).slice(0, 60))}"</div></a>`).join("") : `<div class="empty"><h2>No comments yet</h2><p>Her replies under her posts show up here.</p></div>`;
+  }
+  v.innerHTML = acctStrip() + `<div class="prof">${myAv(86, a)}<div class="meta"><h2>u/${esc(handleOf(a))}</h2>${a.name ? `<div class="hint">${esc(a.name)}</div>` : ""}${a.bio ? `<div class="small" style="margin-top:4px;white-space:pre-wrap">${esc(a.bio)}</div>` : ""}</div></div>
+    <div class="pstats num"><div><b>${fmt(k.post + k.comment)}</b><span>Karma</span></div><div><b>${fmt(k.post)}</b><span>Post karma</span></div><div><b>${fmt(k.comment)}</b><span>Comment karma</span></div><div><b>${esc(new Date(cakeDay(a)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</b><span>Cake day</span></div></div>
+    <div class="pad" style="display:flex;gap:8px;padding-top:12px"><button class="btn" type="button" data-switch style="width:auto;flex:1">${LIB.accounts.length > 1 ? "Switch account" : "Account"}</button><a class="btn" href="#/chat/${esc(a.id)}" style="width:auto;flex:1">Chats${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a></div>
+    <div class="ptabs"><button type="button" data-href="#/me" class="${tab === "posts" ? "on" : ""}">Posts</button><button type="button" data-href="#/me/comments" class="${tab === "comments" ? "on" : ""}">Comments</button></div>` + body;
+  wireGalleries(v);
+};
+APP.views.user = (v, r) => {
+  const f = acct(+r.a); if (!pfpIndex) loadPfps();
+  setTop(`${backBtn}<h1>u/${esc(f.handle)}</h1>`);
+  const theirs = S.posts.flatMap(p => flattenTree(commentTree(p)).filter(c => c.acct === f.i).map(c => ({ c, p }))).sort((x, y) => y.c.at - x.c.at).slice(0, 30);
+  v.innerHTML = `<div class="prof">${acctAv(f, 86)}<div class="meta"><h2>u/${esc(f.handle)}</h2><div class="hint">${esc(f.name)}${f.bio ? " · " + esc(f.bio) : ""}</div></div></div>
+    <div class="pstats num"><div><b>${fmt(f.karma)}</b><span>Karma</span></div><div><b>${esc(new Date(f.joined).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</b><span>Cake day</span></div></div>
+    <div class="pad" style="display:flex;gap:8px;padding-top:12px"><button class="btn ${isFollowing(f.i) ? "" : "primary"}" type="button" data-follow="${f.i}" style="width:auto;flex:1">${isFollowing(f.i) ? "Following" : "Follow"}</button><a class="btn" href="#/chat/${esc(A().id)}/${f.i}" style="width:auto;flex:1">Chat</a></div>
+    <div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on">Comments</button></div>
+    ${theirs.length ? theirs.map(({ c, p }) => `<a class="mycmt" href="#/p/${esc(p.id)}"><div class="ctx"><b>u/${esc(f.handle)}</b> commented on <b>u/${esc(handleOf(acctOf(p)))}</b>'s post in <b>r/${esc(primarySub(p).name)}</b> · ${esc(ago(c.at))}</div><div>${esc(c.text)}</div></a>`).join("") : `<div class="empty"><h2>Nothing here yet</h2></div>`}`;
+};
+// Create: what the bot has lined up.
+APP.views.create = v => {
+  setTop(`<h1>Create</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  v.innerHTML = `<div class="pad"><div class="card" style="margin-top:14px"><h3>The bot posts for you</h3><div class="hint">Every photo Reel fetched gets posted here by itself, between 9 AM and midnight, to one of your communities (crossposted now and then). Photos never posted here go first; after that, reposts in new combos. Posts you vote on, save or reply to stay up; the rest come down after a while.</div><div class="hint" data-wstatus>${esc(writerLine())}</div></div></div>` +
+    LIB.accounts.map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">u/${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
+      ${st.on ? `<span class="lbl">Posts per day</span><div class="seg" style="margin:6px 0 10px">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}</button>`).join("")}</div>
+      <div class="hint">${photosOf(a.id).length} photos in Reel · ${live(a.id).length} up · ${Q.length} queued${Q.length ? ` · next ${esc(until(Q[0].publishAt))}` : ""}</div>
+      ${Q.slice(0, 12).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : ""}</div><div class="info"><div>${esc(titleOf(p))}</div><div class="hint">r/${esc(primarySub(p).name)} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : " · new"}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let u/${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
+};
+// Inbox: what happened to her posts.
+function notes(){
+  const out = [];
+  for (const a of LIB.accounts) for (const p of live(a.id).slice(0, 20)){
+    const s = primarySub(p), tree = commentTree(p), flat = flattenTree(tree);
+    for (const c of tree.slice(0, 3)) out.push({ at: c.at, acct: c.acct, html: `<b>u/${esc(acct(c.acct).handle)}</b> replied to your post in <b>r/${esc(s.name)}</b>`, q: c.text, p });
+    for (const c of flat.filter(x => x.parent && x.parent.op && x.acct >= 0).slice(0, 3)) out.push({ at: c.at, acct: c.acct, html: `<b>u/${esc(acct(c.acct).handle)}</b> replied to your comment in <b>r/${esc(s.name)}</b>`, q: c.text, p });
+    const e = ups(p), t = totals(p);
+    for (const m of [100, 500, 1000, 5000, 10000]) if (e >= m){ out.push({ at: Math.min(now(), p.publishAt + Math.max(10*MIN, 4*H * m / Math.max(m, t.L))), badge: "⬆️", html: `Your post in <b>r/${esc(s.name)}</b> hit <b>${fmt(m)} upvotes</b>`, q: titleOf(p), p }); }
+    if (t.L > 600 && rng(p.seed ^ 0x1234)() < .6) out.push({ at: Math.min(now(), p.publishAt + 2*H + rng(p.seed)() * 6*H), badge: "🔥", html: `Trending in <b>r/${esc(s.name)}</b>: your post is on the front page`, q: titleOf(p), p });
+    const aw = awards(p); if (aw) out.push({ at: Math.min(now(), p.publishAt + 40*MIN), acct: likerSample(p, 1)[0], html: `<b>u/${esc(acct(likerSample(p, 1)[0]).handle)}</b> gave your post ${aw === 1 ? "an award" : aw + " awards"}`, q: titleOf(p), p });
+  }
+  return out.filter(x => x.at <= now()).sort((x, y) => y.at - x.at).slice(0, 120);
+}
+const unreadNotes = () => LIB.ok ? notes().filter(n => n.at > (S.misc.seenAt.inbox || 0)).length : 0;
+APP.views.inbox = v => {
+  setTop(`<h1>Inbox</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const list = notes(), seen = S.misc.seenAt.inbox || 0;
+  S.misc.seenAt.inbox = now(); saveMisc();
+  if (!list.length){ v.innerHTML = `<div class="empty"><h2>Nothing yet</h2><p>Replies, upvote milestones and trending posts show up here.</p></div>`; return; }
+  v.innerHTML = `<div class="ptabs"><button type="button" class="on">Notifications</button><button type="button" data-href="#/chat">Chat</button></div>` + list.map(n => `<a class="note ${n.at > seen ? "un" : ""}" href="#/p/${esc(n.p.id)}">${n.acct !== undefined ? acctAv(acct(n.acct), 40) : `<span class="badge">${n.badge}</span>`}<div class="t">${n.html} <span class="muted small">· ${esc(ago(n.at))}</span><span class="q">${esc(n.q)}</span></div>${n.p.files[0] ? `<span class="th">${mediaTag(n.p.files[0], "", { small: true })}</span>` : ""}</a>`).join("");
+};
+// Chat: fans' DMs, per account.
+APP.views.chat = (v, r) => {
+  const a = accountById(r.a) || A();
+  if (r.b !== undefined && r.b !== ""){ chatThread(v, a, +r.b); return; }
+  setTop(`<h1>Chat</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const all = dmThreads(a);
+  const preview = t => (t.last.me ? "You: " : t.last.post ? "Sent your post: " : "") + t.last.text;
+  v.innerHTML = (LIB.accounts.length > 1 ? `<div class="chips">${LIB.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/chat/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+    `<div class="pad">${all.length ? all.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="dmrow" href="#/chat/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">u/${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No chats yet</h2><p>Fans start messaging once the first posts are up.</p></div>`}</div>`;
+};
+function chatMsgsHTML(a, i){
+  const t = dmThreads(a).find(x => x.i === i) || { i, msgs: [] };
+  const c = convoOf(a, i), n = c && c.next;
+  const typing = n && n.ready && now() >= n.at - 20e3;
+  const last = t.msgs[t.msgs.length - 1];
+  const seen = last && last.me ? (n && now() < n.seenAt ? "Sent" : "Seen") : "";
+  const postRef = id => { const sp = S.posts.find(x => x.id === id); if (!sp) return ""; return `<a class="dmpost" href="#/p/${esc(sp.id)}"><div class="dmcard"><div class="dmch">${subAv(primarySub(sp), "s24")}<b>r/${esc(primarySub(sp).name)}</b></div>${sp.files[0] ? picBox(sp.files[0], "pic", { small: true }) : ""}<div class="dmcap">${esc(titleOf(sp))}</div></div></a>`; };
+  return t.msgs.map((m, k) => { const gap = k === 0 || m.at - t.msgs[k-1].at > H; return `${gap ? `<div class="dmtime">${esc(ago(m.at, true))}</div>` : ""}<div class="bub ${m.me ? "me" : ""}">${m.post && !m.me ? postRef(m.post) : ""}<span>${esc(m.text)}</span></div>`; }).join("") +
+    (seen && !typing ? `<div class="dmseen">${seen}</div>` : "") + (typing ? `<div class="bub"><span class="typing"><i></i><i></i><i></i></span></div>` : "") + (n && now() > n.at + MIN && S.dmErr ? `<div class="hint" style="text-align:center;margin-top:10px">${esc(S.dmErr)}</div>` : "");
+}
+function chatThread(v, a, i){
+  const f = acct(i);
+  (S.misc.dmRead[a.id] ||= {})[i] = now(); saveMisc();
+  setTop(`${backBtn}<a href="#/user/${i}" style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">${acctAv(f, 32)}<h1 style="font-size:16px">u/${esc(f.handle)}</h1></a>`);
+  v.innerHTML = `<div class="pad" style="padding-bottom:80px"><div class="dmhead">${acctAv(f, 86)}<b>u/${esc(f.handle)}</b><div class="hint">${esc(f.name)} · ${fmt(f.karma)} karma</div></div><div id="dmmsgs">${chatMsgsHTML(a, i)}</div></div>
+    <div class="cbox"><div class="row pad">${myAv(32, a)}<input type="text" id="dmin" placeholder="Message as u/${esc(handleOf(a))}" autocomplete="off"><button type="button" data-dmsend="${i}" data-acct="${esc(a.id)}">Send</button></div></div>`;
+  setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 0);
+}
+APP.dmRepaint = () => {
+  const r = route();
+  if (r.name === "chat" && r.b !== undefined && r.b !== ""){ const el = $("#dmmsgs"); if (!el) return; const a = accountById(r.a) || A(); const bottom = window.innerHeight + window.scrollY > document.body.scrollHeight - 120; el.innerHTML = chatMsgsHTML(a, +r.b); hydrate(el); (S.misc.dmRead[a.id] ||= {})[+r.b] = now(); if (bottom) window.scrollTo(0, document.body.scrollHeight); return; }
+  if (["chat", "home"].includes(r.name)) safeRender();
+};
+setInterval(() => { const r = route(); if (r.name === "chat" && r.b) APP.dmRepaint(); }, 4e3);
+// Settings.
+APP.views.settings = v => {
+  setTop(`${backBtn}<h1>Settings</h1>`);
+  v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.</div>
+      ${LIB.accounts.map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>u/${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
+    </div>
+    <div class="card"><h3>Content</h3>
+      <button type="button" class="toggle ${blurOn() ? "on" : ""}" data-blur><span><b>Blur NSFW posts</b><div class="hint">Photos stay blurred until you tap them.</div></span><span class="sw"></span></button>
+      <button class="btn" type="button" data-newworld>New set of fans</button>
+      <div class="hint">New names and pictures for everyone who comments and chats. Your posts and votes stay.</div></div>
+    <div class="card"><h3>Communities</h3><div class="hint">Made-up communities your posts go to. Tap one to edit it.</div>
+      ${subs().map(s => `<button type="button" class="arow" data-editsub="${esc(s.name)}">${subAv(s)}<div class="who"><b>r/${esc(s.name)}</b><div class="hint">${esc(s.title)} · ${fmt(s.members)} members</div></div></button>`).join("")}
+      <button class="btn" type="button" data-addsub>Add a community</button>
+      ${S.settings.subs ? `<button class="btn" type="button" data-resetsubs>Back to the built-in list</button>` : ""}</div>
+    <div class="card"><h3>Writer</h3><div class="hint">Ollama on your PC writes the titles, comments and her replies, with the address and style Reel uses. When the PC is off, the built-in lines fill in.</div><div class="status" data-wstatus>${esc(writerLine())}</div>${PC() ? `<div class="hint">PC style version ${esc(String(PC().ver))}.</div>` : ""}<button class="btn" type="button" data-rewrite>Rewrite every post</button></div>
+    <div class="card"><h3>Storage</h3><div class="hint" id="sstore">Checking…</div><button class="btn danger" type="button" data-reset>Erase everything Thread made on this phone</button><div class="hint">Reel's photos and accounts are never touched.</div></div>
+    <div class="hint ver">Thread version ${APP_VERSION}</div>
+  </div>`;
+  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone (shared with Reel). ${S.posts.length} posts across ${LIB.accounts.length} ${LIB.accounts.length === 1 ? "account" : "accounts"}.`; });
+};
+function editSub(name){
+  const s = name ? subs().find(x => x.name === name) : { name: "", title: "", desc: "", members: 120000, hue: Math.floor(Math.random()*360), icon: "🔥", rules: [], flairs: [] };
+  if (!s) return;
+  sheet(`<h3>${name ? "r/" + esc(name) : "New community"}</h3>
+    <div class="form" style="padding-top:6px">
+      <div class="field"><label for="sn">Name (after r/)</label><input type="text" id="sn" value="${esc(s.name)}" autocapitalize="off" autocorrect="off"></div>
+      <div class="field"><label for="st">Title</label><input type="text" id="st" value="${esc(s.title)}"></div>
+      <div class="field"><label for="sd">Description</label><textarea id="sd">${esc(s.desc)}</textarea></div>
+      <div class="field"><label for="sm">Members</label><input type="number" id="sm" inputmode="numeric" value="${esc(s.members)}"></div>
+      <div class="field"><label for="si">Icon (an emoji)</label><input type="text" id="si" value="${esc(s.icon || "")}"></div>
+      <div class="field"><label for="sf">Flairs, one per line</label><textarea id="sf">${esc((s.flairs || []).join("\n"))}</textarea></div>
+      <div class="field"><label for="sr">Rules, one per line</label><textarea id="sr">${esc((s.rules || []).join("\n"))}</textarea></div>
+      <button class="btn primary" type="button" data-savesub="${esc(name || "")}">Save</button>
+      ${name ? `<button class="btn danger" type="button" data-delsub="${esc(name)}">Remove r/${esc(name)}</button>` : ""}
+    </div>`, async el => {
+      const b = el.closest("[data-savesub],[data-delsub]"); if (!b) return;
+      const list = subs().map(x => ({ ...x }));
+      if (b.dataset.delsub !== undefined){ if (list.length <= 1){ toast("Keep at least one community"); return; } S.settings.subs = list.filter(x => x.name !== b.dataset.delsub); }
+      else {
+        const nn = $("#sn").value.trim().replace(/^r\//, "").replace(/\s+/g, ""); if (!nn){ toast("Give it a name"); return; }
+        const next = { ...s, name: nn, title: $("#st").value.trim() || nn, desc: $("#sd").value.trim(), members: Math.max(10, Math.round(+$("#sm").value || 0)), icon: $("#si").value.trim().slice(0, 4) || "🔥", flairs: $("#sf").value.split("\n").map(x => x.trim()).filter(Boolean), rules: $("#sr").value.split("\n").map(x => x.trim()).filter(Boolean) };
+        const i = list.findIndex(x => x.name === b.dataset.savesub);
+        if (i >= 0) list[i] = next; else list.push(next);
+        if (b.dataset.savesub && b.dataset.savesub !== nn) for (const p of S.posts) if (p.subs){ p.subs = p.subs.map(x => x === b.dataset.savesub ? nn : x); await savePost(p); }
+        S.settings.subs = list;
+      }
+      await saveSettings(); closeSheet(); toast("Saved"); render();
+    });
+}
+function postMenu(id){
+  const p = S.posts.find(x => x.id === id); if (!p) return;
+  sheet(`<button class="opt" data-o="save">${p.saved ? I.saveOn : I.save} ${p.saved ? "Unsave" : "Save"}</button>
+    <button class="opt" data-o="reveal">${I.eyeOff} ${revealed.has(p.id) || !blurOn() ? "Photo is shown" : "Show the photo"}</button>
+    <button class="opt" data-o="retitle">${I.neww} New title</button>
+    ${p.publishAt > now() ? `<button class="opt" data-o="now">${I.up} Post now</button>` : ""}
+    <button class="opt red" data-o="del">${I.dots} Take down</button>`, async el => {
+      const b = el.closest("[data-o]"); if (!b) return; const o = b.dataset.o;
+      if (o === "del"){ if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Tap again to take it down"; return; } closeSheet(); await delPost(p); toast("Taken down. Its photos come back later."); if (route().name === "p") history.back(); else render(); return; }
+      closeSheet();
+      if (o === "save"){ p.saved = !p.saved; await savePost(p); toast(p.saved ? "Saved" : "Removed from saved"); render(); }
+      if (o === "reveal"){ revealed.add(p.id); render(); }
+      if (o === "retitle"){ p.textTry = (p.textTry || 0) + 1; p.text = ""; p.textWritten = !ollamaURL(); await savePost(p); toast(ollamaURL() ? "Writing a new title" : "New title"); writerRun(); render(); }
+      if (o === "now"){ p.publishAt = now(); await savePost(p); toast("Posted"); render(); }
+    });
+}
+APP.onClick = async (t, d) => {
+  if (d.tab === "home"){ if (route().name !== "home") go("#/"); refreshFeed(); return; }
+  if (d.tab === "chat"){ go("#/chat/" + (LIB.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
+  if (d.tab){ go("#/" + d.tab); return; }
+  if (d.sortsheet){ sheet(`<h3>Sort posts by</h3>${[["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]].map(([k,l,ic]) => `<button class="opt" data-s="${k}">${ic} ${l}${d.sortsheet === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); go("#/home/" + b.dataset.s); }); return; }
+  if (d.csort){ sheet(`<h3>Sort comments by</h3>${[["best","Best"],["top","Top"],["new","New"]].map(([k,l]) => `<button class="opt" data-s="${k}">${l}${d.csort === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); location.replace(`#/p/${d.p}/${b.dataset.s}`); render(); }); return; }
+  if (d.vote !== undefined && d.p){ const p = S.posts.find(x => x.id === d.p); if (!p) return; const v = +d.vote; p.vote = p.vote === v ? 0 : v; p.kept = true; await savePost(p); const el = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); if (el){ el.outerHTML = postCard(p, route().name === "c" ? { sub: route().a } : {}); const n = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); hydrate(n); wireGalleries(n); } return; }
+  if (d.save){ const p = S.posts.find(x => x.id === d.save); if (!p) return; p.saved = !p.saved; await savePost(p); t.classList.toggle("saved", p.saved); t.innerHTML = p.saved ? I.saveOn : I.save; toast(p.saved ? "Saved" : "Removed from saved"); return; }
+  if ("share" in d){ toast("Link copied"); return; }
+  if (d.join){ (S.misc.joined ||= {})[d.join] = !joined(d.join); await saveMisc(); toast(joined(d.join) ? `Joined r/${d.join}` : `Left r/${d.join}`); render(); return; }
+  if (d.postmenu){ postMenu(d.postmenu); return; }
+  if (d.editsub !== undefined){ editSub(d.editsub); return; }
+  if ("addsub" in d){ editSub(""); return; }
+  if ("resetsubs" in d){ delete S.settings.subs; await saveSettings(); toast("Built-in communities are back"); render(); return; }
+  if (d.collapse){ if (collapsed.has(d.collapse)) collapsed.delete(d.collapse); else collapsed.add(d.collapse); const el = document.querySelector(`.cmt[data-cid="${CSS.escape(d.collapse)}"]`); if (el) el.classList.toggle("collapsed", collapsed.has(d.collapse)); return; }
+  if (d.expand){ expanded.add(d.expand); render(); return; }
+  if (d.loadmore){ shownTop[d.loadmore] = (shownTop[d.loadmore] || 8) + 10; const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (d.cvote !== undefined && d.c){ const p = S.posts.find(x => x.id === d.p); if (!p) return; const v = +d.cvote; p.cVotes = { ...(p.cVotes || {}), [d.c]: ((p.cVotes || {})[d.c] === v ? 0 : v) }; p.kept = true; await savePost(p); const y = window.scrollY; render(); window.scrollTo(0, y); return; }
+  if (d.cmenu){ const p = S.posts.find(x => x.id === d.p); if (!p) return; const mine = (p.thread || []).find(x => x.id === d.cmenu && x.mine); sheet(`<button class="opt" data-h="hide">${I.eyeOff} ${mine ? "Delete my reply" : "Hide this comment"}</button>`, async el => { if (!el.closest("[data-h]")) return; closeSheet(); if (mine) p.thread = p.thread.filter(x => x.id !== d.cmenu && x.parent !== d.cmenu); else p.hiddenC = [...(p.hiddenC || []), d.cmenu]; treeCache.clear(); await savePost(p); render(); }); return; }
+  if (d.reply !== undefined){ replyTo = { p: route().a, id: d.reply, handle: d.handle }; render(); const i = $("#cin"); if (i) i.focus(); return; }
+  if ("cancelreply" in d){ replyTo = null; render(); return; }
+  if (d.addc){ const i = $("#cin"); const text = i && i.value.trim(); if (!text) return; const p = S.posts.find(x => x.id === d.addc); if (!p) return; const parent = replyTo && replyTo.p === p.id ? replyTo.id : ""; replyTo = null; await ownerReply(p, parent, text); render(); toast("Posted as OP"); return; }
+  if (d.follow !== undefined){ followMap()[+d.follow] = !isFollowing(+d.follow); await saveMisc(); render(); return; }
+};
+boot();
+</script>
+</body>
+</html>

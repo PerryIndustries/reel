@@ -1,0 +1,16 @@
+{
+  "name": "Thread",
+  "short_name": "Thread",
+  "description": "Your photos, posted to made-up communities by a bot, with the comments to match.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1113",
+  "theme_color": "#ff4500",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
