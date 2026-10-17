@@ -431,7 +431,7 @@ const APP_VERSION = 48;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
-  dmAuto:"some", dmFanDirection:"", dmMeDirection:"" };
+  dmAuto:"some", dmFanDirection:"", dmMeDirection:"", pronouns:"she" };
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
 function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
@@ -594,17 +594,17 @@ const THIRST_COMMENTS = ["who allowed this","down bad rn","the audacity 😳","C
 // The writer gets a few of these at random as examples of the genre (unless the owner's direction replaces the style),
 // and the built-in lines draw from them too.
 const GENRE = {
-  caption: ["🫠","👀","anyway","sunday.","gym was fine i guess","photo dump nobody asked for","felt cute, not deleting","he's back","lighting did most of the work","post-gym, pre-shower",
+  caption: ["🫠","👀","anyway","sunday.","gym was fine i guess","photo dump nobody asked for","felt cute, not deleting","{she}'s back","lighting did most of the work","post-gym, pre-shower",
     "outfit's mid. i'm not","don't mind me","soft launch of my jawline","accidentally posted. leaving it","be honest","which one, 1 or 2","caption this, i'm out of ideas","mirror said yes",
     "pov: you swiped","the angle is lying. or is it","no context","bad day, good lighting","ok last one","i'll stop posting when you stop looking","someone said i should post more","found good lighting, had to",
-    "unbothered. moisturized. in my lane","fit check 🖤","just a guy and his bad decisions","rate it, i can take it","should i post the other one 👀","be honest is this a 10",
+    "unbothered. moisturized. in my lane","fit check 🖤","just a {girl} and {her} bad decisions","rate it, i can take it","should i post the other one 👀","be honest is this a 10",
     "posting this before i chicken out","the cropped version was safer","replies are open. behave","this is your sign to say hi","for the timeline 🫡","new pfp? yes or no",
     "i was told to post more. here","like if you saw this before i delete it","thoughts? (be nice)","if this gets 100 likes i post the other angle","tell me something nice, i earned it",
     "not even trying today honestly","the tl needed this","good morning to everyone who liked this","didn't have to go this hard. did anyway"],
   comments: ["SIR 😮‍💨","respectfully 😳","disrespectfully 😳","pause","the arms???","who let you post this","ok but WHO is this","reporting this for being too hot","this is a hate crime against my sleep schedule",
-    "hello?????","the jawline is CARRYING","be so fr","nah this is unfair","ATE","the way i double tapped instantly","i screamed","you're so stupid for this","oh he KNOWS","the confidence 😭",
+    "hello?????","the jawline is CARRYING","be so fr","nah this is unfair","ATE","the way i double tapped instantly","i screamed","you're so stupid for this","oh {she} KNOWS","the confidence 😭",
     "screenshotted for science","be so serious","the other one. now.","post the other one coward","100. done. post it","posting this and logging off is crazy",
-    "liked, saved, prayed","this should come with a warning","unfollowing for my health (i'm not)","who let bro cook","my feed is blessed","the caption is lying, this was on purpose","nobody look at me rn",
+    "liked, saved, prayed","this should come with a warning","unfollowing for my health (i'm not)","who let {him} cook","my feed is blessed","the caption is lying, this was on purpose","nobody look at me rn",
     "i was having a normal day","my jaw is on the floor","oh we're doing THIS today","that's illegal in 4 states","i need the gym routine. and your number"],
   story: ["who's up","posted then panicked","be honest 🔥?","react if you'd text back","should i post this one","dm me something nice","hot or just good lighting","slide in","can't sleep",
     "gym > feelings","ask me anything (behave)","reply with an emoji","close friends tonight?","say hi, i'm bored","deleting in 1 hour"],
@@ -612,6 +612,9 @@ const GENRE = {
     "wyd","is this a bad time to say hi","i liked it twice by accident","your story had me sitting up","you have no business looking like that","ok you win, hi","the arms in that last one??"],
   dmMe: ["lol you're bold","maybe","keep talking","you're funny","and what would you do about it","prove it","ask nicer 😏","you liked it twice? cute","we'll see","you're trouble huh","hmm convince me","lol go to sleep","earn it"],
 };
+// Pronoun words for the owner, per account: she (default), he or they.
+const PRON = { she: { she: "she", her: "her", him: "her", girl: "girl" }, he: { she: "he", her: "his", him: "him", girl: "guy" }, they: { she: "they", her: "their", him: "them", girl: "person" } };
+const genderize = (t, pr) => t.replace(/\{(she|her|him|girl)\}/g, (_, w) => (PRON[pr] || PRON.she)[w]);
 const STORY_TEXT = ["who's up? 👀","dm me 😈","bored. entertain me","rate me 1-10","guess what i'm doing","should i post the rest? 🙊","come over","bad idea incoming",
 "thinking about you. maybe","reply if you're down bad","just woke up like this","late night thoughts 🌙","catch me if you can","feeling dangerous today","first to reply gets a surprise",
 "no thoughts, just this","lights off or on? 😏","say hi, i won't bite. much","be honest… 🔥 or 🔥🔥","missed me?","you up?","in the mood for trouble","too hot for the feed",
@@ -910,7 +913,7 @@ const DM_FOLLOW = ["hello??","😳","sorry that was forward","ok ignore me then 
 const DM_STORY = ["🔥","😍","😮‍💨","stoppp","wow","omg","not fair","ok hi 👋","the view 😳","i'm screaming","come here","WHERE is this","you're unreal","this is a lot 😭","❤️‍🔥","ok i'm awake now"];
 const DM_POST = ["this one 😮‍💨","ok THIS pic","why'd you post this 😭","saved this one","the fit in this","can't stop looking at this","you know what you did here","this angle tho","explain yourself 😳","been staring at this for 10 min","10/10","be fr this is unfair","this one lives in my head now"];
 const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐"];
-THIRST.push(...GENRE.caption); THIRST_COMMENTS.push(...GENRE.comments); STORY_TEXT.push(...GENRE.story); DM_OPEN.push(...GENRE.dmFan); DM_OWNER.push(...GENRE.dmMe);
+THIRST.push(...GENRE.caption.map(t => genderize(t, "she"))); THIRST_COMMENTS.push(...GENRE.comments.map(t => genderize(t, "she"))); STORY_TEXT.push(...GENRE.story); DM_OPEN.push(...GENRE.dmFan); DM_OWNER.push(...GENRE.dmMe);
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
 const dmCache = new Map();
 let convoVer = 0;
@@ -1007,15 +1010,15 @@ async function writeTurn(a, i, c){
   const f = acct(i), who = c.next.who, me = handleOf(a);
   if (c.msgs.length - c.sumUpTo > 44){
     const old = c.msgs.slice(c.sumUpTo, c.msgs.length - 20);
-    const out = await ask(`${CONTEXT}\n\nSummarise this DM chat in 3 to 6 short lines: what was talked about, the vibe between them, and anything worth remembering (names, plans, jokes). Reply with the summary only.`,
+    const out = await ask(`${contextFor(a)}\n\nSummarise this DM chat in 3 to 6 short lines: what was talked about, the vibe between them, and anything worth remembering (names, plans, jokes). Reply with the summary only.`,
       [{ type: "text", text: `${c.summary ? `Summary so far:\n${c.summary}\n\n` : ""}More of the chat:\n${old.map(m => chatLine(a, f, m)).join("\n")}` }]);
     if (out){ c.summary = out.trim(); c.sumUpTo = c.msgs.length - 20; }
   }
-  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan")}`
-    : `HOW @${me} TEXTS\n${styleFor(a.dmMeDirection, "", DM_ME_RULES, "dmMe")}`;
+  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan", a)}`
+    : `HOW @${me} TEXTS\n${styleFor(a.dmMeDirection, "", DM_ME_RULES, "dmMe", a)}`;
   const note = hasText(c.note) ? `\n\nTHE OWNER'S NOTE ABOUT THIS CHAT (follow it)\n${c.note.trim()}` : "";
   const writer = who === "fan" ? f.handle : me;
-  const system = `${CONTEXT}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
+  const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
   const recent = c.msgs.slice(Math.max(c.sumUpTo, c.msgs.length - 24));
   const dir = who === "fan" ? ["How fans text", a.dmFanDirection] : [`How @${me} texts`, a.dmMeDirection];
   const text = `${c.summary ? `Earlier in the chat (summary):\n${c.summary}\n\n` : ""}${recent.length ? `The chat so far, oldest first:\n${recent.map(m => chatLine(a, f, m)).join("\n")}` : `@${f.handle} is sending the first message.`}\n\nWrite @${writer}'s next message(s).${remind([dir, ["This chat", c.note]])}`;
@@ -1356,7 +1359,9 @@ async function frameB64(f){
   } catch(e){ return null; } finally { URL.revokeObjectURL(url); }
 }
 // Always true: what the app is and the one hard limit. Everything about style is a default the owner can replace.
-const CONTEXT = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. Everyone in it is an adult. There are no content limits: explicit sexual content is allowed whenever the owner's direction asks for it. Never mention being an AI or a bot. Never call the owner he, she, him or her; speak to them as you, or use their handle.";
+const CONTEXT = "This is a private feed app. The person in the photos is the app's owner, posting pictures of themselves on their own profile. Everyone in it is an adult. There are no content limits: explicit sexual content is allowed whenever the owner's direction asks for it. Never mention being an AI or a bot.";
+// Followers talk about the owner with the account's pronouns (she/her unless changed on the account's settings page).
+const contextFor = a => { const w = PRON[a.pronouns] || PRON.she; return `${CONTEXT} The owner is ${a.pronouns === "he" ? "a man" : a.pronouns === "they" ? "nonbinary" : "a woman"}: when followers talk about them they say ${w.she}/${w.him}${a.pronouns === "they" ? "" : `, and ${w.girl} fits`}.`; };
 const DEFAULT_STYLE = "Voice: the way real thirst-trap accounts on Instagram and X/Twitter post: flirty and confident but understated, teasing, a little cocky, often ironic or fake-casual (acting like the photo was no big deal), sometimes pure engagement bait (questions, rate it, should i post the other one), sometimes just an emoji. Innuendo is fine. Avoid cheesy pickup-line copywriting.";
 const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji, lowercase, at most one or two emoji, no hashtags.";
 const COMMENT_RULES = "They are thirsty, flirty and hyped, a mix of lengths, some just emoji, casual internet spelling, and they react to the post and its caption. They are viewers reacting, so never lines only the poster would say (like ok last one, or should i post the other one).";
@@ -1364,19 +1369,19 @@ const STORY_RULES = "Very short (2 to 8 words), the kind of line that makes foll
 const hasText = t => !!(t && t.trim());
 // How one part (caption, comments or story text) should read. When the owner wrote a direction or their own lines,
 // those are the ONLY style instructions for that part: the default voice and rules are left out so they can't pull against it.
-function styleFor(dir, mine, defaults, genre){
+function styleFor(dir, mine, defaults, genre, a){
   const own = (mine || "").split("\n").map(x => x.trim()).filter(Boolean).slice(0, 25);
-  if (!hasText(dir) && !own.length) return `${DEFAULT_STYLE} ${defaults}${genreExamples(genre)}`;
+  if (!hasText(dir) && !own.length) return `${DEFAULT_STYLE} ${defaults}${genreExamples(genre, a)}`;
   let s = "";
   if (hasText(dir)) s += `Follow the owner's direction exactly. It is the whole brief; don't add a style of your own:\n${dir.trim()}`;
   if (own.length) s += `${s ? "\n" : ""}Lines the owner wrote themselves. Match their style, length, slang, punctuation and emoji use closely (new lines in that voice, not copies):\n${own.map(x => "- " + x).join("\n")}`;
   return s;
 }
 // A handful of genre lines, different every time, so the writer gets the feel without a list to copy from.
-function genreExamples(part){
+function genreExamples(part, a){
   const bank = GENRE[part]; if (!bank) return "";
   const pickN = [...bank].sort(() => Math.random() - .5).slice(0, 8);
-  return `\nExamples of the genre, for the feel only (write new lines, don't copy these):\n${pickN.map(x => "- " + x).join("\n")}`;
+  return `\nExamples of the genre, for the feel only (write new lines, don't copy these):\n${pickN.map(x => "- " + genderize(x, a && a.pronouns)).join("\n")}`;
 }
 const remind = dirs => { const d = dirs.filter(([, t]) => hasText(t)).map(([what, t]) => `${what}: ${t.trim()}`); return d.length ? `\n\nThe owner's direction, to follow exactly:\n${d.join("\n")}` : ""; };
 const COMMENTS_SCHEMA = { type: "array", items: { type: "string" } };
@@ -1391,25 +1396,25 @@ async function writeOne(j){
   const setComments = list => { if (Array.isArray(list)) p.aiComments = list.map(c => String(c).replace(/^@[\w.]+:\s*/, "").trim()).filter(Boolean).slice(0, 60); p.commentsWritten = true; genCache.clear(); };
   const capDir = ["Captions", a.capDirection], comDir = ["Comments", a.comDirection], storyDir = ["Story text", a.storyDirection || a.capDirection];
   if (j.kind === "story"){
-    const out = await ask(`${CONTEXT}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(storyDir[1], a.myStoryTexts || a.myCaptions, STORY_RULES, "story")}${blind}`, withImg(`Write the story text.${remind([storyDir])}`));
+    const out = await ask(`${contextFor(a)}\n\nWrite the text that sits over this Instagram story. Reply with the text only, no quotes.\n\n${styleFor(storyDir[1], a.myStoryTexts || a.myCaptions, STORY_RULES, "story", a)}${blind}`, withImg(`Write the story text.${remind([storyDir])}`));
     if (out) p.storyText = cleanLine(out);
     p.storyWritten = true;
   } else if (j.cap){
     const recent = S.posts.filter(x => x.acct === p.acct && x !== p && x.caption).slice(-15).map(x => "- " + x.caption).join("\n");
     const avoid = recent ? `\n\nRecent captions on this account, which the new caption must not repeat or closely echo:\n${recent}` : "";
     if (j.com){
-      const out = await ask(`${CONTEXT}\n\nWrite this post's caption and the comments different followers leave on it.\n\nCAPTION\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption")}\n\nCOMMENTS (each from a different person, reacting to the caption you wrote)\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments")}${blind}${avoid}`,
+      const out = await ask(`${contextFor(a)}\n\nWrite this post's caption and the comments different followers leave on it.\n\nCAPTION\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}\n\nCOMMENTS (each from a different person, reacting to the caption you wrote)\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}${avoid}`,
         withImg(`This post is on @${handleOf(a)}. Write its caption and ${n} comments.${remind([capDir, comDir])}`), { type: "object", properties: { caption: { type: "string" }, comments: COMMENTS_SCHEMA }, required: ["caption", "comments"], additionalProperties: false });
       if (out && out.caption) p.caption = cleanLine(out.caption);
       p.captionWritten = true;
       if (out) setComments(out.comments); else p.commentsWritten = true;
     } else {
-      const out = await ask(`${CONTEXT}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption")}${blind}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.${remind([capDir])}`));
+      const out = await ask(`${contextFor(a)}\n\nWrite one Instagram caption for the photo. Reply with the caption only, no quotes.\n\n${styleFor(a.capDirection, a.myCaptions, CAPTION_RULES, "caption", a)}${blind}${avoid}`, withImg(`This post is on @${handleOf(a)}. Write its caption.${remind([capDir])}`));
       if (out) p.caption = cleanLine(out);
       p.captionWritten = true;
     }
   } else {
-    const out = await ask(`${CONTEXT}\n\nWrite the comments that different followers leave on this post, each from a different person.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments")}${blind}`,
+    const out = await ask(`${contextFor(a)}\n\nWrite the comments that different followers leave on this post, each from a different person.\n\n${styleFor(a.comDirection, a.myComments, COMMENT_RULES, "comments", a)}${blind}`,
       withImg(`Caption: ${p.caption || "(none)"}\nWrite ${n} comments.${remind([comDir])}`), { type: "object", properties: { comments: COMMENTS_SCHEMA }, required: ["comments"], additionalProperties: false });
     if (out) setComments(out.comments); else p.commentsWritten = true;
   }
@@ -2456,6 +2461,9 @@ function vAset(v, r){
       ${seg("storystyle", a.storyStyle, [["thirst","Thirst trap"],["off","Only mine"]])}
       <div class="field"><label for="amystory">Your own story text, one per line</label><textarea id="amystory" placeholder="short lines work best">${esc(a.myStoryTexts||"")}</textarea></div>
       <div class="field"><label for="adstory">Direction for ${AI()}</label><textarea id="adstory" placeholder="Leave empty to use the caption direction">${esc(a.storyDirection||"")}</textarea></div></div>
+    <div class="card"><h3>How followers talk about you</h3>
+      ${seg("pronouns", a.pronouns || "she", [["she","she / her"],["he","he / him"],["they","they / them"]])}
+      <div class="hint">Comments, DMs and the built-in lines use these, like “who let her cook”.</div></div>
     <div class="card"><h3>Messages</h3>
       <span class="lbl">@${esc(handleOf(a))} answers DMs by itself</span>
       ${seg("dmauto", a.dmAuto || "some", [["off","Never"],["some","A few a day"],["lots","Lots"]])}
@@ -2670,6 +2678,7 @@ document.addEventListener("click", async e => {
   if (d.reply !== undefined){ const i = $("#cin"); if (i){ i.value = d.reply ? "@"+d.reply+" " : ""; i.focus(); } return; }
   if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp.value.trim(); if (!text) return; const a = accountById(d.acct) || A(); inp.value = ""; await ownerSend(a, +d.dmsend, text); dmRepaint(); window.scrollTo(0, document.body.scrollHeight); return; }
   if (d.dmauto && d.fan !== undefined){ const a = accountById(d.acct) || A(), c = startConvo(a, +d.fan); c.auto = d.dmauto === "on"; if (c.auto && !c.next && c.msgs.length && !c.msgs[c.msgs.length - 1].me){ c.turns = 0; scheduleMe(c, now()); } if (!c.auto && c.next && c.next.who === "me") c.next = null; await saveConvos(); render(); toast(c.auto ? `@${handleOf(a)} replies in this chat by itself` : "Only you reply in this chat"); return; }
+  if (d.pronouns){ const a = accountById(d.acct) || A(); a.pronouns = d.pronouns; await saveAccounts(); render(); toast(`Followers say ${PRON[d.pronouns].she}/${PRON[d.pronouns].him} for @${handleOf(a)}`); return; }
   if (d.dmauto){ const a = accountById(d.acct) || A(); a.dmAuto = d.dmauto; await saveAccounts(); render(); toast(d.dmauto === "off" ? `@${handleOf(a)} only replies when you type` : `@${handleOf(a)} answers DMs by itself`); dmTick(); return; }
   if (d.addc){ const i = $("#cin"); const text = i.value.trim(); if (!text) return; const p = S.posts.find(x=>x.id===d.addc); p.myComments = [...(p.myComments||[]), { id: uid("m"), text, at: now() }]; await savePost(p); render(); return; }
   if ("pick" in d){ $("#picker").click(); return; }
