@@ -92,7 +92,13 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .slides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
 .slides::-webkit-scrollbar{display:none}
 .slide{flex:0 0 100%;scroll-snap-align:center;display:grid;place-items:center;background:#000;position:relative}
-.slide img,.slide video{width:100%;max-height:75vh;object-fit:contain;display:block}
+.slide img,.slide video{width:100%;max-height:75vh;object-fit:contain;display:block;aspect-ratio:var(--ar,4/5)}
+.slide img{opacity:0;transition:opacity .25s ease}
+.slide img.in{opacity:1}
+.ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 58px);width:34px;height:34px;margin-left:-17px;border-radius:50%;background:var(--bg);box-shadow:0 2px 10px rgba(0,0,0,.18);display:grid;place-items:center;z-index:9;opacity:0;pointer-events:none;transform:scale(.6)}
+.ptr i{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--fg)}
+.ptr.spin i{animation:ptrspin .7s linear infinite}
+@keyframes ptrspin{to{transform:rotate(360deg)}}
 .mute{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:grid;place-items:center}
 .mute svg{width:16px;height:16px}
 .count{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;padding:3px 8px;border-radius:999px}
@@ -236,7 +242,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .shade{position:absolute;inset:0;background:linear-gradient(transparent 60%,rgba(0,0,0,.55));pointer-events:none}
 .rv .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff}
 .rv .close svg{width:28px;height:28px}
-@media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}}
+@media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}.slide img{transition:none}}
 .spec{border-bottom:8px solid var(--line)}
 .dmicon{position:relative}.dmicon svg{width:24px;height:24px}
 .cnt{position:absolute;top:0;right:-2px;background:var(--heart);color:#fff;font-size:10px;line-height:16px;min-width:16px;padding:0 4px;border-radius:999px;text-align:center}
@@ -291,7 +297,8 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 @media (min-width:640px){.xgrid{grid-auto-rows:213px}}
 .xt{display:block;overflow:hidden;background:var(--soft)}
 .xt.big{grid-row:span 2}
-.xt img{width:100%;height:100%;object-fit:cover;display:block}
+.xt img,.xt video{width:100%;height:100%;object-fit:cover;display:block}
+.xt{position:relative}.xt .ic{position:absolute;top:6px;right:6px;color:#fff;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}.xt .ic svg{width:18px;height:18px}
 .caught{text-align:center;padding-top:22px;padding-bottom:18px;border-top:1px solid var(--line)}
 </style>
 </head>
@@ -305,6 +312,7 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
   <button type="button" data-tab="activity" aria-label="Activity"></button>
   <button type="button" data-tab="me" aria-label="Profile"></button>
 </div></nav>
+<div class="ptr" id="ptr"><i></i></div>
 <div id="full"></div>
 <div id="layer"></div>
 <div class="toast" id="toast" hidden></div>
@@ -408,7 +416,7 @@ const DB = {
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 33;
+const APP_VERSION = 36;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text" };
@@ -489,6 +497,19 @@ function videoThumb(key){
   thumbJobs.set(key, job); job.then(tk => { if (!tk) thumbJobs.delete(key); });
   return job;
 }
+// Width/height of every photo and video seen before, so the feed can save their space before they load and doesn't jump.
+const DIMS = (() => { try { return JSON.parse(localStorage.getItem("reel-dims") || "{}"); } catch(e){ return {}; } })();
+let dimsSave = 0;
+function noteDims(el, w, h){
+  if (!w || !h || !el.dataset.media) return;
+  const r = +(w / h).toFixed(4);
+  if (el.closest(".slide")) el.style.setProperty("--ar", r);
+  if (DIMS[el.dataset.media] === r) return;
+  DIMS[el.dataset.media] = r; clearTimeout(dimsSave);
+  dimsSave = setTimeout(() => { try { localStorage.setItem("reel-dims", JSON.stringify(DIMS)); } catch(e){} }, 1000);
+}
+document.addEventListener("load", e => { const el = e.target; if (el.tagName !== "IMG") return; noteDims(el, el.naturalWidth, el.naturalHeight); el.classList.add("in"); }, true);
+document.addEventListener("loadedmetadata", e => { const el = e.target; if (el.tagName === "VIDEO") noteDims(el, el.videoWidth, el.videoHeight); }, true);
 async function hydrate(root){
   for (const el of root.querySelectorAll("video[data-media]:not([data-th]):not([data-media^='url:'])")){
     el.dataset.th = "1";
@@ -499,17 +520,24 @@ async function hydrate(root){
       else el.poster = tu;
     });
   }
-  for (const el of root.querySelectorAll("[data-media]")){
-    if (el.getAttribute("src")) continue;
-    const u = await mediaURL(el.dataset.media);
-    if (!u || el.getAttribute("src")) continue;
+  const put = (el, u) => {
+    if (!u || el.getAttribute("src")) return;
     el.src = (el.tagName === "VIDEO" && el.dataset.poster) ? u + "#t=0.1" : u;
     if (el.tagName === "VIDEO") wireVideoFallback(el, el.dataset.media, el.dataset.mime);
+  };
+  // Already-opened files go in straight away with no fade, so a redraw doesn't flicker; the rest load side by side.
+  const later = [];
+  for (const el of root.querySelectorAll("[data-media]")){
+    if (el.getAttribute("src")) continue;
+    const k = String(el.dataset.media), hit = k.startsWith("url:") ? "" : urls.get(k);
+    if (hit){ el.classList.add("in"); put(el, hit); } else later.push(el);
   }
+  await Promise.all(later.map(async el => put(el, await mediaURL(el.dataset.media))));
 }
 function mediaTag(f, cls, opts={}){
-  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}" data-mime="${esc(f.mime)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
-  return `<img class="${cls||""}" data-media="${esc(f.key)}" alt="" ${opts.lazy===false?"":'loading="lazy"'}>`;
+  if (isVideo(f.mime)) return `<video class="${cls||""}" data-media="${esc(f.key)}"${DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : ""} data-mime="${esc(f.mime)}" ${opts.poster?'data-poster="1"':""} ${opts.auto?'data-auto="1" loop':""} muted playsinline preload="metadata"></video>`;
+  const ar = DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : "";
+  return `<img class="${cls||""}" data-media="${esc(f.key)}" alt=""${ar} ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
 
 /* ================= words ================= */
@@ -1486,6 +1514,32 @@ window.addEventListener("hashchange", () => {
   else if (route().name !== "p" || postScrolled !== location.hash) window.scrollTo(0,0);
 });
 // Swipe sideways on any page you opened (a post, comments, a profile, a list) to go back.
+// Like Instagram: pull the feed down from the top (or tap Home) and it reloads with whatever is new.
+let refreshing = false, pull = null;
+async function refreshFeed(){
+  if (refreshing) return; refreshing = true;
+  const ptr = $("#ptr"); ptr.classList.add("spin"); ptr.style.transition = "opacity .15s, transform .15s"; ptr.style.opacity = "1"; ptr.style.transform = "scale(1)";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  const started = Date.now();
+  try { homeOrder = null; await autoRun(); await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); if (route().name === "home") render(); }
+  finally { refreshing = false; ptr.style.opacity = "0"; ptr.style.transform = "scale(.6)"; setTimeout(() => { if (!refreshing) ptr.classList.remove("spin"); }, 200); }
+  sync(true);
+}
+document.addEventListener("touchstart", e => {
+  pull = (e.touches.length === 1 && route().name === "home" && window.scrollY <= 0 && !refreshing && !$("#layer").innerHTML && !$("#full").innerHTML) ? { y: e.touches[0].clientY, d: 0 } : null;
+}, { passive:true });
+document.addEventListener("touchmove", e => {
+  if (!pull) return;
+  pull.d = e.touches[0].clientY - pull.y;
+  if (pull.d < 0 || window.scrollY > 0){ pull.d = 0; }
+  const k = Math.min(1, pull.d / 90), ptr = $("#ptr");
+  ptr.style.transition = "none"; ptr.style.opacity = String(k); ptr.style.transform = `translateY(${k * 24}px) scale(${.6 + k * .4}) rotate(${k * 270}deg)`;
+}, { passive:true });
+document.addEventListener("touchend", () => {
+  const p = pull; pull = null; if (!p) return;
+  if (p.d >= 90) refreshFeed();
+  else { const ptr = $("#ptr"); ptr.style.transition = "opacity .15s, transform .15s"; ptr.style.opacity = "0"; ptr.style.transform = "scale(.6)"; }
+}, { passive:true });
 let swipe = null;
 document.addEventListener("touchstart", e => {
   if (e.touches.length !== 1){ swipe = null; return; }
@@ -1602,6 +1656,17 @@ function exploreTiles(from, n){
   const r = rng((exploreSeed + from * 7919) >>> 0);
   return Array.from({ length: n }, (_, j) => { const i = Math.floor(r() * POOL), k = Math.floor(r() * 24); return { i, k, big: (from + j) % 10 === 2 || (from + j) % 10 === 9 }; });
 }
+// Everything your accounts have posted, in a new mix every visit; videos get the big tiles.
+function exploreMine(){
+  const L = S.accounts.flatMap(a => live(a.id));
+  const r = rng(exploreSeed >>> 0);
+  for (let i = L.length - 1; i > 0; i--){ const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; }
+  return L;
+}
+function exploreMineHTML(p, n){
+  const f = p.files[0], vid = isVideo(f.mime);
+  return `<a class="xt ${vid || n % 10 === 2 ? "big" : ""}" href="#/p/${esc(p.id)}">${mediaTag(f, "", { poster: true })}${vid ? `<span class="ic">${I.play}</span>` : p.files.length > 1 ? `<span class="ic">${I.multi}</span>` : ""}</a>`;
+}
 function exploreTileHTML(t){
   const a = acct(t.i), key = fanPhoto(a, t.k);
   return key ? `<a class="xt ${t.big ? "big" : ""}" href="#/fp/${t.i}/${t.k}">${mediaTag({ key, mime: "image/jpeg" }, "", {})}</a>` : "";
@@ -1616,16 +1681,17 @@ function vExplore(v){
   if (!exploreSeed) exploreSeed = Math.floor(Math.random() * 1e9);
   if (!pfpIndex) loadPfps();
   setTop(`<div class="xsearch">${I.search}<input type="search" id="xq" placeholder="Search" autocomplete="off" autocapitalize="off" autocorrect="off"></div>`);
-  const sug = suggestedFor();
-  exploreShown = exploreSeedUsed === exploreSeed && exploreShown ? exploreShown : 30; exploreSeedUsed = exploreSeed;
+  const mine = exploreMine();
+  exploreShown = Math.min(mine.length, exploreSeedUsed === exploreSeed && exploreShown ? exploreShown : 30); exploreSeedUsed = exploreSeed;
   v.innerHTML = `<div id="xresults"></div><div id="xbody">
-    <div class="sect pad">Suggested for you</div>
-    <div class="sugs">${sug.map(i => { const a = acct(i); const mutual = acct((i * 37 + 11) % POOL); return `<div class="sug"><a href="#/u/${i}">${acctAv(a, 62)}</a><a href="#/u/${i}" class="h">${esc(a.handle)}</a><div class="hint">Followed by ${esc(mutual.handle)}</div><button class="btn blue" type="button" data-follow="${i}">${isFollowing(i) ? "Following" : "Follow"}</button></div>`; }).join("")}</div>
-    <div class="xgrid" id="xgrid">${exploreTiles(0, exploreShown).map(exploreTileHTML).join("")}</div><div id="xmore" style="height:40px"></div></div>`;
+    ${acctStrip(true)}
+    ${mine.length ? `<div class="xgrid" id="xgrid">${mine.slice(0, exploreShown).map(exploreMineHTML).join("")}</div><div id="xmore" style="height:40px"></div>` : `<div class="empty"><h2>Nothing posted yet</h2><p>Everything your accounts post shows up here.</p></div>`}</div>`;
   if (exploreIO) exploreIO.disconnect();
-  exploreIO = new IntersectionObserver(es => { if (!es.some(e => e.isIntersecting)) return; const g = $("#xgrid"); if (!g) return;
-    g.insertAdjacentHTML("beforeend", exploreTiles(exploreShown, 30).map(exploreTileHTML).join("")); exploreShown += 30; hydrate(g); }, { rootMargin: "600px" });
-  exploreIO.observe($("#xmore"));
+  if (exploreShown < mine.length){
+    exploreIO = new IntersectionObserver(es => { if (!es.some(e => e.isIntersecting)) return; const g = $("#xgrid"); if (!g) return;
+      g.insertAdjacentHTML("beforeend", mine.slice(exploreShown, exploreShown + 30).map((p, j) => exploreMineHTML(p, exploreShown + j)).join("")); exploreShown += 30; hydrate(g); if (exploreShown >= mine.length) exploreIO.disconnect(); }, { rootMargin: "600px" });
+    exploreIO.observe($("#xmore"));
+  }
   const q = $("#xq");
   q.addEventListener("input", () => {
     const term = q.value.trim().toLowerCase().replace(/^@/, "");
@@ -1876,19 +1942,26 @@ function allVideos(){
   for (const p of S.posts) for (const f of p.files || []) if (isVideo(f.mime) && !seen.has(f.key) && !String(f.key).startsWith("url:")){ seen.add(f.key); out.push({ key: f.key, mime: f.mime, post: p }); }
   return out;
 }
+let reelGrid = [], reelShown = 0, reelIO = null;
+const reelTileHTML = x => `<button type="button" class="tile tall" data-vault="grid" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}${S.vidSeen[x.key] ? "" : `<span class="views">${I.playLine}New</span>`}</button>`;
 function vReelsTab(v, r){
-  setTop(`<h1>Reels</h1>`);
+  setTop(`<h1>Reels</h1>${allVideos().length ? `<button class="iconbtn" type="button" data-vault="all" aria-label="Shuffle all videos">${I.reels}</button>` : ""}`);
   const R = S.accounts.flatMap(a => liveReels(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   const V = allVideos();
   const saved = Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean);
   if (r.a) openReels(R, r.a);
-  v.innerHTML = `<div class="pad" style="padding-top:12px">
-      <button class="btn primary" type="button" data-vault="all" ${V.length ? "" : "disabled"}>${I.reels} Shuffle all videos${V.length ? ` (${V.length})` : ""}</button>
-      <div class="hint" style="margin-top:6px">Every video in your Drive folders, posted or not, ones you haven't watched first, then the ones you watched longest ago.</div>
-    </div>
-    ${saved.length ? `<div class="sect pad">Saved (${saved.length})</div><div class="vstrip">${saved.map(x => `<button type="button" class="vtile" data-vault="saved" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}</button>`).join("")}</div>` : ""}
-    <div class="sect pad">Posted reels</div>
-    ${R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Put videos in your Drive folders. They post as reels and play here.</p></div>`}`;
+  // a fresh mix each visit: ones you haven't watched first, then the ones watched longest ago
+  reelGrid = recycleOrder(V); reelShown = Math.min(30, reelGrid.length);
+  v.innerHTML = `${saved.length ? `<div class="sect pad">Saved (${saved.length})</div><div class="vstrip">${saved.map(x => `<button type="button" class="vtile" data-vault="saved" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}</button>`).join("")}</div>` : ""}
+    ${R.length ? `<div class="sect pad">Posted reels</div><div class="vstrip">${R.map(p => `<a class="vtile" href="#/reels/${esc(p.id)}">${mediaTag(p.files[0], "", { poster: true })}</a>`).join("")}</div>` : ""}
+    <div class="sect pad">All videos${V.length ? ` (${V.length})` : ""}</div>
+    ${V.length ? `<div class="grid" id="rgrid">${reelGrid.slice(0, reelShown).map(reelTileHTML).join("")}</div><div id="rmore" style="height:40px"></div>` : `<div class="empty"><h2>No videos yet</h2><p>Put videos in your Drive folders. They post as reels and play here.</p></div>`}`;
+  if (reelIO) reelIO.disconnect();
+  if (reelShown < reelGrid.length){
+    reelIO = new IntersectionObserver(es => { if (!es.some(e => e.isIntersecting)) return; const g = $("#rgrid"); if (!g) return;
+      g.insertAdjacentHTML("beforeend", reelGrid.slice(reelShown, reelShown + 30).map(reelTileHTML).join("")); reelShown += 30; hydrate(g); if (reelShown >= reelGrid.length) reelIO.disconnect(); }, { rootMargin: "600px" });
+    reelIO.observe($("#rmore"));
+  }
 }
 // Videos never watched come first in a random order, then watched ones, the ones watched longest ago first.
 function recycleOrder(V){
@@ -2317,15 +2390,14 @@ document.addEventListener("click", async e => {
   if (d.insights){ showInsights(d.insights); return; }
   if (d.vault){
     const V = allVideos();
-    const list = d.vault === "saved" ? Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean) : recycleOrder(V);
+    const list = d.vault === "saved" ? Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean) : d.vault === "grid" && reelGrid.length ? reelGrid : recycleOrder(V);
     openVault(list, d.vstart); return;
   }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab === "home"){
-    homeOrder = null;
-    if (route().name === "home"){ window.scrollTo({ top: 0, behavior: "smooth" }); await autoRun(); render(); sync(true); toast("Feed refreshed"); }
-    else go("#/");
+    if (route().name !== "home") go("#/");
+    refreshFeed();
     return;
   }
   if (d.tab === "explore" && route().name === "explore"){ exploreSeed = 0; window.scrollTo({ top: 0, behavior: "smooth" }); render(); return; }
