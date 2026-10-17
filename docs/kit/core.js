@@ -979,7 +979,7 @@ document.addEventListener("click", async e => {
   if (d.href !== undefined){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if ("recheck" in d){ t.textContent = "Checking…"; await loadLibrary(); if (LIB.ok){ await afterLibrary(); render(); } else { t.textContent = "Still nothing. Open Reel first."; } return; }
-  if (d.reveal !== undefined){ revealed.add(d.reveal); const box = t.closest(".nsfw"); if (box){ box.classList.remove("nsfw"); const o = box.querySelector(".nsfwcover"); if (o) o.remove(); } return; }
+  if (d.reveal !== undefined){ e.preventDefault(); revealed.add(d.reveal); const box = t.closest(".nsfw"); if (box){ box.classList.remove("nsfw"); const o = box.querySelector(".nsfwcover"); if (o) o.remove(); } return; }
   if ("switch" in d){ accountSwitcher(d.switchto ? () => go(d.switchto) : null); return; }
   if (d.accgo !== undefined){ await switchTo(d.accgo); render(); window.scrollTo(0, 0); return; }
   if (d.dmsend !== undefined){ const inp = $("#dmin"); const text = inp && inp.value.trim(); if (!text) return; const a = accountById(d.acct) || A(); inp.value = ""; await ownerSend(a, +d.dmsend, text); APP.dmRepaint ? APP.dmRepaint() : render(); window.scrollTo(0, document.body.scrollHeight); return; }

@@ -276,7 +276,8 @@ APP.bank = {
 // What a post's title reads as when the writer hasn't written one: a line in her voice with Reddit's tags.
 APP.fallbackText = p => {
   const a = acctOf(p), r = rng(p.seed ^ 0x51ed27 ^ ((p.textTry || 0) * 977));
-  const line = r() < .55 ? pick(TITLES, r) : herLine(a, r);
+  let line = r() < .55 ? pick(TITLES, r) : herLine(a, r);
+  if (normT(line).split(" ").filter(Boolean).length < 3) line = pick(TITLES, r); // a bare emoji isn't a Reddit title
   const age = ageOf(a), g = isShe(a) ? "F" : a.pronouns === "he" ? "M" : "";
   const x = r();
   const tag = !g ? "" : x < .25 ? `[${g}]` : x < .4 ? `(${g.toLowerCase()})` : x < .6 ? `[${age}${g}]` : x < .68 ? `${g}${age}` : x < .78 ? "[OC]" : "";
@@ -411,7 +412,8 @@ APP.views.communities = v => {
 // Post page: the post, where else it went, then the thread.
 const collapsed = new Set(), expanded = new Set();
 let replyTo = null, shownTop = {};
-const sortTree = (list, sort) => sort === "new" ? list.slice().sort((x, y) => y.at - x.at) : sort === "top" ? list.slice().sort((x, y) => y.score - x.score) : list.slice().sort((x, y) => (y.score + (y.replies.length * 2) - (now() - y.at) / (8*H)) - (x.score + (x.replies.length * 2) - (now() - x.at) / (8*H)));
+// Your own comments first (as the real app does right after you post), then by the chosen sort.
+const sortTree = (list, sort) => list.slice().sort((x, y) => ((y.mine ? 1 : 0) - (x.mine ? 1 : 0)) || (sort === "new" ? y.at - x.at : sort === "top" ? y.score - x.score : (y.score + (y.replies.length * 2) - (now() - y.at) / (8*H)) - (x.score + (x.replies.length * 2) - (now() - x.at) / (8*H))));
 function commentHTML(p, c, sort){
   const a = acctOf(p), f = c.acct >= 0 ? acct(c.acct) : null;
   const v = (p.cVotes || {})[c.id] || 0, score = c.score + v;
@@ -502,10 +504,12 @@ function notes(){
   }
   return out.filter(x => x.at <= now()).sort((x, y) => y.at - x.at).slice(0, 120);
 }
-const unreadNotes = () => LIB.ok ? notes().filter(n => n.at > (S.misc.seenAt.inbox || 0)).length : 0;
+// The first time the inbox is counted, only the last few hours start out unread.
+const inboxSeen = () => S.misc.seenAt.inbox || (S.misc.seenAt.inbox0 ||= now() - 6*H);
+const unreadNotes = () => LIB.ok ? notes().filter(n => n.at > inboxSeen()).length : 0;
 APP.views.inbox = v => {
   setTop(`<h1>Inbox</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  const list = notes(), seen = S.misc.seenAt.inbox || 0;
+  const list = notes(), seen = inboxSeen();
   S.misc.seenAt.inbox = now(); saveMisc();
   if (!list.length){ v.innerHTML = `<div class="empty"><h2>Nothing yet</h2><p>Replies, upvote milestones and trending posts show up here.</p></div>`; return; }
   v.innerHTML = `<div class="ptabs"><button type="button" class="on">Notifications</button><button type="button" data-href="#/chat">Chat</button></div>` + list.map(n => `<a class="note ${n.at > seen ? "un" : ""}" href="#/p/${esc(n.p.id)}">${n.acct !== undefined ? acctAv(acct(n.acct), 40) : `<span class="badge">${n.badge}</span>`}<div class="t">${n.html} <span class="muted small">· ${esc(ago(n.at))}</span><span class="q">${esc(n.q)}</span></div>${n.p.files[0] ? `<span class="th">${mediaTag(n.p.files[0], "", { small: true })}</span>` : ""}</a>`).join("");
