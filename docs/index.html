@@ -457,6 +457,20 @@ async function saveExport(){
   const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 60e3);
 }
+// Hands the packed export to the owner's PC (over Tailscale), which keeps it for Reel at the new address to load.
+async function sendExportToPC(){
+  const base = ollamaURL(); if (!base) throw new Error("this phone doesn't know your PC's address (Settings → Ollama address)");
+  const r = await fetch(`${base}/reel/backup`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: exportFile });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || `the PC said ${r.status}`);
+  return j.bytes;
+}
+async function loadFromPC(){
+  const base = ollamaURL(); if (!base) throw new Error("this phone doesn't know your PC's address");
+  const r = await fetch(`${base}/reel/backup`, { cache: "no-store" });
+  if (!r.ok){ const j = await r.json().catch(() => ({})); throw new Error(j.error || `the PC said ${r.status}`); }
+  return new File([await r.blob()], "reel.reelbackup");
+}
 // Replaces everything at this address with the file's contents.
 async function importAll(file, progress){
   const m = /^REEL-EXPORT 1\n(\d+)\n/.exec(await file.slice(0, 64).text());
@@ -478,7 +492,7 @@ async function importAll(file, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 84;
+const APP_VERSION = 85;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -1554,7 +1568,7 @@ const heatLine = a => heatOf(a) === "explicit" ? `\n\n${HEAT_EXPLICIT}` : "";
 const DEFAULT_STYLE = "Voice: the way real thirst-trap accounts on Instagram and X/Twitter post: flirty and confident but understated, teasing, a little cocky, often ironic or fake-casual (acting like the photo was no big deal), sometimes pure engagement bait (questions, rate it, should i post the other one), sometimes just an emoji. Innuendo is fine. Avoid cheesy pickup-line copywriting.";
 const CAPTION_RULES = "One short line, often just 1 to 5 words or a single emoji, lowercase, at most one or two emoji, no hashtags.";
 const isShe = a => !a || !a.pronouns || a.pronouns === "she";
-const WHO_COMMENTS = "\n\nWho is who: the owner is the woman posting. The commenters are horny men reacting to her: what they'd do to her, her body, begging her, losing it over her. Every comment is a man talking to her or about her. Never write as a woman or in her voice: no \"my pussy\", \"my tits\" or \"my clit\", never asking for his cock or his cum.";
+const WHO_COMMENTS = "\n\nWho is who: the owner is the woman posting. The commenters are mostly horny men reacting to her (what they'd do to her, her body, begging her, losing it over her), plus a few girls hyping her up. Every comment is someone else talking to her or about her. Never write as a woman or in her voice: no \"my pussy\", \"my tits\" or \"my clit\", never asking for his cock or his cum.";
 const WHO_CAPTIONS = "\n\nWho is who: the woman in the photo is talking about herself, to the men watching. I/me/my is her, her body, her pussy, what she wants done to her. It is never a man talking about her body or what he'd do to her.";
 const HER_VOICE = ["come watch me play", "wet just thinking about it", "who's coming over to fix this", "bet you can't handle me", "my ass in your face would cure you", "i need it rough tonight", "guess what i'm not wearing", "be honest, would you fuck me", "touching myself to your comments", "ruin me", "your turn to beg"];
 const whoFor = (a, part) => !isShe(a) ? "" : part === "caption" || part === "story" ? WHO_CAPTIONS : part === "comments" ? WHO_COMMENTS : "";
@@ -2939,9 +2953,11 @@ function vSettings(v){
       <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
       <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
     <div class="card"><h3>Move to another address</h3>
-      <div class="hint">Export packs everything on this phone (accounts, posts, chats, settings and every photo and video) into one file. Import that file in Reel at the new address and everything carries on where you left off.</div>
+      <div class="hint">Export packs everything on this phone (accounts, posts, chats, settings and every photo and video) into one file. Send it to your PC, then in Reel at the new address tap Load from my PC, and everything carries on where you left off.</div>
       <button class="btn" type="button" data-exportprep>Export everything</button>
-      <button class="btn primary" type="button" data-exportsave id="exportsave" hidden>Save the file</button>
+      <button class="btn primary" type="button" data-exportpc id="exportpc" hidden>Send to my PC</button>
+      <button class="btn" type="button" data-exportsave id="exportsave" hidden>Save the file</button>
+      <button class="btn primary" type="button" data-importpc>Load from my PC</button>
       <button class="btn" type="button" data-importpick>Import from a file</button>
       <input type="file" id="importFile" hidden>
       <div class="hint">Import replaces everything in Reel at this address with what's in the file.</div></div>
@@ -3330,11 +3346,28 @@ document.addEventListener("click", async e => {
     t.disabled = true; t.textContent = "Packing…";
     try {
       exportFile = await exportAll((i, n) => { t.textContent = `Packing… ${i} of ${n} photos and videos`; });
-      t.hidden = true; const sv = $("#exportsave"); if (sv){ sv.hidden = false; sv.textContent = `Save the file (${Math.max(1, Math.round(exportFile.size / 1048576))} MB)`; }
+      t.hidden = true; const mb = Math.max(1, Math.round(exportFile.size / 1048576));
+      const pc = $("#exportpc"); if (pc){ pc.hidden = false; pc.textContent = `Send to my PC (${mb} MB)`; }
+      const sv = $("#exportsave"); if (sv){ sv.hidden = false; sv.textContent = `Save the file instead (${mb} MB)`; }
     } catch(err){ t.disabled = false; t.textContent = "Export everything"; toast("Couldn't pack it: " + err.message); }
     return;
   }
   if ("exportsave" in d){ await saveExport(); return; }
+  if ("exportpc" in d){
+    if (t.disabled) return; const label = t.textContent; t.disabled = true; t.textContent = "Sending to your PC…";
+    try { const n = await sendExportToPC(); t.textContent = `On your PC (${Math.round(n / 1048576)} MB) ✓`; toast("Sent. Now open Reel at your PC's address and tap Load from my PC."); }
+    catch(err){ t.disabled = false; t.textContent = label; toast("Couldn't send it: " + err.message); }
+    return;
+  }
+  if ("importpc" in d){
+    if (t.disabled) return; t.disabled = true; t.textContent = "Loading from your PC…";
+    try {
+      const f = await loadFromPC();
+      const man = await importAll(f, (i, n) => { t.textContent = `Importing… ${i} of ${n} photos and videos`; });
+      toast(`Imported ${man.posts.length} posts. Reloading…`); setTimeout(() => location.reload(), 900);
+    } catch(err){ t.disabled = false; t.textContent = "Load from my PC"; toast("Couldn't load it: " + err.message); }
+    return;
+  }
   if ("importpick" in d){ const inp = $("#importFile"); if (inp) inp.click(); return; }
   if ("newpfps" in d){ S.settings.pfpSeed = Math.floor(Math.random()*1e9); S.settings.pfpBump = {}; pfpCache.clear(); pfpPerm = null; await saveSettings(); toast("New pictures for everyone"); render(); return; }
   if ("randhandle" in d){ const h = $("#ph"); if (h){ let x; do { x = gamerHandle(rng(Math.floor(Math.random()*1e9))); } while (S.accounts.some(o => o.handle === x)); h.value = x; } return; }

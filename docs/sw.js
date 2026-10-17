@@ -1,5 +1,5 @@
 // Offline support for the app shell. Your photos live in the app's own storage, not here.
-const CACHE = "reel-v84";
+const CACHE = "reel-v85";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
