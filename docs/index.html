@@ -548,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 88;
+const APP_VERSION = 89;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -2012,8 +2012,10 @@ async function writerRun(){
 }
 let lastInteract = 0, renderLater = 0;
 for (const ev of ["scroll","touchstart","touchmove","wheel"]) window.addEventListener(ev, () => { lastInteract = Date.now(); }, { passive:true });
+// A video on screen that's playing is being watched: a redraw would swap it for a fresh copy that starts over.
+const watching = () => [...document.querySelectorAll("video")].some(v => !v.paused && !v.ended && v.dataset.want !== "0" && v.isConnected);
 function safeRender(){
-  const wait = 3000 - (Date.now() - lastInteract);
+  const wait = watching() ? 4000 : 3000 - (Date.now() - lastInteract);
   if (wait > 0){ clearTimeout(renderLater); renderLater = setTimeout(safeRender, wait + 50); return; }
   // Explore has nothing that changes by itself, and a redraw there reloads every tile and clears the search.
   if (route().name === "explore") return;
@@ -2205,12 +2207,12 @@ async function sync(auto, full){
     if (problems.length) toast(problems.join(" · "));
     else if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}`); }
     else if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : moved ? `${moved} moved ${moved===1?"file":"files"} switched account` : dropped ? `${dropped} removed ${dropped===1?"file":"files"} left the queue` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
-    render();
+    if (auto) safeRender(); else render();
   } catch(err){
     syncing = false; setSync("", 0);
     if (err.message === "signin"){ if (!auto) signIn(false); return; }
     if (!auto) toast(err.message || "Sync failed");
-    render();
+    if (auto) safeRender(); else render();
   }
 }
 /* ---------- PC folders ---------- */
@@ -2254,7 +2256,7 @@ async function syncPc(loud){
       }
     }
     setSync("", 1);
-    if (fresh || gone){ await autoRun(); render(); }
+    if (fresh || gone){ await autoRun(); if (loud) render(); else safeRender(); }
     if (loud) toast(missing.length ? `No folder named “${missing[0]}” in ${j.root}` : fresh ? `Picked up ${fresh} new ${fresh === 1 ? "file" : "files"} from the PC` : "No new files in the PC folder");
   } finally { pcSyncing = false; }
 }
