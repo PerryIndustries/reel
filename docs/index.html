@@ -548,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 89;
+const APP_VERSION = 90;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -3272,11 +3272,35 @@ function wireAutoplay(root){
   autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; v.dataset.want = en.isIntersecting ? "1" : "0"; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
   root.querySelectorAll("video[data-auto]").forEach(v => autoIO.observe(v));
 }
+// iPhone pauses videos by itself now and then (switching apps, the screen dimming, low memory) and nothing tells the
+// feed, so a video that should be playing and isn't gets started again; one stuck on the same frame is reloaded where it was.
+setInterval(() => {
+  if (document.visibilityState !== "visible") return;
+  for (const v of document.querySelectorAll("video[data-auto]")){
+    if (v.dataset.want !== "1" || !v.isConnected || !v.getAttribute("src")) continue;
+    if (v.paused || v.ended){ v.play().catch(() => {}); v.dataset.stuck = 0; continue; }
+    const t = v.currentTime;
+    if (t === +v.dataset.lastT && v.readyState < 3){
+      v.dataset.stuck = (+v.dataset.stuck || 0) + 1;
+      if (+v.dataset.stuck >= 4){
+        v.dataset.stuck = 0; v.load();
+        v.addEventListener("loadedmetadata", () => { try { v.currentTime = t; } catch(_){} v.play().catch(() => {}); }, { once: true });
+      }
+    } else v.dataset.stuck = 0;
+    v.dataset.lastT = t;
+  }
+}, 2000);
 async function likePost(id, force){
   const p = S.posts.find(x => x.id === id); if (!p) return;
   p.liked = force ? true : !p.liked; await savePost(p);
   const el = document.querySelector(`[data-post="${CSS.escape(id)}"]`);
-  if (el){ el.outerHTML = postCard(p); const n = document.querySelector(`[data-post="${CSS.escape(id)}"]`); hydrate(n); wireCarousels(n); n.querySelectorAll("video[data-auto]").forEach(v => autoIO && autoIO.observe(v)); }
+  if (el){
+    const keep = [...el.querySelectorAll("video[src]")];
+    el.outerHTML = postCard(p); const n = document.querySelector(`[data-post="${CSS.escape(id)}"]`);
+    for (const v of keep){ const fresh = n.querySelector(`video[data-media="${CSS.escape(v.dataset.media)}"]`); if (fresh) fresh.replaceWith(v); }
+    hydrate(n); wireCarousels(n); n.querySelectorAll("video[data-auto]").forEach(v => autoIO && autoIO.observe(v));
+    for (const v of keep) if (v.dataset.want === "1") v.play().catch(() => {});
+  }
 }
 
 /* ================= sheets ================= */
