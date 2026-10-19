@@ -548,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 91;
+const APP_VERSION = 92;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -2845,7 +2845,7 @@ async function openVault(list, startKey){
       if (Math.abs(j - k) <= 1){ if (!vd.getAttribute("src")){ const u = await mediaURL(vd.dataset.vkey); if (u){ wireVideoFallback(vd, vd.dataset.vkey, vd.dataset.vmime); vd.src = u; } } }
       else if (vd.getAttribute("src")){ vd.pause(); vd.removeAttribute("src"); vd.load(); }
     }
-    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} vd.play().catch(()=>{}); } else vd.pause(); });
+    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} playVid(vd); } else vd.pause(); });
     // get the file ready so "To phone" can open the share sheet straight from the tap
     const x = list[k]; if (x){ S.vidSeen[x.key] = now(); clearTimeout(vidSave); vidSave = setTimeout(saveMisc, 1500); }
     if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
@@ -2853,9 +2853,9 @@ async function openVault(list, startKey){
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
   activate();
   rv.addEventListener("click", async e => {
-    const t = e.target.closest("button"); if (!t){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    const t = e.target.closest("button"); if (!t){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
     if ("vclose" in t.dataset){ closeFull(); render(); return; }
-    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
     if (t.dataset.vsave){
       const key = t.dataset.vsave; S.savedVids ||= {};
       if (S.savedVids[key]) delete S.savedVids[key]; else S.savedVids[key] = now();
@@ -2880,7 +2880,7 @@ async function openReels(list, startId){
         <button type="button" data-rlike="${esc(p.id)}" class="${p.liked?"liked":""}">${p.liked?I.heartOn:I.heart}<span>${fmt(e.likes)}</span></button>
         <a href="#/c/${esc(p.id)}" data-closefull>${I.comment}<span>${fmt(e.comments)}</span></a>
         <button type="button" data-share>${I.share}</button>
-        <button type="button" data-rmute>${I.muted}</button>
+        <button type="button" data-rmute>${reelsMuted ? I.muted : I.sound}</button>
       </div>
       <div class="info"><a class="u" href="#/acct/${esc(a.id)}" data-closefull>${myAv(32, a)}<span>${esc(handleOf(a))}</span>${checkMark(a.verified)}</a><div class="clamp">${esc(p.caption||"")}</div><div class="small" style="opacity:.85;margin-top:4px">${full(e.views)} views · ${esc(ago(p.publishAt))}</div></div>
     </section>`; }).join("")}</div>`;
@@ -2892,15 +2892,15 @@ async function openReels(list, startId){
   let current = -1;
   const activate = () => {
     const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
-    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} vd.play().catch(()=>{}); } else vd.pause(); });
+    vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} playVid(vd); } else vd.pause(); });
   };
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
   activate();
   rv.addEventListener("click", async e => {
-    const t = e.target.closest("button,a"); if (!t){ const vd = e.target.closest(".r")?.querySelector("video"); if (vd){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); } return; }
+    const t = e.target.closest("button,a"); if (!t){ const vd = e.target.closest(".r")?.querySelector("video"); if (vd){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); } return; }
     if ("closefull" in t.dataset){ closeFull(); if (t.tagName === "A") return; if (route().name === "reels" && route().a) history.back(); return; }
     if (t.dataset.rlike){ const p = S.posts.find(x => x.id === t.dataset.rlike); p.liked = !p.liked; await savePost(p); t.className = p.liked ? "liked" : ""; t.innerHTML = (p.liked?I.heartOn:I.heart) + `<span>${fmt(engage(p).likes)}</span>`; return; }
-    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); return; }
+    if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
     if ("share" in t.dataset) toast("Shared");
   });
 }
@@ -3271,9 +3271,30 @@ function wireSeen(root){
   }), { threshold: .5 });
   root.querySelectorAll("article.post[data-post]").forEach(el => seenIO.observe(el));
 }
+// iPhone only starts a video with sound when a tap started it. One it refuses plays muted instead of sitting frozen,
+// and the sound buttons go back to muted, so one tap turns sound on again.
+function playVid(v){
+  const p = v.play(); if (!p) return;
+  p.catch(err => {
+    if (!err || err.name !== "NotAllowedError" || v.muted) return;
+    v.muted = true; v.play().catch(() => {});
+    if (v.closest("#rv")){ reelsMuted = true; document.querySelectorAll("#rv [data-rmute]").forEach(b => b.innerHTML = I.muted); }
+    else if (v.matches("video[data-auto]")){ feedMuted = true; document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = I.muted); }
+  });
+}
+// Called from the tap that turns sound on: every loaded video that isn't the one playing is started and stopped once
+// inside that tap, which is what iPhone needs before it lets that video play with sound later (the next reel).
+function unlockVids(root){
+  for (const x of root.querySelectorAll("video")){
+    if (!x.getAttribute("src") || x.dataset.want === "1" || !x.paused) continue;
+    const was = x.muted; x.muted = true;
+    const p = x.play(); if (!p) continue;
+    p.then(() => { if (x.dataset.want !== "1"){ x.pause(); } x.muted = was; }).catch(() => { x.muted = was; });
+  }
+}
 function wireAutoplay(root){
   if (autoIO) autoIO.disconnect();
-  autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; v.dataset.want = en.isIntersecting ? "1" : "0"; if (en.isIntersecting){ v.muted = feedMuted; v.play().catch(()=>{}); } else v.pause(); }), { threshold: .6 });
+  autoIO = new IntersectionObserver(es => es.forEach(en => { const v = en.target; v.dataset.want = en.isIntersecting ? "1" : "0"; if (en.isIntersecting){ v.muted = feedMuted; playVid(v); } else v.pause(); }), { threshold: .6 });
   root.querySelectorAll("video[data-auto]").forEach(v => autoIO.observe(v));
 }
 // iPhone pauses videos by itself now and then (switching apps, the screen dimming, low memory) and nothing tells the
@@ -3282,7 +3303,7 @@ setInterval(() => {
   if (document.visibilityState !== "visible") return;
   for (const v of document.querySelectorAll("video[data-auto]")){
     if (v.dataset.want !== "1" || !v.isConnected || !v.getAttribute("src")) continue;
-    if (v.paused || v.ended){ v.play().catch(() => {}); v.dataset.stuck = 0; continue; }
+    if (v.paused || v.ended){ playVid(v); v.dataset.stuck = 0; continue; }
     const t = v.currentTime;
     if (t === +v.dataset.lastT && v.readyState < 3){
       v.dataset.stuck = (+v.dataset.stuck || 0) + 1;
@@ -3396,7 +3417,7 @@ document.addEventListener("click", async e => {
   if ("reread" in d){ if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again: rebuilds the queue from your folders"; return; } t.textContent = "Re-reading…"; try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} await saveSettings(); sync(false, true); return; }
   if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
   if ("switch" in d){ accountSwitcher(); return; }
-  if ("mute" in d){ feedMuted = !feedMuted; document.querySelectorAll("video[data-auto]").forEach(v => v.muted = feedMuted); document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); return; }
+  if ("mute" in d){ feedMuted = !feedMuted; document.querySelectorAll("video[data-auto]").forEach(v => v.muted = feedMuted); document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); if (!feedMuted) unlockVids(document); return; }
   if (d.like){ likePost(d.like); return; }
   if (d.save){ S.saved[d.save] = !S.saved[d.save]; await saveMisc(); t.innerHTML = S.saved[d.save] ? I.saveOn : I.save; return; }
   if ("share" in d){ toast("Shared"); return; }
