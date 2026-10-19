@@ -53,7 +53,7 @@
 .flair.nsfw{background:var(--accent);color:#fff}
 .media{position:relative;margin:0 16px;border-radius:14px;overflow:hidden;background:#0d0d0d}
 .media .pic{aspect-ratio:var(--ar,4/5);max-height:70vh;width:100%;background:#0d0d0d}
-.media .pic img{object-fit:contain;background:#0d0d0d}
+.media .pic img,.media .pic video{object-fit:contain;background:#0d0d0d}
 .gallery{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
 .gallery::-webkit-scrollbar{display:none}
 .gallery .pic{flex:0 0 100%;scroll-snap-align:center;aspect-ratio:var(--gar,4/5);max-height:70vh}
@@ -167,7 +167,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 2, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
+window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 3, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>

@@ -1,5 +1,5 @@
 // Offline support for Wire's shell. Posts and photos live in the app's own storage and in Reel's, not here.
-const CACHE = "wire-v2";
+const CACHE = "wire-v3";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "../kit/core.js", "../kit/base.css", "../pfp/index.json"];
 
 self.addEventListener("install", (e) => {
@@ -24,6 +24,8 @@ self.addEventListener("fetch", (e) => {
   }
   // Otherwise only the app's own files; Ollama on the owner's PC goes straight to the network.
   if (new URL(req.url).origin !== location.origin) return;
+  // Videos from the PC folders stream straight from the PC (a cached copy breaks the Range requests they need).
+  if (/\/pc\//.test(new URL(req.url).pathname)) return;
   e.respondWith(
     fetch(req, { cache: "no-cache" })
       .then((res) => {

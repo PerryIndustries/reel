@@ -175,7 +175,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 2, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
+window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 3, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -588,7 +588,7 @@ APP.views.queue = v => {
     LIB.accounts.map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">@${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
       ${st.on ? `<span class="lbl">Posts per day</span><div class="seg" style="margin:6px 0 10px">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}</button>`).join("")}</div>
       <div class="hint">${photosOf(a.id).length} photos in Reel · ${live(a.id).length} up · ${Q.length} queued${Q.length ? ` · next ${esc(until(Q[0].publishAt))}` : ""}</div>
-      ${Q.slice(0, 14).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : `<span style="display:grid;place-items:center;height:100%;font-size:20px">💬</span>`}</div><div class="info"><div>${esc(textOf(p))}</div><div class="hint">${p.kind === "text" ? "text post" : p.files.length + (p.files.length === 1 ? " photo" : " photos")} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : p.files.length ? " · new" : ""}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let @${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
+      ${Q.slice(0, 14).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : `<span style="display:grid;place-items:center;height:100%;font-size:20px">💬</span>`}</div><div class="info"><div>${esc(textOf(p))}</div><div class="hint">${p.kind === "text" ? "text post" : (isVideo(p.files[0].mime) ? "video" : p.files.length + (p.files.length === 1 ? " photo" : " photos"))} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : p.files.length ? " · new" : ""}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let @${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
 };
 APP.views.settings = v => {
   setTop(`${backBtn}<h1>Settings</h1>`);

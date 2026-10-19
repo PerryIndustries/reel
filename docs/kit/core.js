@@ -89,7 +89,7 @@ DB.del = (st,k) => DB.tx(st,"readwrite",s=>s.delete(k));
 DB.clear = st => DB.tx(st,"readwrite",s=>s.clear());
 
 /* ================= Reel's library ================= */
-// Accounts, the writer's address and every photo Reel fetched, per account. Posts in Reel (up or queued) carry the
+// Accounts, the writer's address and every photo and video Reel fetched, per account. Posts in Reel (up or queued) carry the
 // files, and a file counts only while its blob is still there.
 const LIB = { ok:false, accounts:[], current:"", secret:{ url:"", model:"" }, settings:{}, photos:new Map(), mediaKeys:new Set(), loadedAt:0 };
 async function loadLibrary(){
@@ -107,7 +107,11 @@ async function loadLibrary(){
   const photos = new Map();
   for (const a of accounts){
     const seen = new Set(), list = [];
-    for (const p of posts) if (p.acct === a.id && p.kind !== "story") for (const f of p.files || []) if (isImage(f.mime) && f.key && !String(f.key).startsWith("url:") && keys.has(f.key) && !seen.has(f.key)){ seen.add(f.key); list.push({ key: f.key, mime: f.mime }); }
+    for (const p of posts) if (p.acct === a.id && p.kind !== "story") for (const f of p.files || []){
+      const k = String(f.key || ""), pcs = k.startsWith("pcs:");
+      if (!(isImage(f.mime) || isVideo(f.mime)) || !k || k.startsWith("url:") || !(pcs || keys.has(k)) || seen.has(k)) continue;
+      seen.add(k); if (pcs) keys.add(k); list.push({ key: k, mime: f.mime });
+    }
     photos.set(a.id, list);
   }
   LIB.accounts = accounts.map(a => ({ pronouns: "she", heat: "explicit", level: "normal", followers: 2400, following: 300, growth: 35, ...a }));
@@ -153,10 +157,32 @@ async function blobFor(key){
 async function mediaURL(key){
   if (!key) return "";
   if (String(key).startsWith("url:")) return key.slice(4);
+  if (String(key).startsWith("pcs:")) return pcURL(key.slice(4));
   if (urls.has(key)) return urls.get(key);
   const blob = await blobFor(key);
   if (!blob) return "";
   const u = URL.createObjectURL(blob); urls.set(key, u); return u;
+}
+// Big videos stay on the PC and stream from Reel's address.
+const pcURL = rel => "../pc/file/" + rel.split("/").map(encodeURIComponent).join("/");
+async function videoURL(key, mime, copy){
+  if (String(key).startsWith("pcs:")) return pcURL(key.slice(4));
+  if (!copy && urls.has(key)) return urls.get(key);
+  const blob = await blobFor(key); if (!blob) return "";
+  const type = blob.type || mime || "video/mp4";
+  const u = URL.createObjectURL(copy ? new Blob([await blob.arrayBuffer()], { type }) : new Blob([blob], { type }));
+  if (!copy) urls.set(key, u);
+  return u;
+}
+// The still a grid shows for a video: a frame from a third of the way in (or a second, whichever is sooner).
+async function videoFrame(key, mime){
+  const url = await videoURL(key, mime); if (!url) return null;
+  const vd = document.createElement("video"); vd.muted = true; vd.playsInline = true; vd.preload = "auto"; vd.src = url;
+  try {
+    await new Promise((res, rej) => { vd.onloadeddata = res; vd.onerror = rej; setTimeout(rej, 12e3); vd.load(); });
+    await new Promise((res, rej) => { vd.onseeked = res; setTimeout(rej, 8e3); vd.currentTime = Math.min(1, (vd.duration || 3) / 3); });
+    return vd;
+  } catch(e){ vd.removeAttribute("src"); vd.load(); return null; }
 }
 // Grids use a small copy of each photo, made once and kept here (Reel's own copy is used when it already made one).
 // A screen of full-size phone photos is more than iPhone Safari can hold.
@@ -168,6 +194,17 @@ function smallPhoto(key){
     const tk = key + "_sm";
     if (await DB.get("media", tk)) return tk;
     if (LIB.mediaKeys.has(tk)) return tk;
+    if (VMIME[key]){
+      const vd = await videoFrame(key, VMIME[key]); if (!vd) return "";
+      try {
+        const w = vd.videoWidth, h = vd.videoHeight; if (!w || !h) return "";
+        const k = Math.min(1, 480 / Math.min(w, h));
+        const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
+        c.getContext("2d").drawImage(vd, 0, 0, c.width, c.height);
+        const out = await new Promise(res => c.toBlob(res, "image/jpeg", .8)); c.width = c.height = 0; if (!out) return "";
+        await DB.put("media", out, tk); return tk;
+      } catch(e){ return ""; } finally { vd.removeAttribute("src"); vd.load(); }
+    }
     const blob = await blobFor(key); if (!blob) return "";
     const url = URL.createObjectURL(blob);
     try {
@@ -212,13 +249,51 @@ async function hydrate(root){
     const k = String(el.dataset.media), hit = k.startsWith("url:") ? "" : urls.get(k);
     if (hit){ el.classList.add("ld"); el.src = hit; } else later.push(el);
   }
+  for (const el of root.querySelectorAll("video[data-media]:not([data-hy])")){
+    el.dataset.hy = "1";
+    const k = el.dataset.media, m = el.dataset.mime;
+    el.addEventListener("loadedmetadata", () => noteDims(el, el.videoWidth, el.videoHeight));
+    el.addEventListener("loadeddata", () => el.classList.add("ld"));
+    // A stored video that won't play gets one more try from a copy in memory, then says so.
+    el.addEventListener("error", async () => {
+      if (el.dataset.fb || k.startsWith("pcs:")){ const box = el.parentElement; if (box && !box.querySelector(".verr")) box.insertAdjacentHTML("beforeend", `<div class="verr">This video can't play here${k.startsWith("pcs:") ? " (is the PC on?)" : ""}</div>`); return; }
+      el.dataset.fb = "1"; const u = await videoURL(k, m, true); if (!u) return; el.src = u; el.load(); if (el.dataset.want === "1") el.play().catch(() => {});
+    });
+    vidSeen.observe(el);
+  }
   await Promise.all(later.map(async el => {
     if (el.dataset.sm){ const sk = await smallPhoto(el.dataset.media); if (el.isConnected && !el.getAttribute("src")) el.src = await mediaURL(sk || el.dataset.media); return; }
     const u = await mediaURL(el.dataset.media); if (u && !el.getAttribute("src")) el.src = u;
   }));
 }
+// Videos play muted while at least half on screen; tap the speaker for sound. Grids show a still with a play mark.
+const VMIME = {};
+const vidSeen = new IntersectionObserver(async es => {
+  for (const e of es){
+    const vd = e.target;
+    if (e.isIntersecting && e.intersectionRatio >= .5){
+      vd.dataset.want = "1";
+      if (!vd.getAttribute("src")){ const u = await videoURL(vd.dataset.media, vd.dataset.mime); if (!u || vd.dataset.want !== "1") continue; vd.src = u; }
+      vd.play().catch(() => {});
+    } else { vd.dataset.want = ""; if (!vd.paused) vd.pause(); }
+  }
+}, { threshold: [0, .5] });
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-vsound]"); if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  const vd = b.parentElement.querySelector("video"); if (!vd) return;
+  const on = vd.muted;
+  for (const o of document.querySelectorAll("video[data-media]")) o.muted = true;
+  for (const o of document.querySelectorAll("[data-vsound]")) o.classList.remove("on");
+  vd.muted = !on; b.classList.toggle("on", on); if (on) vd.play().catch(() => {});
+}, true);
 function mediaTag(f, cls, opts={}){
   const ar = DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : "";
+  if (isVideo(f.mime)){
+    VMIME[f.key] = f.mime;
+    if (opts.small) return `<img class="${cls||""}" data-media="${esc(f.key)}" data-small alt=""${ar} loading="lazy"><span class="vmark" aria-hidden="true">▶</span>`;
+    return `<video class="${cls||""}" data-media="${esc(f.key)}" data-mime="${esc(f.mime)}" muted playsinline loop preload="none"${ar}></video><button type="button" class="vsound" data-vsound aria-label="Sound"></button>`;
+  }
   return `<img class="${cls||""}" data-media="${esc(f.key)}"${opts.small ? " data-small" : ""} alt=""${ar} ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
 // A photo in a box that keeps its shape: the box carries the known ratio so the page is laid out before the photo loads.
@@ -760,8 +835,10 @@ function pickFiles(a, r, n){
   const first = ranked[0];
   const tier = ranked.filter(x => x.q === first.q && x.c === first.c);
   const rest = ranked.filter(x => !tier.includes(x));
-  const out = [...shuffleInPlace(tier.slice()), ...rest].slice(0, clamp(n, 1, photos.length)).map(x => x.f);
-  return out;
+  const order = [...shuffleInPlace(tier.slice()), ...rest].map(x => x.f);
+  if (isVideo(order[0].mime)) return [order[0]];
+  const pics = order.filter(f => !isVideo(f.mime));
+  return pics.slice(0, clamp(n, 1, pics.length));
 }
 function makePost(a, files, at, r, kind){
   const cnt = countsOf(a);
@@ -836,6 +913,10 @@ async function pruneGone(){
 }
 async function botRun(){
   await pruneGone();
+  if (!S.misc.videosIn && [...LIB.photos.values()].some(l => l.some(f => isVideo(f.mime)))){
+    for (const a of LIB.accounts) for (const p of queued(a.id)){ for (const f of p.files) if (countsOf(a)[f.key]) countsOf(a)[f.key]--; await delPost(p); }
+    S.misc.videosIn = now(); await saveMisc();
+  }
   for (const a of postersOn()) await backfill(a);
   await cyclePosts();
   for (const a of postersOn()) await fillQueue(a);
