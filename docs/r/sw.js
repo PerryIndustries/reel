@@ -1,5 +1,5 @@
 // Offline support for Thread's shell. Posts and photos live in the app's own storage and in Reel's, not here.
-const CACHE = "thread-v1";
+const CACHE = "thread-v2";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "../kit/core.js", "../kit/base.css", "../pfp/index.json"];
 
 self.addEventListener("install", (e) => {

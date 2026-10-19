@@ -909,7 +909,7 @@ function render(){
 function renderEmpty(){
   document.querySelector(".tabbar").hidden = true;
   setTop(`<h1 class="logo">${esc(APP.name)}</h1>`);
-  $("#view").innerHTML = `<div class="empty"><div class="emptymark">${APP.mark || ""}</div><h2>Open Reel first</h2><p>${esc(APP.name)} posts the photos Reel fetched from your Drive folders, for the same accounts. Open Reel first so it can fetch your photos, then come back here.</p><p class="hint">Both apps have to be opened from the same address, so ${esc(APP.name)} can see what Reel saved on this phone.</p><button class="btn primary" type="button" data-recheck>Check again</button></div>`;
+  $("#view").innerHTML = `<div class="empty"><div class="emptymark">${APP.mark || ""}</div><h2>Open Reel first</h2><p>${esc(APP.name)} posts the photos Reel fetched from your Drive folders, for the same accounts. Open Reel first so it can fetch your photos, then come back here.</p><p class="hint">On iPhone, an app added to the Home Screen can't see another one's photos. Open ${esc(APP.name)} from inside Reel instead: Reel → Settings → Open ${esc(APP.name)}.</p><a class="btn primary" href="../">Open Reel</a><button class="btn" type="button" data-recheck>Check again</button></div>`;
 }
 // Pull the feed down from the top (or tap Home) and it reloads with whatever is new, like Instagram.
 let refreshing = false, pull = null;

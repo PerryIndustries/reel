@@ -167,7 +167,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 1, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
+window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 2, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -552,6 +552,7 @@ setInterval(() => { const r = route(); if (r.name === "chat" && r.b) APP.dmRepai
 APP.views.settings = v => {
   setTop(`${backBtn}<h1>Settings</h1>`);
   v.innerHTML = `<div class="pad form">
+    <a class="btn" href="../">Back to Reel</a>
     <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.</div>
       ${LIB.accounts.map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>u/${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
     </div>

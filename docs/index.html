@@ -548,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 90;
+const APP_VERSION = 91;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
@@ -3037,6 +3037,10 @@ function vSettings(v){
   setTop(`${backBtn}<h1>Settings</h1>`);
   const st = S.settings, signed = !!tokenOK();
   v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Thread and Wire</h3>
+      <div class="hint">Your Reddit-style and X-style feeds, posting the same photos. Open them from here: on iPhone, apps added to the Home Screen can't see each other's photos.</div>
+      <a class="btn primary" href="r/">Open Thread</a>
+      <a class="btn primary" href="x/">Open Wire</a></div>
     <div class="card"><h3>Accounts</h3>
       <div class="hint">Each account has its own Drive folder and its own captions, comments and story text. Tap one to set it up.</div>
       ${S.accounts.map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : hasPcFolder(a) ? "" : "No Drive folder yet"}${hasPcFolder(a) ? (hasFolder(a) ? " · " : "") + "PC folder: " + esc(a.pcFolder) : ""} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
