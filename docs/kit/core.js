@@ -274,7 +274,8 @@ const vidSeen = new IntersectionObserver(async es => {
     if (e.isIntersecting && e.intersectionRatio >= .5){
       vd.dataset.want = "1";
       if (!vd.getAttribute("src")){ const u = await videoURL(vd.dataset.media, vd.dataset.mime); if (!u || vd.dataset.want !== "1") continue; vd.src = u; }
-      vd.play().catch(() => {});
+      // iPhone won't start one with sound unless a tap did: it plays muted instead of sitting frozen.
+      vd.play().catch(err => { if (!err || err.name !== "NotAllowedError" || vd.muted) return; vd.muted = true; vd.play().catch(() => {}); const b = vd.parentElement.querySelector("[data-vsound]"); if (b) b.classList.remove("on"); });
     } else { vd.dataset.want = ""; if (!vd.paused) vd.pause(); }
   }
 }, { threshold: [0, .5] });
