@@ -548,8 +548,10 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 92;
+const APP_VERSION = 93;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
+// The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
+const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
 const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avatarAuto:false, followers:2400, following:312, growth:35, verified:false, startedAt:0, interval:180, level:"normal", folderName:"", folderId:"", folderLink:false,
   captionStyle:"thirst", myCaptions:"", capDirection:"", comDirection:"", storyStyle:"thirst", myStoryTexts:"", storyDirection:"", storiesPerDay:3, order:"random", writer:"text",
   dmAuto:"some", dmFanDirection:"", dmMeDirection:"", pronouns:"she", heat:"explicit" };
@@ -574,14 +576,80 @@ async function shuffleQueue(a){
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
 const S = { savedVids:{}, vidSeen:{}, dms:{}, convos:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
-const A = () => S.accounts.find(a => a.id === S.current) || S.accounts[0];
+// Your own accounts, and the other accounts (a.npc): other people on the app, never "you".
+const own = () => S.accounts.filter(a => !a.npc);
+const npcs = () => S.accounts.filter(a => a.npc);
+const A = () => S.accounts.find(a => a.id === S.current && !a.npc) || own()[0] || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
+const others = () => S.settings.others || (S.settings.others = { ...OTHERS_DEFAULT });
+const othersActive = () => { const o = others(); return !!o.on && !!(o.folderId || (o.folderName || "").trim()); };
+// A fan index past the pool stands for one of the other accounts, so they can be commenters, likers and DM senders like fans.
+const npcIndex = a => POOL + npcs().indexOf(a);
+// Home and the stories tray show your accounts and the other accounts you follow; the rest stay in Explore.
+const feedAccts = () => S.accounts.filter(a => !a.npc || isFollowing(npcIndex(a)));
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
 async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, convos:S.convos, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
+// One of the other accounts, made from the set's seed and its number, so the same set comes back the same every time.
+// Followers run from a few hundred to about 200K; captions, comments and story text come from the built-in lines and
+// the lists your own accounts have (nothing is written per post for them, so they add no work for the writer).
+const NPC_BIOS = ["18+ only 🔞","your favorite distraction","posting what i want","dms open, be nice","spicy on purpose 🌶️","be nice or be gone","self shot, self made","gym rat with a camera","night owl 🌙 posting late","just a girl and her tripod","link below 👇","main account. the other one is worse","sunsets and bad decisions","lingerie enthusiast","here to ruin your focus","unapologetically me","📍 somewhere warm","soft launch of my chaos","mirror selfie connoisseur","new post most days","not sorry 💋","the lighting is never the problem","no bra club","filthy and friendly","bad influence, good angles","she/her · adults only","your mom warned you about me","i post, you stare","professional distraction","late night content only"];
+const npcId = (gen, k) => "n_" + k + "_" + ((gen >>> 0).toString(36));
+function makeNpc(k, gen){
+  const r = rng(hashStr("npc" + k + "|" + gen));
+  let handle = gamerHandle(r); while (S.accounts.some(x => x.handle === handle)) handle += Math.floor(r() * 90 + 10);
+  const followers = Math.round(Math.exp(Math.log(300) + r() * (Math.log(200000) - Math.log(300))));
+  const x = r();
+  const level = followers > 80000 ? (x < .15 ? "viral" : "high") : followers > 15000 ? (x < .5 ? "high" : "normal") : followers < 2000 ? (x < .5 ? "low" : "normal") : "normal";
+  return { ...DEFAULT_ACCOUNT, id: npcId(gen, k), npc: true, handle, name: gamerName(handle, r), bio: pick(NPC_BIOS, r), followers, following: Math.round(150 + r() * 900), growth: Math.round(followers * (.002 + r() * .01)) + 2,
+    verified: followers > 30000 && r() < .6, startedAt: now() - (40 + r() * 320) * D, interval: pick([180, 288, 288, 480, 720], r), level, storiesPerDay: 1 + Math.floor(r() * 3), multi: pick(["some", "some", "lots", "off"], r),
+    captionStyle: "thirst", comStyle: "auto", storyStyle: "thirst", writer: "off", dmAuto: "off", pronouns: "she", order: "random", seed: hashStr("npcseed" + gen + "|" + k), multiInit: true };
+}
+// Which of the other accounts a file in the Others folder belongs to: fixed by the file's id and the set, so re-reading
+// the folder never reshuffles what's already posted.
+function dealTo(fileId){ const N = npcs(); if (!N.length) return null; return N[hashStr("deal|" + (others().gen || 0) + "|" + fileId) % N.length]; }
+// Makes the other accounts match the settings (how many, on or off, which set). Posts of accounts that are gone move to
+// the ones left: posted ones stay up under the new name, queued ones are dealt again.
+async function ensureOthers(){
+  const o = others(); let changed = false;
+  const want = othersActive() ? Math.max(0, Math.min(40, Math.round(+o.count || 0))) : 0;
+  if (want && !o.gen){ o.gen = Math.floor(Math.random() * 1e9); await saveSettings(); }
+  const keep = [];
+  for (let k = 0; k < want; k++){
+    let a = accountById(npcId(o.gen, k));
+    if (!a){ a = makeNpc(k, o.gen); S.accounts.push(a); changed = true; }
+    keep.push(a);
+  }
+  const gone = S.accounts.filter(a => a.npc && !keep.includes(a));
+  if (gone.length){ S.accounts = S.accounts.filter(a => !gone.includes(a)); changed = true; }
+  const isUp = p => p.publishAt && p.publishAt <= now();
+  for (const p of S.posts.filter(p => p.others && !isStory(p))){
+    const to = dealTo(p.driveKey);
+    if (!to){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
+    if (to.id === p.acct || (isUp(p) && accountById(p.acct))) continue;
+    p.acct = to.id; if (!isUp(p)) p.publishAt = 0; await savePost(p);
+  }
+  for (const p of S.posts.filter(p => !accountById(p.acct) && gone.some(g => g.id === p.acct))){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); }
+  if (changed){ await saveAccounts(); genCache.clear(); }
+}
+// Every so often one of them changes her profile picture to another of her photos, and now and then her bio.
+async function npcDrift(){
+  const day = Math.floor(now() / D); let changed = false;
+  for (const a of npcs()){
+    if (a.driftDay === day) continue;
+    const r = rng(hashStr("drift" + a.seed + "|" + day)), x = r(), y = r();
+    const first = a.driftDay === undefined; a.driftDay = day; changed = true;
+    if (first) continue;
+    if (x < .16){ const imgs = allImages(a.id).filter(k => k !== a.avatar); if (imgs.length){ a.avatar = pick(imgs, r); a.avatarAuto = true; } }
+    if (y < .06){ const b = pick(NPC_BIOS.filter(t => t !== a.bio), r); if (b) a.bio = b; }
+  }
+  if (changed) await saveAccounts();
+}
+// A few of their posts blow up: many more likes and comments, and a jump in followers.
+const viral = p => { const a = accountById(p.acct); return !!(a && a.npc) && rng((p.seed ^ 0x45d9f3b) >>> 0)() < .04; };
 
 const urls = new Map();
 async function mediaURL(key){
@@ -823,7 +891,14 @@ function gamerName(handle, r){
 const acctCache = new Map(), usedHandles = new Set();
 const nameBump = i => (S.settings.nameBump || {})[i] || 0;
 const pfpBump = i => (S.settings.pfpBump || {})[i] || 0;
+// One of the other accounts in the shape of a fan, so everything that shows a commenter or a liker can show her too.
+function npcShim(i){
+  const N = npcs(); if (!N.length) return null;
+  const a = N[(i - POOL) % N.length];
+  return { i, handle: handleOf(a), name: a.name || handleOf(a), bio: a.bio || "", followers: followersNow(a), following: a.following + followBackGain(a), posts: live(a.id).length, verified: !!a.verified, tiles: 0, seed: a.seed, hueA: 0, hueB: 0, npc: a };
+}
 function acct(i){
+  if (i >= POOL){ const s = npcShim(i); if (s) return s; i = i % POOL; }
   if (acctCache.has(i)) return acctCache.get(i);
   const r = rng(hashStr("acct"+i+"|"+S.settings.seed));
   const rn = rng(hashStr("acct"+i+"|"+(S.settings.nameSeed || S.settings.seed)+(nameBump(i) ? "|"+nameBump(i) : "")));
@@ -869,6 +944,7 @@ function pfpFor(a){
   return uri;
 }
 function acctAv(a, size){
+  if (a.npc) return myAv(size, a.npc);
   const pic = pfpFor(a);
   if (pic && pic.startsWith("media:")) return `<span class="av s${size}"><img data-media="${esc(pic.slice(6))}" alt=""></span>`;
   if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy" ${pic.startsWith("http") ? 'style="object-position:50% 18%"' : ""}></span>`;
@@ -903,6 +979,7 @@ function followBump(p, a){
   const lv = LEVEL[a.level] || 1;
   let rate = isStory(p) ? .003 + r()*.007 : .012 + r()*.03;
   if (!isStory(p) && r() < .15) rate *= 2.5 + r()*3;
+  if (!isStory(p) && viral(p)) rate *= 10;
   return Math.round(baseFollowersAt(a, p.publishAt) * rate * Math.sqrt(lv));
 }
 function followersAt(a, t){
@@ -916,7 +993,7 @@ function totals(p){
   const r = rng(p.seed);
   let rate = (.05 + r()*.08) * (LEVEL[a.level] || 1);
   if (r() < .12) rate *= 2 + r()*3.5;
-  const totalL = p.likesTarget ?? Math.round(followersAt(a, p.publishAt) * Math.min(rate, 2.5));
+  const totalL = p.likesTarget ?? Math.round(followersAt(a, p.publishAt) * Math.min(rate, 2.5) * (viral(p) ? 25 + rng((p.seed ^ 0x45d9f3b) >>> 0)() * 75 : 1));
   const totalC = p.commentsTarget ?? Math.max(3, Math.round(totalL * ((thirsty(a) ? .03 : .012) + r()*.03)));
   return { totalL, totalC, views: Math.round(totalL * (5 + r()*9)) };
 }
@@ -932,12 +1009,16 @@ function engage(p){
   return { likes, comments, views, ...t };
 }
 const genCache = new Map();
-const ownComments = a => (a.myComments || "").split("\n").map(x => x.trim()).filter(x => x && !wrongVoice(x, a, "comments"));
+// The other accounts have no lists of their own: they draw from the lists your accounts have (the ones the writer filled,
+// or the style on the PC), so they sound like the rest of the app without any writing of their own.
+const lentLines = field => [...new Set(own().flatMap(x => (x[field] || "").split("\n").map(t => t.trim()).filter(Boolean)))];
+const linesOf = (a, field) => a.npc && !(a[field] || "").trim() ? lentLines(field) : (a[field] || "").split("\n").map(x => x.trim()).filter(Boolean);
+const ownComments = a => linesOf(a, "myComments").filter(x => !wrongVoice(x, a, "comments"));
 // About 15 fans per account who show up again and again in the comments.
 const regularsOf = a => { const r = rng(hashStr("reg" + a.seed)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 function genComments(p){
   const oa = acctOf(p), own = ownComments(oa), onlyOwn = oa.comStyle === "mine" && own.length > 0;
-  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, oa.captionStyle, oa.level, (p.aiComments||[]).length, p.aiComments?.[0], oa.comStyle, oa.myComments, p.comTry].join("|");
+  const key = [p.id, p.commentsTarget, p.likesTarget, S.settings.seed, oa.captionStyle, oa.level, (p.aiComments||[]).length, p.aiComments?.[0], oa.comStyle, oa.myComments, p.comTry, npcs().length, others().gen, oa.npc ? lentLines("myComments").length : 0].join("|");
   if (genCache.has(key)) return genCache.get(key);
   // Your own comment lines, word for word: each post starts at a different place in the list so posts don't all open the same way.
   const start = own.length ? ((p.seed >>> 0) + (p.comTry || 0) * 7) % own.length : 0;
@@ -947,9 +1028,13 @@ function genComments(p){
   const aiC = (p.aiComments || []).filter(t => !wrongVoice(t, oa, "comments"));
   const out = [];
   const used = new Set();
+  // About one comment in eight is one of the other accounts (its own rng, so the fans' order stays as it was).
+  const N = npcs(), self = oa.npc ? N.indexOf(oa) : -1, rn = rng((p.seed ^ 0x6c62272e) >>> 0);
   for (let k=0;k<n;k++){
     const reg = regularsOf(acctOf(p));
-    let ai = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL); while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
+    let ai = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL);
+    const x = rn(), y = rn(); if (N.length && x < .125){ let j = Math.floor(y * N.length); if (j === self) j = (j + 1) % N.length; if (j !== self) ai = POOL + j; }
+    while (used.has(ai) && used.size < POOL) ai = (ai+1)%POOL; used.add(ai);
     const off = k < 3 ? (20 + r()*300) * 1000 : -6*H*Math.log(1 - r()*.97) + r()*120e3;
     let text = thirsty(acctOf(p)) ? (r() < .92 ? pick(THIRST_COMMENTS, r) : pick(COMMENTS, r)) : pick(COMMENTS, r);
     if (aiC.length) text = aiC[k % aiC.length];
@@ -968,16 +1053,24 @@ function visibleComments(p){
 function likerSample(p, n){
   const r = rng(p.seed ^ 0x5bd1e995); const out = new Set();
   while (out.size < Math.min(n, POOL)) out.add(Math.floor(r()*POOL));
-  return [...out];
+  const list = [...out];
+  // now and then one of the other accounts is the first name shown among the likes
+  const N = npcs(); if (N.length && list.length){ const a = accountById(p.acct), rn = rng((p.seed ^ 0x165667b1) >>> 0); if (rn() < .2){ const k = Math.floor(rn() * N.length); if (N[k] !== a) list[0] = POOL + k; } }
+  return list;
 }
 const followMap = () => (S.follows[A().id] ||= {});
 function baseFollowing(i){ return rng(hashStr("fol"+i+A().seed))() < .35; }
-function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
+// The other accounts are followed unless you unfollow them (kept in settings, for all your accounts at once).
+function isFollowing(i){ if (i >= POOL){ const s = npcShim(i); return !s || !(others().unfollowed || {})[s.npc.id]; } const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
+async function toggleFollow(i){
+  if (i >= POOL){ const s = npcShim(i); if (!s) return; const u = (others().unfollowed ||= {}); if (u[s.npc.id]) delete u[s.npc.id]; else u[s.npc.id] = 1; homeOrder = null; await saveSettings(); return; }
+  followMap()[i] = !isFollowing(i); await saveMisc();
+}
 function followsYou(i, o){ return rng(hashStr("fy"+i+(o || A()).seed))() < .8; }
 // The account follows a few fans back every day.
 const followBackPerDay = a => .6 + (LEVEL[a.level] || 1) * .4;
 const followBackGain = a => Math.floor(Math.max(0, (now() - (a.startedAt || now())) / D) * followBackPerDay(a));
-function followingCount(){ let n = A().following + followBackGain(A()); for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n; }
+function followingCount(){ let n = A().following + followBackGain(A()); for (const [i,v] of Object.entries(followMap())){ const b = baseFollowing(+i); if (v && !b) n++; if (!v && b) n--; } return n + npcs().filter(a => isFollowing(npcIndex(a))).length; }
 
 const OWNER_CMT = ["😏","stop 😭","thank youu","❤️","haha","you're sweet","maybe 👀","🫣","ok you win","lol","appreciate you","😌","you're trouble","shhh 🤫","say less","🙈"];
 // Some comments get an answer from the account, and some get a like from it.
@@ -1065,6 +1158,7 @@ function fanPost(a, k){
   return { k, key: fanPhoto(a, k), caption: pick(FAN_CAPTIONS, r), likes: Math.round(a.followers * (.04 + r()*.12)), comments: Math.round(a.followers * (.002 + r()*.006)), at, r };
 }
 function fanStory(a){
+  if (a.npc) return null;
   const day = Math.floor(now() / D);
   const r = rng(hashStr("fs" + a.seed + "|" + day));
   if (r() > .22 || !fanPhoto(a, 0)) return null;
@@ -1072,7 +1166,9 @@ function fanStory(a){
   return { id: "fs_" + a.i + "_" + day, pseudo: "fan", fan: a.i, files: [{ key: fanPhoto(a, 100 + day % 50), mime: "image/jpeg" }], publishAt: at, seed: hashStr("fs" + a.i + day), storyText: "" };
 }
 function vFanPost(v, r){
-  const a = acct(+r.a), x = fanPost(a, +r.b);
+  const a = acct(+r.a);
+  if (a.npc){ vNpc(v, a.npc, {}); return; }
+  const x = fanPost(a, +r.b);
   setTop(`${backBtn}<h1>Post</h1>`);
   if (!x.key){ loadPfps(); v.innerHTML = `<div class="empty"><h2>Loading…</h2></div>`; return; }
   const cr = rng(hashStr("fpc" + a.seed + r.b));
@@ -1091,6 +1187,8 @@ const DM_POST = ["this one 😮‍💨","ok THIS pic","why'd you post this 😭"
 const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐"];
 THIRST.push(...GENRE.caption.map(t => genderize(t, "she"))); THIRST_COMMENTS.push(...GENRE.comments.map(t => genderize(t, "she"))); STORY_TEXT.push(...GENRE.story); DM_OPEN.push(...GENRE.dmFan); DM_OWNER.push(...GENRE.dmMe);
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous"];
+// What one of the other accounts sends when she slides into your DMs: a creator talking to a creator.
+const NPC_DM = ["your last post 😮‍💨","ok we need to collab","how do you get your lighting like that","girl. the audacity of that post","just followed, obsessed with your page","we're both up at this hour huh","teach me your angles pls","your feed is unreal","you ate that last one","down to shoot together sometime?","the comments under your post are feral lol","ok your captions are better than mine, rude","saw you in my suggested and had to say hi","we have the same haters i think 😭","what tripod do you use","that story today?? iconic","i keep seeing you everywhere now","hi from the other side of the explore page","you post and the whole app stops","sending you my favorite angle, don't steal it"];
 const dmCache = new Map();
 const dmBank = (k, d) => { const l = PC() && PC().pool[k]; return l && l.length ? l : d; };
 let convoVer = 0;
@@ -1122,6 +1220,8 @@ function dmTemplate(a){
         if (r() < .6) add(i, { me:false, text: pick(dmBank("dmBack", DM_BACK), r), at: t2 + (2 + r() * 25) * 60e3 });
       }
     }
+    // now and then one of the other accounts says hi (its own rng, so the fans' messages stay as they were)
+    const N = npcs(); if (N.length){ const rn = rng(hashStr("dmn" + a.seed + "|" + d)); if (rn() < .15) add(POOL + Math.floor(rn() * N.length), { me:false, text: pick(NPC_DM, rn), at: d * D + rn() * D }); }
   }
   for (const t of T.values()) t.msgs.sort((x, y) => x.at - y.at);
   if (dmCache.size > 30) dmCache.clear(); dmCache.set(key, T);
@@ -1136,7 +1236,7 @@ function dmThreads(a){
 const dmReadAt = (a, i) => { const m = (S.dmRead[a.id] ||= { __base: now() - 6*H }); return m[i] || m.__base || 0; };
 const dmUnread = (a, t) => !t.last.me && t.last.at > dmReadAt(a, t.i);
 const dmUnreadCount = a => dmThreads(a).filter(t => dmUnread(a, t)).length;
-const dmPrimary = (a, i) => rng(hashStr("fb" + i + a.seed))() < .3;
+const dmPrimary = (a, i) => i >= POOL || rng(hashStr("fb" + i + a.seed))() < .3;
 
 /* ================= DM conversations (written by Ollama) ================= */
 // A saved chat: msgs, next (who talks next and when: { who: "fan"|"me", at, seenAt, ready }), note (the owner's note about this
@@ -1169,6 +1269,7 @@ async function ownerSend(a, i, text){
 }
 // Who this follower is. Fixed per fan, so the same person always texts the same way.
 function fanPersona(f){
+  if (f.npc) return `@${f.handle} (name ${f.name}), another creator on the app with her own account (bio: "${f.bio}", ${fmt(f.followers)} followers). Not a fan: a peer. Friendly, playful, a little competitive, talks shop (posts, lighting, angles, comments, haters), hypes the owner up, flirts a bit. Lowercase, casual, some emoji.`;
   const r = rng(hashStr("persona" + f.i + "|" + S.settings.seed));
   const nerve = pick(["shy and a little nervous, gets bolder the more the owner replies", "confident and forward, says what they want", "playful and teasing, loves banter", "sweet and a bit clingy, double-texts when ignored", "smooth and cocky, acts unbothered", "chaotic, all caps sometimes, lots of keysmash"], r);
   const typing = pick(["all lowercase, barely any punctuation", "lowercase with lots of emoji", "normal capitalisation, a few emoji", "short bursts, often splits one thought into two texts", "abbreviations like u, ur, rn, fr, ngl", "longer messages, asks lots of questions"], r);
@@ -1192,11 +1293,11 @@ async function writeTurn(a, i, c){
     if (out){ c.summary = out.trim(); c.sumUpTo = c.msgs.length - 20; }
   }
   const pd = PC() && PC().dm, feel = l => (l || []).length ? `\nThe feel (write new texts, never these): ${[...l].sort(() => Math.random() - .5).slice(0, 4).join(" / ")}` : "";
-  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${pd && pd.fan ? pd.fan + feel(pd.fanEx) : styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan", a)}`
+  const style = who === "fan" ? `WHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW ${f.npc ? "SHE TEXTS\nLike one creator texting another: easy, warm, a bit cheeky, never a horny fan." : `FANS TEXT\n${pd && pd.fan ? pd.fan + feel(pd.fanEx) : styleFor(a.dmFanDirection, "", DM_FAN_RULES, "dmFan", a)}`}`
     : `HOW @${me} TEXTS\n${pd && pd.me ? pd.me + feel(pd.meEx) : styleFor(a.dmMeDirection, "", DM_ME_RULES, "dmMe", a)}`;
   const note = hasText(c.note) ? `\n\nTHE OWNER'S NOTE ABOUT THIS CHAT (follow it)\n${c.note.trim()}` : "";
   const writer = who === "fan" ? f.handle : me;
-  const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
+  const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${f.handle}, ${f.npc ? "another creator on the app" : "a follower"}. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${style}${note}`;
   const recent = c.msgs.slice(Math.max(c.sumUpTo, c.msgs.length - 24));
   const dir = who === "fan" ? ["How fans text", a.dmFanDirection] : [`How @${me} texts`, a.dmMeDirection];
   const text = `${c.summary ? `Earlier in the chat (summary):\n${c.summary}\n\n` : ""}${recent.length ? `The chat so far, oldest first:\n${recent.map(m => chatLine(a, f, m)).join("\n")}` : `@${f.handle} is sending the first message.`}\n\nWrite @${writer}'s next message(s).${remind(a, [dir, ["This chat", c.note]])}`;
@@ -1211,7 +1312,7 @@ async function dmTick(){
   if (dmBusy || !ollamaURL()) return;
   dmBusy = true; let changed = false;
   try {
-    for (const a of S.accounts){
+    for (const a of own()){
       if (a.writer === "off") continue;
       autoStartChats(a);
       for (const [k, c] of Object.entries(S.convos[a.id] || {})){
@@ -1366,8 +1467,8 @@ async function regroupQueue(a){
 // Each file is queued on the account whose folder it came from.
 async function autoSchedule(){
   if (!S.accounts.length) return;
-  // the main folder only feeds accounts without a folder of their own (or everyone, if they all have one)
-  const takers = S.accounts.filter(a => !a.folderName.trim()).length ? S.accounts.filter(a => !a.folderName.trim()) : S.accounts;
+  // the main folder only feeds your accounts without a folder of their own (or all of yours, if they all have one)
+  const takers = own().filter(a => !a.folderName.trim()).length ? own().filter(a => !a.folderName.trim()) : own();
   for (const p of S.posts.filter(p => p.shared !== false && !isStory(p) && p.source === "drive" && p.publishAt > now() && !takers.some(a => a.id === p.acct))){ p.acct = null; p.publishAt = 0; await savePost(p); }
   const W = waitingAll(); if (!W.length) return;
   const load = a => queued(a.id).length + W.filter(p => p.acct === a.id).length;
@@ -1425,7 +1526,7 @@ async function cyclePosts(force = {}){
 }
 /* ================= stories ================= */
 function storyTextPool(a){
-  const mine = (a.myStoryTexts || "").split("\n").map(x => x.trim()).filter(Boolean);
+  const mine = linesOf(a, "myStoryTexts");
   return [...mine, ...mine, ...mine, ...(a.storyStyle === "thirst" ? STORY_TEXT : [])];
 }
 function storyText(seed, a){ const pool = storyTextPool(a || A()); return pool.length ? pick(pool, rng(seed)) : ""; }
@@ -1464,7 +1565,7 @@ function storyStats(p){
 
 /* ================= captions ================= */
 function captionPool(a){
-  const mine = (a.myCaptions || "").split("\n").map(x => x.trim()).filter(x => x && !wrongVoice(x, a, "caption"));
+  const mine = linesOf(a, "myCaptions").filter(x => !wrongVoice(x, a, "caption"));
   return [...mine, ...mine, ...mine, ...(thirsty(a) ? THIRST : [])];
 }
 function genCaption(p, attempt){
@@ -1517,7 +1618,8 @@ async function ensureAvatars(force){
     if (a.avatar && !force) continue;
     const taken = new Set(S.accounts.map(x => x.avatar));
     let imgs = allImages(a.id).filter(k => !taken.has(k));
-    if (!imgs.length) imgs = allImages().filter(k => !taken.has(k));
+    // one of the other accounts only ever shows her own photos
+    if (!imgs.length && !a.npc) imgs = allImages().filter(k => !taken.has(k));
     if (!imgs.length) continue;
     a.avatar = imgs[Math.floor(Math.random()*imgs.length)]; a.avatarAuto = true;
   }
@@ -1539,8 +1641,8 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
-  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(async () => { await loadPcStyle(); writerRun(); if (!PC()) autoPools(); }, 400); }
+async function autoRun(){ await ensureOthers(); for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
+  await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await npcDrift(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(async () => { await loadPcStyle(); writerRun(); if (!PC()) autoPools(); }, 400); }
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
 // The address of the owner's Ollama is stored only on this phone, and requests go straight to that PC, never to an AI company.
@@ -2077,7 +2179,16 @@ const base = n => n.replace(/\.[^.]+$/, "").toLowerCase();
 const isText = f => f.mimeType === "text/plain" || /\.txt$/i.test(f.name);
 const isMedia = f => isImage(f.mimeType) || isVideo(f.mimeType);
 const hasFolder = a => !!(a.folderId || (a.folderName || "").trim());
-const hasSetup = () => S.accounts.some(hasFolder);
+const hasSetup = () => own().some(hasFolder) || othersActive();
+// Every photo and video under a folder, any depth, each on its own (no "a subfolder is one post" here), with name.txt
+// next to name.jpg as that file's caption. Folders inside folders inside folders: up to 8 levels down.
+async function listTree(id, token, out = [], depth = 0){
+  const kids = await listChildren(id, token);
+  const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
+  for (const f of kids) if (isMedia(f)) out.push({ f, caption: texts.get(base(f.name)) });
+  if (depth < 8) for (const f of kids) if (f.mimeType === FOLDER) await listTree(f.id, token, out, depth + 1);
+  return out;
+}
 // A folder can be typed as its name, or pasted as a Drive link (works for folders other Google accounts shared with you).
 function folderIdFromInput(v){ const m = String(v).match(/folders\/([\w-]{10,})/) || String(v).trim().match(/^([\w-]{25,})$/); return m ? m[1] : ""; }
 function setFolder(a, v){
@@ -2102,25 +2213,41 @@ async function sync(auto, full){
   }
   syncing = true; setSync("Finding your folders…", 0);
   try {
-    // every account reads only its own folder
-    const sources = S.accounts.filter(hasFolder).map(a => ({ owner: a.id, holder: a }));
+    // every account reads only its own folder; the other accounts share one folder, read all the way down
+    const sources = own().filter(hasFolder).map(a => ({ owner: a.id, holder: a, save: saveAccounts }));
+    if (othersActive()) sources.push({ owner: null, holder: others(), others: true, save: saveSettings });
     if (full) for (const a of S.accounts) if (!a.folderLink) a.folderId = "";
+    if (full && !others().folderLink) others().folderId = "";
     const failed = new Set(), problems = [];
     const isUp = p => p.publishAt && p.publishAt <= now();
     const known = new Set(S.posts.filter(p => !full || isUp(p)).flatMap(p => p.driveKeys || [p.driveKey]).filter(Boolean));
     const seen = new Map();
     const ignored = new Set(S.settings.ignored || []);
     const jobs = [], pfpJobs = [];
+    const picked = new Set(); // files already picked up for one of your accounts in this pass
     for (const src of sources){
       let kids;
       try {
-        if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await saveAccounts(); }
-        if (src.holder.folderLink){ const meta = await gapi(`files/${src.holder.folderId}?fields=name&supportsAllDrives=true`, token); if (meta && meta.name && meta.name !== src.holder.folderName){ src.holder.folderName = meta.name; await saveAccounts(); } }
+        if (!src.holder.folderId){ src.holder.folderId = await findFolder(src.holder.folderName, token); await src.save(); }
+        if (src.holder.folderLink){ const meta = await gapi(`files/${src.holder.folderId}?fields=name&supportsAllDrives=true`, token); if (meta && meta.name && meta.name !== src.holder.folderName){ src.holder.folderName = meta.name; await src.save(); } }
         setSync("Reading " + src.holder.folderName.trim() + "…", 0);
-        kids = await listChildren(src.holder.folderId, token);
+        kids = src.others ? await listTree(src.holder.folderId, token) : await listChildren(src.holder.folderId, token);
       } catch(e){
         if (e.message === "signin") throw e;
-        failed.add(src.owner); problems.push(`@${handleOf(src.holder)}: ${e.message || "couldn't read its folder"}`); continue;
+        if (src.others) for (const n of npcs()) failed.add(n.id); else failed.add(src.owner);
+        problems.push(`${src.others ? "Other accounts" : "@" + handleOf(src.holder)}: ${e.message || "couldn't read its folder"}`); continue;
+      }
+      if (src.others){
+        // each file goes to one of the other accounts, always the same one; a file one of your accounts already has is theirs
+        const posts = [];
+        for (const { f, caption } of kids){
+          const to = dealTo(f.id); if (!to) break;
+          if (!seen.has(f.id)) seen.set(f.id, to.id);
+          if (known.has(f.id) || ignored.has(f.id) || picked.has(f.id)) continue;
+          posts.push({ kind:"post", key:f.id, name:f.name, time:f.createdTime, media:[f], caption, owner: seen.get(f.id), others: true });
+        }
+        jobs.push(...shuffleInPlace(posts));
+        continue;
       }
       const texts = new Map(kids.filter(isText).map(f => [base(f.name), f]));
       const target = src.owner ? accountById(src.owner) : S.accounts[0];
@@ -2133,6 +2260,7 @@ async function sync(auto, full){
       for (const f of kids){
         const b = base(f.name);
         if (["avatar","profile","bio"].includes(b)) continue;
+        if (f.mimeType === FOLDER && f.id === others().folderId) continue; // the other accounts' folder inside yours is theirs, not one post of yours
         if (f.mimeType === FOLDER && b === "pfps"){
           for (const m of (await listChildren(f.id, token)).filter(x => isImage(x.mimeType))) pfpJobs.push(m);
           continue;
@@ -2154,6 +2282,7 @@ async function sync(auto, full){
       if (ord === "date") posts.sort((a,b) => (a.time||"").localeCompare(b.time||""));
       else if (ord === "name") posts.sort((a,b) => natural.compare(a.name,b.name));
       else shuffleInPlace(posts);
+      for (const e of posts) for (const m of e.media) picked.add(m.id);
       jobs.push(...posts);
     }
     // Every folder was read, so the queue can now follow Drive: moved files change account, removed files leave the queue. Posted ones stay.
@@ -2165,6 +2294,8 @@ async function sync(auto, full){
       if (full || !seen.has(p.driveKey)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); if (!seen.has(p.driveKey)) dropped++; continue; }
       const owner = seen.get(p.driveKey);
       const wasOwner = p.shared === false ? p.acct : null;
+      // a file one of your accounts has now is yours: the other accounts' copy of it goes
+      if (p.others && !(accountById(owner) || {}).npc){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
       if (owner !== wasOwner){ p.acct = owner || null; p.shared = !owner; p.publishAt = 0; await savePost(p); moved++; }
     }
     // pictures for the fake commenters
@@ -2190,7 +2321,7 @@ async function sync(auto, full){
       }
       let caption = "";
       if (e.caption){ caption = (await (await gapi(`files/${e.caption.id}?alt=media`, token, true)).text()).trim(); }
-      const p = { id: uid(e.kind === "story" ? "s_" : "p_"), kind: e.kind, driveKey: e.key, source:"drive", acct: e.owner || null, shared: !e.owner, files, caption, captionManual: !!caption, createdAt: now(), publishAt: 0, seed: hashStr(e.key), order: ++order, myComments: [], hidden: [] };
+      const p = { id: uid(e.kind === "story" ? "s_" : "p_"), kind: e.kind, driveKey: e.key, source:"drive", acct: e.owner || null, shared: !e.owner, files, caption, captionManual: !!caption, createdAt: now(), publishAt: 0, seed: hashStr(e.key), order: ++order, myComments: [], hidden: [], ...(e.others ? { others: true } : {}) };
       await savePost(p); fresh++;
     }
     setSync("", 1);
@@ -2205,7 +2336,7 @@ async function sync(auto, full){
     await saveSettings(); await saveAccounts();
     await autoRun();
     if (problems.length) toast(problems.join(" · "));
-    else if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}`); }
+    else if (full){ const q = S.posts.filter(p => !isStory(p) && !isUp(p)).length; toast(`Re-read all folders: ${q} queued across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}${npcs().length ? ` (${npcs().length} of them other accounts)` : ""}`); }
     else if (!auto) toast(fresh ? `The bot picked up ${fresh} new ${fresh===1?"file":"files"}` : moved ? `${moved} moved ${moved===1?"file":"files"} switched account` : dropped ? `${dropped} removed ${dropped===1?"file":"files"} left the queue` : jobs.length ? "Profile updated from Drive" : "No new files in your folders");
     if (auto) safeRender(); else render();
   } catch(err){
@@ -2380,7 +2511,7 @@ function render(){
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
     if (t === "reels") b.innerHTML = on ? I.reelsOn : I.reels;
     if (t === "explore") b.innerHTML = on ? I.searchOn : I.search;
-    if (t === "dm"){ const n = S.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.shareOn : I.share) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "dm"){ const n = own().reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.shareOn : I.share) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
     if (t === "me") b.innerHTML = myAv(28).replace('class="av s28"','class="av s28 me"');
   }
   const v = $("#view");
@@ -2423,15 +2554,15 @@ function postCard(p){
       <a class="likes num" href="#/list/likes/${esc(p.id)}">${e.likes ? `Liked by <b data-href="#/u/${liker.i}">${esc(liker.handle)}</b> and <b>${full(Math.max(0,e.likes-1))} others</b>` : "Be the first to like this"}</a>
       ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
-      ${vc.slice(-4).map(c => { const f = c.mine ? null : acct(c.acct); return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(a.id)}"><b>${esc(f ? f.handle : handleOf(a))}</b></a> ${esc(c.text)}</div>`; }).join("")}
+      ${vc.slice(-4).map(c => { const f = c.mine ? null : acct(c.acct), me = a.npc ? A() : a; return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(me.id)}"><b>${esc(f ? f.handle : handleOf(me))}</b></a> ${esc(c.text)}</div>`; }).join("")}
       <div class="when">${esc(ago(p.publishAt, true))}</div>
-      ${p.publishAt <= now() ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
+      ${p.publishAt <= now() && !a.npc ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
     </div>
   </article>`;
 }
 const storyUnseen = aid => activeStories(aid).some(p => !S.storySeen[p.id]);
 function storyTray(){
-  const items = S.accounts.filter(a => activeStories(a.id).length).sort((x,y) => (storyUnseen(y.id)?1:0) - (storyUnseen(x.id)?1:0) || (x.id === S.current ? -1 : 1));
+  const items = feedAccts().filter(a => activeStories(a.id).length).sort((x,y) => (storyUnseen(y.id)?1:0) - (storyUnseen(x.id)?1:0) || (y.npc ? 0 : 1) - (x.npc ? 0 : 1) || (x.id === S.current ? -1 : 1));
   if (!items.length) return "";
   return `<div class="tray pad">${items.map(a => `<button type="button" class="st" data-story="${esc(a.id)}"><span class="ring ${storyUnseen(a.id)?"":"seen"}">${myAv(62, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
@@ -2444,7 +2575,7 @@ function vDM(v, r){
   const list = all.filter(t => (tab === "primary") === dmPrimary(a, t.i));
   const reqN = all.filter(t => !dmPrimary(a, t.i) && dmUnread(a, t)).length;
   const preview = t => { const m = t.last; const st = m.me ? "You: " : m.story ? "Replied to your story: " : m.post ? "Replied to your post: " : ""; return st + m.text; };
-  v.innerHTML = (S.accounts.length > 1 ? `<div class="chips pad">${S.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/dm/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+  v.innerHTML = (own().length > 1 ? `<div class="chips pad">${own().map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/dm/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
     `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/dm/${esc(a.id)}" class="${tab==="primary"?"on":""}">Primary</button><button type="button" data-href="#/dm/${esc(a.id)}//requests" class="${tab==="requests"?"on":""}">Requests${reqN ? ` (${reqN})` : ""}</button></div>` +
     `<div class="pad list">${list.length ? list.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="row dmrow" href="#/dm/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages</h2><p>${tab === "primary" ? "Messages from people this account follows show up here." : "Messages from everyone else land here first."}</p></div>`}</div>`;
 }
@@ -2534,8 +2665,10 @@ function vExplore(v){
     if (!term){ $("#xresults").innerHTML = ""; return; }
     // fan pictures load once; the results redraw themselves when they arrive instead of the whole page
     if (!pfpIndex){ loadPfps().then(() => { if ($("#xq") === q) search(); }); }
-    const mine = S.accounts.filter(a => handleOf(a).toLowerCase().includes(term) || (a.name || "").toLowerCase().includes(term));
-    const fans = []; for (let i = 0; i < POOL && fans.length < 40; i++){ const a = acct(i); if (a.handle.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)) fans.push(a); }
+    const mine = own().filter(a => handleOf(a).toLowerCase().includes(term) || (a.name || "").toLowerCase().includes(term));
+    // the other accounts come up like anyone else on the app, before the fans
+    const fans = npcs().filter(a => handleOf(a).toLowerCase().includes(term) || (a.name || "").toLowerCase().includes(term)).map(a => acct(npcIndex(a)));
+    for (let i = 0; i < POOL && fans.length < 40; i++){ const a = acct(i); if (a.handle.toLowerCase().includes(term) || a.name.toLowerCase().includes(term)) fans.push(a); }
     fans.sort((x, y) => (y.handle.toLowerCase().startsWith(term) ? 1 : 0) - (x.handle.toLowerCase().startsWith(term) ? 1 : 0) || y.followers - x.followers);
     $("#xresults").innerHTML = `<div class="pad list">${mine.map(a => `<a class="row dmrow" href="#/acct/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b>${checkMark(a.verified)}<div class="muted small">${[a.name, fmt(followersNow(a)) + " followers"].filter(Boolean).map(esc).join(" · ")}</div></div></a>`).join("")}${fans.map(a => `<a class="row dmrow" href="#/u/${a.i}">${acctAv(a, 44)}<div class="who"><b>${esc(a.handle)}</b>${checkMark(a.verified)}<div class="muted small">${esc(a.name)} · ${fmt(a.followers)} followers${isFollowing(a.i) ? " · Following" : ""}</div></div></a>`).join("")}${!mine.length && !fans.length ? `<div class="empty"><h2>No results</h2><p>Nobody matches “${esc(term)}”.</p></div>` : ""}</div>`;
     hydrate($("#xresults"));
@@ -2551,7 +2684,7 @@ function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(
 const capNew = p => p.capAt && now() - p.capAt < D && (S.postSeen[p.id] || 0) < p.capAt;
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
-  const all = S.accounts.flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
+  const all = feedAccts().flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
   // Posts with a new caption come before all of that, the latest change on top.
   if (!homeOrder){
@@ -2598,7 +2731,7 @@ function tileFor(p, reel){
 function vMe(v, r){
   const a = A();
   const tab = r.a === "queue" ? "queue" : r.a === "reels" ? "reels" : "grid";
-  setTop(`${S.accounts.length > 1 ? `<a class="iconbtn" href="#/all" aria-label="All accounts">${I.back}</a>` : ""}<h1><button type="button" data-switch>${esc(handleOf(a))}${checkMark(a.verified)} ${I.down}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  setTop(`${own().length > 1 ? `<a class="iconbtn" href="#/all" aria-label="All accounts">${I.back}</a>` : ""}<h1><button type="button" data-switch>${esc(handleOf(a))}${checkMark(a.verified)} ${I.down}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
   const L = live(), Q = queued(), R = liveReels();
   let body;
   if (tab === "grid"){
@@ -2625,13 +2758,13 @@ function vMe(v, r){
     followersHref:"#/list/followers/me", followingHref:"#/list/following/me",
     name: a.name, bio: a.bio, link: a.link,
     after: highlightsRow(a),
-    buttons: `<a class="btn" href="#/edit">Edit profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a><button class="btn" type="button" data-switch>${S.accounts.length > 1 ? "Switch account" : "Add account"}</button>`
+    buttons: `<a class="btn" href="#/edit">Edit profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a><button class="btn" type="button" data-switch>${own().length > 1 ? "Switch account" : "Add account"}</button>`
   }) + `<div class="ptabs"><button type="button" data-href="#/me" class="${tab==="grid"?"on":""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/me/reels" class="${tab==="reels"?"on":""}" aria-label="Reels">${I.reels}</button><button type="button" data-href="#/me/queue" class="${tab==="queue"?"on":""}" aria-label="Bot queue">${I.clock}${Q.length?`<span class="small">${Q.length}</span>`:""}</button></div>` + body;
   if (!a.handle && !L.length) v.insertAdjacentHTML("afterbegin", `<div class="pad" style="padding-top:12px"><a class="btn primary" href="#/edit">Set this account's name and username</a></div>`);
 }
 function vAll(v){
   setTop(`<h1>All accounts</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  v.innerHTML = acctStrip(true) + S.accounts.map(a => {
+  v.innerHTML = acctStrip(true) + own().map(a => {
     const L = live(a.id), Q = queued(a.id);
     const hasStory = activeStories(a.id).length;
     return `<section class="spec">` + profileHeader({
@@ -2646,7 +2779,9 @@ function vAll(v){
   }).join("");
 }
 async function vAcct(v, r){
-  if (accountById(r.a) && S.current !== r.a){ S.current = r.a; await saveAccounts(); }
+  const a = accountById(r.a);
+  if (a && a.npc){ vNpc(v, a, r); return; }
+  if (a && S.current !== r.a){ S.current = r.a; await saveAccounts(); }
   location.replace(r.b ? "#/list/" + r.b + "/me" : "#/me");
 }
 function qRow(p){
@@ -2658,17 +2793,17 @@ function qRow(p){
 }
 // One-tap switching: every account across the top of the profile pages, plus "All" for the overview.
 function acctStrip(onAll){
-  if (S.accounts.length < 2) return "";
-  return `<div class="tray pad astrip"><button type="button" class="st ${onAll ? "on" : ""}" data-href="#/all"><span class="ring"><span class="allav">${I.grid}</span></span><span class="n">All</span></button>${S.accounts.map(a => `<button type="button" class="st ${!onAll && a.id === S.current ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
+  if (own().length < 2) return "";
+  return `<div class="tray pad astrip"><button type="button" class="st ${onAll ? "on" : ""}" data-href="#/all"><span class="ring"><span class="allav">${I.grid}</span></span><span class="n">All</span></button>${own().map(a => `<button type="button" class="st ${!onAll && a.id === S.current ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
 function accountSwitcher(){
   sheet(`<h3>Accounts</h3>
-    ${S.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued · ${AI()}: ${({off:"off",text:"text only",photos:"sees photos"})[a.writer || "text"]}</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
-    ${S.accounts.length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
+    ${own().map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} followers · ${live(a.id).length} posts · ${queued(a.id).length} queued · ${AI()}: ${({off:"off",text:"text only",photos:"sees photos"})[a.writer || "text"]}</div></div>${a.id === S.current ? `<span class="check" style="width:22px;height:22px">${I.check}</span>` : ""}</button>`).join("")}
+    ${own().length < 5 ? `<button class="opt" data-acc="__new">Add account</button>` : ""}`, async el => {
       const b = el.closest("[data-acc]"); if (!b) return;
       closeSheet();
       if (b.dataset.acc === "__new"){
-        const a = newAccount(S.accounts.length); S.accounts.push(a); S.current = a.id; await saveAccounts();
+        const a = newAccount(own().length); S.accounts.push(a); S.current = a.id; await saveAccounts();
         toast("New account added. Pick its Drive folder."); go("#/aset/" + a.id); return;
       }
       S.current = b.dataset.acc; await saveAccounts(); toast("Switched to @"+handleOf(A())); go("#/me");
@@ -2676,8 +2811,26 @@ function accountSwitcher(){
   hydrate($("#layer"));
 }
 
+// One of the other accounts, seen the way you'd see anyone else's profile: her posts, reels and stories, follow or not.
+function vNpc(v, a, r){
+  const i = npcIndex(a), fol = isFollowing(i), tab = r.b === "reels" ? "reels" : "grid";
+  const L = live(a.id), R = liveReels(a.id), hasStory = activeStories(a.id).length;
+  setTop(`${backBtn}<h1>${esc(handleOf(a))}${checkMark(a.verified)}</h1><button class="iconbtn" type="button" data-npcmenu="${esc(a.id)}" aria-label="Options">${I.dots}</button>`);
+  const fy = own().filter(o => followsYou(i, o));
+  v.innerHTML = profileHeader({
+    av: hasStory ? `<button type="button" class="ring ${storyUnseen(a.id) ? "" : "seen"}" data-story="${esc(a.id)}">${myAv(86, a)}</button>` : `<span class="ring none">${myAv(86, a)}</span>`,
+    posts: L.length, followers: followersNow(a) + (fol ? 1 : 0), following: a.following + followBackGain(a),
+    followersHref: `#/list/followers/${i}`, followingHref: `#/list/following/${i}`,
+    name: a.name, bio: a.bio, link: a.link,
+    extra: fy.length ? `<div class="hint" style="margin-top:6px">Follows ${fy.map(o => "@" + esc(handleOf(o))).join(", ")}</div>` : "",
+    buttons: `<button class="btn ${fol ? "" : "blue"}" type="button" data-follow="${i}">${fol ? "Following" : "Follow"}</button><a class="btn" href="#/dm/${esc(A().id)}/${i}">Message</a>`,
+    after: highlightsRow(a)
+  }) + `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/acct/${esc(a.id)}" class="${tab === "grid" ? "on" : ""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/acct/${esc(a.id)}/reels" class="${tab === "reels" ? "on" : ""}" aria-label="Reels">${I.reels}</button></div>` +
+    (tab === "grid" ? (L.length ? `<div class="grid">${pinnedFirst(L).map(p => tileFor(p, false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2></div>`) : (R.length ? `<div class="grid">${R.map(p => tileFor(p, true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2></div>`));
+}
 function vUser(v, r){
   const a = acct(+r.a); const fol = isFollowing(a.i);
+  if (a.npc){ vNpc(v, a.npc, {}); return; }
   if (!pfpIndex) loadPfps();
   const fs = fanStory(a);
   setTop(`${backBtn}<h1>${esc(a.handle)}${checkMark(a.verified)}</h1><button class="iconbtn" type="button" data-umenu="${a.i}" aria-label="Options">${I.dots}</button>`);
@@ -2711,6 +2864,8 @@ function vComments(v, r){
   setTop(`${backBtn}<h1>Comments</h1>`);
   if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
   const owner = accountById(p.acct) || A();
+  // under one of the other accounts' posts, what you type is from the account you're on
+  const me = owner.npc ? A() : owner;
   if (!p.kept){ p.kept = true; savePost(p); } // opening the comments keeps the post up (see cyclePosts)
   const vc = visibleComments(p);
   const e = engage(p);
@@ -2721,15 +2876,15 @@ function vComments(v, r){
       const a = c.mine ? null : acct(c.acct);
       const lk = (c.likes||0) + ((p.cLikes||{})[c.id] ? 1 : 0);
       const own = ownerReply(p, c);
-      return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32, owner)}<div class="body">
-        <div class="t"><a href="${a?"#/u/"+a.i:"#/me"}"><b>${esc(a?a.handle:handleOf(owner))}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
+      return `<div class="cmt">${a?`<a href="#/u/${a.i}">${acctAv(a,32)}</a>`:myAv(32, me)}<div class="body">
+        <div class="t"><a href="${a?"#/u/"+a.i:"#/acct/"+esc(me.id)}"><b>${esc(a?a.handle:handleOf(me))}</b></a>${a?checkMark(a.verified):""} ${esc(c.text)}</div>
         <div class="meta"><span>${esc(ago(c.at))}</span>${lk?`<span>${fmt(lk)} ${lk===1?"like":"likes"}</span>`:""}<button type="button" data-reply="${esc(a?a.handle:"")}">Reply</button><button type="button" data-hidec="${esc(c.id)}" data-p="${esc(p.id)}">${c.mine?"Delete":"Hide"}</button>${own && own.liked ? `<span class="byc">${I.heartOn} by ${esc(handleOf(owner))}</span>` : ""}</div>
       </div><button class="h" type="button" data-clike="${esc(c.id)}" data-p="${esc(p.id)}" style="${(p.cLikes||{})[c.id]?"color:var(--heart)":""}" aria-label="Like comment">${(p.cLikes||{})[c.id]?I.heartOn:I.heart}</button></div>${own && own.reply ? `<div class="cmt reply">${myAv(24, owner)}<div class="body"><div class="t"><a href="#/acct/${esc(owner.id)}"><b>${esc(handleOf(owner))}</b></a> <span class="link">@${esc(a ? a.handle : "")}</span> ${esc(own.reply.text)}</div><div class="meta"><span>${esc(ago(own.reply.at))}</span></div></div></div>` : ""}`;
     }).join("")}
     ${extra?`<div class="hint" style="padding:12px 0">${full(extra)} more ${extra===1?"comment":"comments"}</div>`:""}
     ${!vc.length?`<div class="empty"><h2>No comments yet</h2><p>They start coming in a few minutes after posting.</p></div>`:""}
   </div>
-  <div class="cbox"><div class="in pad">${myAv(32, owner)}<input type="text" id="cin" placeholder="Add a comment…" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
+  <div class="cbox"><div class="in pad">${myAv(32, me)}<input type="text" id="cin" placeholder="Add a comment…" autocomplete="off"><button type="button" data-addc="${esc(p.id)}">Post</button></div></div>`;
 }
 
 function vList(v, r){
@@ -2742,8 +2897,8 @@ function vList(v, r){
     title = kind === "followers" ? "Followers" : "Following";
     total = who ? (kind === "followers" ? who.followers : who.following) : (kind === "followers" ? followersNow() : followingCount());
     const rr = rng(hashStr(kind+id+S.settings.seed+A().seed)); const set = new Set();
-    if (!who && kind === "following"){ for (let i=0;i<POOL;i++) if (isFollowing(i)) set.add(i); }
-    else if (!who && kind === "followers"){ for (let i=0;i<POOL;i++) if (followsYou(i)) set.add(i); }
+    if (!who && kind === "following"){ for (const a of npcs()) if (isFollowing(npcIndex(a))) set.add(npcIndex(a)); for (let i=0;i<POOL;i++) if (isFollowing(i)) set.add(i); }
+    else if (!who && kind === "followers"){ for (const a of npcs()) if (followsYou(npcIndex(a))) set.add(npcIndex(a)); for (let i=0;i<POOL;i++) if (followsYou(i)) set.add(i); }
     else while (set.size < Math.min(50, total)) set.add(Math.floor(rr()*POOL));
     ids = [...set].slice(0, 80);
   }
@@ -2764,10 +2919,16 @@ function events(a){
   for (const p of activeStories(a.id)){ const s = storyStats(p); if (s.likes > 1){ const l = likerSample(p, 1)[0]; ev.push({ at: Math.min(now(), p.publishAt + 15*60e3), acct:l, html:`<b>${esc(acct(l).handle)}</b> and ${full(s.likes-1)} others liked ${who}'s story.`, p, f:p.files[0], story:true }); } }
   const r = rng(hashStr("ev"+Math.floor(now()/D)+a.seed));
   for (let d=0; d<10; d++) for (let k=0; k<3; k++){ const t = now() - d*D - r()*D; const i = Math.floor(r()*POOL); if (t > (a.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(acct(i).handle)}</b> started following ${who}.`, follow:i, own:a }); }
+  // the other accounts: the ones who follow this account did so at a fixed time, and some of them like its newer posts
+  for (const n of npcs()){
+    const i = npcIndex(n), rn = rng(hashStr("npcf" + n.id + "|" + a.id));
+    if (followsYou(i, a)){ const t = now() - rn() * 20*D; if (t > (a.startedAt||0)) ev.push({ at:t, acct:i, html:`<b>${esc(handleOf(n))}</b> started following ${who}.`, follow:i, own:a }); }
+    for (const p of live(a.id).slice(0, 8)){ const rl = rng(hashStr("npcl" + n.id + "|" + p.id)); if (rl() < .2 && engage(p).likes > 0) ev.push({ at: Math.min(now(), p.publishAt + (5 + rl()*400)*60e3), acct:i, html:`<b>${esc(handleOf(n))}</b> liked ${who}'s ${isVideo(p.files[0].mime) && p.files.length===1 ? "reel" : "post"}.`, p, f:p.files[0] }); }
+  }
   return ev.filter(e => e.at <= now());
 }
-const allEvents = () => S.accounts.flatMap(events).sort((x,y) => y.at - x.at).slice(0, 120);
-const unseen = () => S.accounts.some(a => live(a.id).length) && allEvents().some(e => e.at > (S.seenAt.all||0));
+const allEvents = () => own().flatMap(events).sort((x,y) => y.at - x.at).slice(0, 120);
+const unseen = () => own().some(a => live(a.id).length) && allEvents().some(e => e.at > (S.seenAt.all||0));
 function vActivity(v){
   setTop(`<h1>Activity</h1>`);
   const ev = allEvents();
@@ -2796,7 +2957,7 @@ let reelGrid = [], reelShown = 0, reelIO = null;
 const reelTileHTML = x => `<button type="button" class="tile tall" data-vault="grid" data-vstart="${esc(x.key)}">${mediaTag(x, "", { poster: true })}${S.vidSeen[x.key] ? "" : `<span class="views">${I.playLine}New</span>`}</button>`;
 function vReelsTab(v, r){
   setTop(`<h1>Reels</h1>${allVideos().length ? `<button class="iconbtn" type="button" data-vault="all" aria-label="Shuffle all videos">${I.reels}</button>` : ""}`);
-  const R = S.accounts.flatMap(a => liveReels(a.id)).sort((x,y) => y.publishAt - x.publishAt);
+  const R = feedAccts().flatMap(a => liveReels(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   const V = allVideos();
   const saved = Object.entries(S.savedVids || {}).sort((x, y) => y[1] - x[1]).map(([k]) => V.find(x => x.key === k)).filter(Boolean);
   if (r.a) openReels(R, r.a);
@@ -2930,7 +3091,7 @@ function storyTextTag(p){
   return `<div class="txt${cls}" style="top:${top}%;transform:rotate(${tilt}deg)"><span>${esc(p.storyText)}</span></div>`;
 }
 function openStories(aid, only){
-  const order = only ? [aid] : [aid, ...S.accounts.map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
+  const order = only ? [aid] : [aid, ...feedAccts().map(a => a.id).filter(id => id !== aid && activeStories(id).length)];
   let ai = 0, list = only || activeStories(order[0]);
   if (!list.length) return;
   let i = Math.max(0, list.findIndex(p => !S.storySeen[p.id]));
@@ -2945,7 +3106,7 @@ function openStories(aid, only){
       <div class="hd"><button type="button" ${fan ? `data-sfan="${fan.i}"` : `data-sprof="${esc(a.id)}"`} style="display:flex;align-items:center;gap:8px;color:inherit">${fan ? acctAv(fan, 32) : myAv(32, a)}<b>${esc(fan ? fan.handle : handleOf(a))}</b></button>${p.pseudo === "hl" ? `<span style="opacity:.75">${esc(p.hl)}</span>` : `<span style="opacity:.75">${esc(ago(p.publishAt))}</span>`}<span class="sp"></span><button class="x" type="button" data-sclose aria-label="Close">${I.close}</button></div>
       ${p.storyText ? storyTextTag(p) : ""}
       <div class="taps"><button type="button" data-sprev aria-label="Previous"></button><button type="button" data-snext aria-label="Next"></button></div>
-      <div class="ft">${fan ? "" : p.pseudo === "hl" ? `<span class="seen">${I.eye}<span>${fmt(st.views)} views</span></span><span class="sp" style="flex:1"></span><button type="button" data-hlrm="${esc(p.acct)}|${esc(p.hl)}|${esc(p.item)}" style="font-weight:600">Remove from highlight</button>` : `<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
+      <div class="ft">${fan ? "" : a.npc ? `<button type="button" class="reply" data-sreply="${esc(a.id)}">Reply to ${esc(handleOf(a))}…</button><button type="button" data-sheart aria-label="Like">${I.heart}</button>` : p.pseudo === "hl" ? `<span class="seen">${I.eye}<span>${fmt(st.views)} views</span></span><span class="sp" style="flex:1"></span><button type="button" data-hlrm="${esc(p.acct)}|${esc(p.hl)}|${esc(p.item)}" style="font-weight:600">Remove from highlight</button>` : `<button type="button" class="seen" data-sviews="${esc(p.id)}">${I.eye}<span>${fmt(st.views)} views · ${fmt(st.likes)} likes</span></button><span class="sp" style="flex:1"></span><button type="button" data-stext="${esc(p.id)}" style="font-weight:600">New text</button>`}</div>
     </div>`;
     await hydrate($("#full"));
     fitStoryMedia($("#full .media"));
@@ -2968,6 +3129,8 @@ function openStories(aid, only){
     if ("snext" in t.dataset) return next();
     if ("sprev" in t.dataset) return prev();
     if (t.dataset.sviews){ const id = t.dataset.sviews; closeFull(); go("#/list/views/"+id); return; }
+    if (t.dataset.sreply){ const aid = t.dataset.sreply; closeFull(); go("#/dm/" + A().id + "/" + npcIndex(accountById(aid))); return; }
+    if ("sheart" in t.dataset){ t.innerHTML = I.heartOn; t.style.color = "var(--heart)"; return; }
     if (t.dataset.stext){ const p = S.posts.find(x => x.id === t.dataset.stext); p.storyText = storyText(hashStr(uid("x")), acctOf(p)); await savePost(p); show(); }
   };
   show();
@@ -3029,7 +3192,7 @@ function vEdit(v){
     <div class="field"><span class="lbl">How popular this account is</span><div class="seg" id="plevel">${[["low","Small"],["normal","Normal"],["high","Big"],["viral","Huge"]].map(([k,l])=>`<button type="button" data-plevel="${k}" aria-pressed="${P.level===k}">${l}</button>`).join("")}</div></div>
     <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" id="pv" ${P.verified?"checked":""} style="width:auto"> Show a verified check</label>
     <button class="btn primary" type="button" data-saveprofile>Save</button>
-    ${S.accounts.length > 1 ? `<button class="btn danger" type="button" data-delacc>Remove this account</button><div class="hint">Its posts are removed from this phone. Nothing in Drive changes.</div>` : ""}
+    ${own().length > 1 ? `<button class="btn danger" type="button" data-delacc>Remove this account</button><div class="hint">Its posts are removed from this phone. Nothing in Drive changes.</div>` : ""}
   </div>`;
 }
 
@@ -3043,9 +3206,22 @@ function vSettings(v){
       <a class="btn primary" href="x/">Open Wire</a></div>
     <div class="card"><h3>Accounts</h3>
       <div class="hint">Each account has its own Drive folder and its own captions, comments and story text. Tap one to set it up.</div>
-      ${S.accounts.map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : hasPcFolder(a) ? "" : "No Drive folder yet"}${hasPcFolder(a) ? (hasFolder(a) ? " · " : "") + "PC folder: " + esc(a.pcFolder) : ""} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
-      ${S.accounts.length < 5 ? `<button class="btn" type="button" data-switch>Add account</button>` : ""}
+      ${own().map(a => `<a class="arow" href="#/aset/${esc(a.id)}">${myAv(44, a)}<div class="who"><b>@${esc(handleOf(a))}</b><div class="hint">${hasFolder(a) ? "Drive folder: " + esc(a.folderName || "linked") : hasPcFolder(a) ? "" : "No Drive folder yet"}${hasPcFolder(a) ? (hasFolder(a) ? " · " : "") + "PC folder: " + esc(a.pcFolder) : ""} · ${queued(a.id).length} queued</div></div>${I.back.replace("<svg", '<svg style="transform:rotate(180deg);width:18px;height:18px"')}</a>`).join("")}
+      ${own().length < 5 ? `<button class="btn" type="button" data-switch>Add account</button>` : ""}
     </div>
+    ${(() => { const o = others(), N = npcs(), P = S.posts.filter(p => p.others && !isStory(p)), nf = l => l.reduce((n, p) => n + (p.driveKeys || [p.driveKey]).length, 0), files = nf(P), queuedN = nf(P.filter(p => p.publishAt > now() || !p.publishAt)); return `<div class="card"><h3>Other accounts</h3>
+      <div class="hint">Made-up creators who post from one Drive folder of yours: every photo and video in it and in its subfolders, dealt out between them, each one its own post. They post and put up stories by themselves, show up in Home, Explore and Reels, comment on and like your posts, follow you and each other, slide into your DMs now and then, and grow and change over time. They're in Thread and Wire too.</div>
+      <div class="field"><label for="ofolder">Folder name or link</label><input type="text" id="ofolder" value="${esc(o.folderName || "")}" placeholder="e.g. Others, or paste a Drive folder link" autocapitalize="off" autocorrect="off"></div>
+      <button class="btn" type="button" data-otherspick>Pick from Drive</button>
+      <span class="lbl">Other accounts</span>
+      <div class="seg"><button type="button" data-otherson="on" aria-pressed="${!!o.on}">On</button><button type="button" data-otherson="off" aria-pressed="${!o.on}">Off</button></div>
+      <span class="lbl">How many</span>
+      <div class="seg">${[5, 10, 15, 20].map(n => `<button type="button" data-otherscount="${n}" aria-pressed="${+o.count === n}">${n}</button>`).join("")}</div>
+      <button class="btn" type="button" data-othersnew>New random accounts</button>
+      <div class="hint">New names, pictures and follower counts. What's already posted stays up under the new names.</div>
+      <div class="hint">${N.length ? `${N.length} ${N.length === 1 ? "account" : "accounts"} · ${files} ${files === 1 ? "file" : "files"} · ${queuedN} queued` : othersActive() ? "Reading the folder next time Drive is checked." : o.on ? "Pick a folder to get them started." : "Off."}</div>
+      ${N.length ? `<div class="hint">${N.map(a => `<a href="#/acct/${esc(a.id)}">@${esc(handleOf(a))}</a>`).join(" · ")}</div>` : ""}
+    </div>`; })()}
     <div class="card"><h3>Google Drive</h3>
       <div class="hint">${signed ? "Signed in to Google." : "Tap below to sign in the first time."} The app checks every account's folder each time you open it. It only reads, and never changes or deletes anything in your Drive.</div>
       <button class="btn primary" type="button" data-sync>${signed ? "Check now" : "Sign in and check now"}</button>
@@ -3091,6 +3267,7 @@ function vSettings(v){
   $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
   $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}. Rewriting everything now.`); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); writerRun(); });
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
+  $("#ofolder").addEventListener("change", async e => { const o = others(); setFolder(o, e.target.value); await saveSettings(); await autoRun(); if (othersActive()){ toast("Folder saved. Reading it now."); sync(false); } else { toast(o.on ? "Folder removed" : "Folder saved"); render(); } });
   $("#importFile").addEventListener("change", async e => {
     const f = e.target.files[0], b = $("[data-importpick]"); if (!f || !b) return;
     b.disabled = true; b.textContent = "Importing…";
@@ -3099,13 +3276,13 @@ function vSettings(v){
       toast(`Imported ${man.posts.length} posts. Reloading…`); setTimeout(() => location.reload(), 900);
     } catch(err){ b.disabled = false; b.textContent = "Import from a file"; toast("Couldn't import: " + err.message); }
   });
-  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p)).length} posts across ${S.accounts.length} ${S.accounts.length===1?"account":"accounts"}.`; });
+  if (navigator.storage?.estimate) navigator.storage.estimate().then(e => { const el = $("#sstore"); if (el) el.textContent = `${(e.usage/1048576).toFixed(0)} MB used on this phone. ${S.posts.filter(p=>!isStory(p) && !p.others).length} posts across ${own().length} ${own().length===1?"account":"accounts"}${npcs().length ? `, and ${S.posts.filter(p => p.others && !isStory(p)).length} on the other accounts` : ""}.`; });
 }
 
 // One account's own setup: its Drive folder, how it posts, and how its captions, comments and stories read.
 function vAset(v, r){
   const a = accountById(r.a);
-  if (!a){ go("#/settings"); return; }
+  if (!a || a.npc){ go("#/settings"); return; }
   const id = esc(a.id);
   setTop(`${backBtn}<h1>@${esc(handleOf(a))}</h1>`);
   const seg = (attr, cur, opts) => `<div class="seg">${opts.map(([k,l]) => `<button type="button" data-${attr}="${k}" data-acct="${id}" aria-pressed="${cur===k}">${l}</button>`).join("")}</div>`;
@@ -3223,18 +3400,21 @@ function vAset(v, r){
   });
   $("#amystory").addEventListener("change", async e => { a.myStoryTexts = e.target.value; await saveAccounts(); for (const p of S.posts.filter(p => isStory(p) && p.acct === a.id && p.publishAt > now() - D)){ p.storyText = storyText(hashStr(uid("x")), a); await savePost(p); } toast("Story text saved"); });
 }
+// a: one of your accounts, or the other accounts' settings (then the name is "the other accounts").
 async function pickFolder(a){
   const token = tokenOK();
   if (!token){ toast("Sign in to Google first"); sync(false); return; }
   let list = [];
   try { list = (await gapi(`files?q=${encodeURIComponent(`mimeType='${FOLDER}' and trashed=false`)}&orderBy=modifiedTime desc&pageSize=100&fields=files(id,name)&supportsAllDrives=true&includeItemsFromAllDrives=true`, token)).files || []; }
   catch(e){ toast(e.message === "signin" ? "Sign in to Google first" : "Couldn't list your folders"); if (e.message === "signin") sync(false); return; }
-  const takenBy = id => S.accounts.find(x => x !== a && x.folderId === id);
-  sheet(`<h3>Pick @${esc(handleOf(a))}'s folder</h3>
-    ${list.length ? list.map(f => { const t = takenBy(f.id); return `<button type="button" class="opt" data-fid="${esc(f.id)}" data-fname="${esc(f.name)}">${esc(f.name)}${t ? ` <span class="muted small">(used by @${esc(handleOf(t))})</span>` : ""}${a.folderId === f.id ? " ✓" : ""}</button>`; }).join("") : `<div class="hint">No folders found in your Drive.</div>`}`, async el => {
+  const isOthers = a === others(), who = isOthers ? "the other accounts" : "@" + handleOf(a);
+  const takenBy = id => { const x = S.accounts.find(x => x !== a && x.folderId === id); return x ? "@" + handleOf(x) : !isOthers && others().folderId === id ? "the other accounts" : ""; };
+  sheet(`<h3>Pick ${esc(who)}${isOthers ? "'" : "'s"} folder</h3>
+    ${list.length ? list.map(f => { const t = takenBy(f.id); return `<button type="button" class="opt" data-fid="${esc(f.id)}" data-fname="${esc(f.name)}">${esc(f.name)}${t ? ` <span class="muted small">(used by ${esc(t)})</span>` : ""}${a.folderId === f.id ? " ✓" : ""}</button>`; }).join("") : `<div class="hint">No folders found in your Drive.</div>`}`, async el => {
       const b = el.closest("[data-fid]"); if (!b) return;
       closeSheet();
       Object.assign(a, { folderId: b.dataset.fid, folderName: b.dataset.fname, folderLink: true });
+      if (isOthers){ await saveSettings(); await autoRun(); toast(`The other accounts post from ${b.dataset.fname}. Reading it now.`); render(); sync(false); return; }
       await saveAccounts(); toast(`@${handleOf(a)} now posts from ${b.dataset.fname}. Reading it now.`); render(); sync(false, true);
     });
 }
@@ -3337,13 +3517,29 @@ function closeSheet(){ $("#layer").innerHTML = ""; }
 function postMenu(id){
   const p = S.posts.find(x => x.id === id); if (!p) return;
   const isLive = p.publishAt && p.publishAt <= now();
-  const others = S.accounts.filter(a => a.id !== p.acct);
+  const poster = accountById(p.acct);
+  // one of the other accounts' posts: the things you can do to anyone else's post
+  if (poster && poster.npc){
+    const i = npcIndex(poster), fol = isFollowing(i);
+    sheet(`<button class="opt" data-o="follow">${fol ? "Unfollow" : "Follow"} @${esc(handleOf(poster))}</button>
+      <button class="opt" data-o="copy">Copy caption</button>
+      <button class="opt red" data-o="hide">Hide this post</button>`, async el => {
+        const b = el.closest("[data-o]"); if (!b) return;
+        const o = b.dataset.o;
+        if (o === "hide"){ if (b.dataset.armed !== "1"){ b.dataset.armed = "1"; b.textContent = "Tap again to hide it"; return; } closeSheet(); await deletePost(p); return; }
+        closeSheet();
+        if (o === "follow"){ await toggleFollow(i); toast(isFollowing(i) ? `Following @${handleOf(poster)}` : `Unfollowed @${handleOf(poster)}. Her posts stay in Explore.`); render(); }
+        if (o === "copy"){ try { await navigator.clipboard.writeText(p.caption||""); toast("Copied"); } catch(_){ toast("Couldn't copy"); } }
+      });
+    return;
+  }
+  const movable = own().filter(a => a.id !== p.acct);
   sheet(`${isLive ? "" : `<button class="opt" data-o="now">Post now</button>`}
     ${isLive ? `<button class="opt" data-o="pin">${p.pinned ? "Unpin from profile" : "Pin to profile"}</button><button class="opt" data-o="ins">View insights</button>` : ""}
     <button class="opt" data-o="edit">Edit caption, likes, comments, date</button>
     ${isLive ? `<button class="opt" data-o="requeue">Move back to the bot queue</button>` : ""}
     <button class="opt" data-o="recap">New caption</button>
-    ${others.map(a => `<button class="opt" data-o="move" data-to="${esc(a.id)}">Move to @${esc(handleOf(a))}</button>`).join("")}
+    ${movable.map(a => `<button class="opt" data-o="move" data-to="${esc(a.id)}">Move to @${esc(handleOf(a))}</button>`).join("")}
     <button class="opt" data-o="copy">Copy caption</button>
     <button class="opt red" data-o="del">Delete</button>`, async el => {
       const b = el.closest("[data-o]"); if (!b) return;
@@ -3396,7 +3592,7 @@ document.addEventListener("click", async e => {
   if (d.tab === "explore" && route().name === "explore"){ exploreSeed = 0; window.scrollTo({ top: 0, behavior: "smooth" }); render(); return; }
   if (d.tab === "dm"){ go("#/dm/" + (S.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/"+d.tab); return; }
-  if (d.accgo){ if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
+  if (d.accgo){ const a = accountById(d.accgo); if (a && a.npc){ go("#/acct/" + a.id); return; } if (S.current !== d.accgo){ S.current = d.accgo; await saveAccounts(); } if (route().name === "me") render(); else go("#/me"); window.scrollTo(0, 0); return; }
   if ("testai" in d){
     const u = $("#surl").value.trim(); if (!u){ toast("Type your Ollama address first"); return; }
     S.secret.url = u; await saveSecret(); t.textContent = "Testing…";
@@ -3424,7 +3620,20 @@ document.addEventListener("click", async e => {
   if ("msg" in d){ toast("Messages aren't part of this app"); return; }
   if (d.postmenu){ postMenu(d.postmenu); return; }
   if (d.postnow){ const p = S.posts.find(x=>x.id===d.postnow); p.publishAt = now(); await savePost(p); toast("Posted"); render(); return; }
-  if (d.follow !== undefined){ const i = +d.follow; followMap()[i] = !isFollowing(i); await saveMisc(); render(); return; }
+  if (d.follow !== undefined){ await toggleFollow(+d.follow); render(); return; }
+  if (d.npcmenu){
+    const a = accountById(d.npcmenu); if (!a) return; const i = npcIndex(a), fol = isFollowing(i);
+    sheet(`<h3>@${esc(handleOf(a))}</h3><button class="opt" data-n="follow">${fol ? "Unfollow" : "Follow"}</button><button class="opt" data-n="dm">Message</button>`, async el => {
+      const b = el.closest("[data-n]"); if (!b) return; closeSheet();
+      if (b.dataset.n === "follow"){ await toggleFollow(i); toast(isFollowing(i) ? `Following @${handleOf(a)}` : `Unfollowed @${handleOf(a)}. Her posts stay in Explore.`); render(); }
+      if (b.dataset.n === "dm") go("#/dm/" + A().id + "/" + i);
+    });
+    return;
+  }
+  if (d.otherson){ const o = others(); o.on = d.otherson === "on"; await saveSettings(); await autoRun(); render(); toast(o.on ? (othersActive() ? "The other accounts are back" : "On. Pick a folder to get them started.") : "The other accounts are off"); if (othersActive()) sync(true); return; }
+  if (d.otherscount){ const o = others(); o.count = +d.otherscount; await saveSettings(); await autoRun(); render(); toast(`${o.count} other accounts`); return; }
+  if ("othersnew" in d){ const o = others(); o.gen = Math.floor(Math.random() * 1e9); o.unfollowed = {}; await saveSettings(); await autoRun(); render(); toast("New other accounts"); return; }
+  if ("otherspick" in d){ pickFolder(others()); return; }
   if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
   if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
   if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `${AI()} sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `${AI()} is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
@@ -3505,7 +3714,7 @@ document.addEventListener("click", async e => {
     if (d.armed !== "1"){ d.armed = "1"; t.textContent = "Tap again to remove this account"; return; }
     const gone = A();
     for (const p of S.posts.filter(p => p.acct === gone.id)){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); }
-    S.accounts = S.accounts.filter(a => a !== gone); S.current = S.accounts[0].id; await saveAccounts();
+    S.accounts = S.accounts.filter(a => a !== gone); S.current = own()[0].id; await saveAccounts();
     await autoRun(); toast("Account removed"); go("#/me"); return;
   }
   if ("newnames" in d){ S.settings.nameSeed = Math.floor(Math.random()*1e9); S.settings.nameBump = {}; acctCache.clear(); usedHandles.clear(); await saveSettings(); toast("New names for everyone"); render(); return; }
@@ -3589,16 +3798,18 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   S.secret = { url: "", model: "", ...(await DB.get("kv","secret") || {}) };
   if (!S.secret.rp){ for (const k of ["engine", "oaKey", "oaModel"]) delete S.secret[k]; if (/^(gemma3|uncensored|huihui)/.test(S.secret.model || "")) S.secret.model = ""; S.secret.rp = 1; await saveSecret(); }
   if ("key" in S.secret || "keyFrom" in S.secret){ for (const k of ["key", "keyFrom"]) delete S.secret[k]; await saveSecret(); }
+  S.settings.others = { ...OTHERS_DEFAULT, ...(S.settings.others || {}) };
   S.accounts = (await DB.get("kv","accounts")) || [];
-  if (!S.accounts.length){
+  if (!own().length){
     // first run, or an older single-account version: carry the old profile over as account 1
     const old = await DB.get("kv","profile");
     const a = { ...newAccount(0), ...(old || {}), interval: S.settings.interval || 720, level: S.settings.level || "normal", folderName:"", folderId:"" };
     if (!a.startedAt) a.startedAt = now() - 30*D;
-    S.accounts = [a];
+    S.accounts = [a, ...S.accounts];
     for (const p of S.posts) if (!p.acct && p.publishAt){ p.acct = a.id; await savePost(p); }
   }
-  S.current = (await DB.get("kv","current")) || S.accounts[0].id;
+  S.current = (await DB.get("kv","current")) || own()[0].id;
+  if (!accountById(S.current) || accountById(S.current).npc) S.current = own()[0].id;
   {
     // older versions kept captions, story text and one shared "main" folder in settings
     const st = S.settings, carry = {};

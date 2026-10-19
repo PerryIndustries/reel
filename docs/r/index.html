@@ -167,7 +167,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 4, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
+window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 5, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -326,7 +326,7 @@ APP.renderTabs = r => {
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
     if (t === "communities") b.innerHTML = on ? I.commOn : I.comm;
     if (t === "create") b.innerHTML = I.plus;
-    if (t === "chat"){ const n = LIB.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.chatOn : I.chat) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "chat"){ const n = ownAccts().reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.chatOn : I.chat) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
     if (t === "inbox"){ const n = unreadNotes(); b.innerHTML = (on ? I.bellOn : I.bell) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
   }
 };
@@ -347,7 +347,7 @@ function postCard(p, opts = {}){
   return `<article class="post" data-post="${esc(p.id)}">
     <div class="phead pad">
       <a href="#/c/${esc(s.name)}">${subAv(s)}</a>
-      <div class="who"><a href="#/c/${esc(s.name)}"><b>r/${esc(s.name)}</b></a> <span class="muted small">· ${esc(ago(p.publishAt))}</span>${cross ? ` <span class="muted small">· crosspost</span>` : ""}<div class="small muted"><a href="#/me" data-href="#/acct/${esc(a.id)}">u/${esc(handleOf(a))}</a></div></div>
+      <div class="who"><a href="#/c/${esc(s.name)}"><b>r/${esc(s.name)}</b></a> <span class="muted small">· ${esc(ago(p.publishAt))}</span>${cross ? ` <span class="muted small">· crosspost</span>` : ""}<div class="small muted"><a href="${a.npc ? "#/user/" + npcIndex(a) : "#/me"}" data-href="${a.npc ? "#/user/" + npcIndex(a) : "#/acct/" + esc(a.id)}">u/${esc(handleOf(a))}</a></div></div>
       ${joined(s.name) ? `<button class="iconbtn" type="button" data-postmenu="${esc(p.id)}" aria-label="Options">${I.dots}</button>` : `<button class="join" type="button" data-join="${esc(s.name)}">Join</button>`}
     </div>
     <h2 class="title pad ${opts.full ? "" : ""}"><a href="#/p/${esc(p.id)}">${esc(titleOf(p))}</a></h2>
@@ -451,10 +451,20 @@ APP.views.p = (v, r) => {
 };
 // Profile: hers (u/handle, with the account switcher) and a fan's.
 function acctStrip(){
-  if (LIB.accounts.length < 2) return "";
-  return `<div class="astrip">${LIB.accounts.map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
+  if (ownAccts().length < 2) return "";
+  return `<div class="astrip">${ownAccts().map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
-APP.views.acct = async (v, r) => { if (accountById(r.a) && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+APP.views.acct = async (v, r) => { const a = accountById(r.a); if (a && a.npc){ npcProfile(v, a); return; } if (a && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+// One of the other accounts, seen the way you'd see anyone else here: her posts, follow or not, chat.
+function npcProfile(v, a){
+  const i = npcIndex(a), fol = isFollowing(i), k = karmaOf(a), L = sortPosts(live(a.id), "new");
+  setTop(`${backBtn}<h1>u/${esc(handleOf(a))}</h1>`);
+  v.innerHTML = `<div class="prof">${myAv(86, a)}<div class="meta"><h2>u/${esc(handleOf(a))}</h2>${a.name ? `<div class="hint">${esc(a.name)}</div>` : ""}${a.bio ? `<div class="small" style="margin-top:4px;white-space:pre-wrap">${esc(a.bio)}</div>` : ""}</div></div>
+    <div class="pstats num"><div><b>${fmt(k.post + k.comment)}</b><span>Karma</span></div><div><b>${esc(new Date(cakeDay(a)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</b><span>Cake day</span></div></div>
+    <div class="pad" style="display:flex;gap:8px;padding-top:12px"><button class="btn ${fol ? "" : "primary"}" type="button" data-follow="${i}" style="width:auto;flex:1">${fol ? "Following" : "Follow"}</button><a class="btn" href="#/chat/${esc(A().id)}/${i}" style="width:auto;flex:1">Chat</a></div>
+    <div class="ptabs" style="grid-template-columns:1fr"><button type="button" class="on">Posts</button></div>` + (L.length ? L.map(p => postCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>Her first post here goes up soon.</p></div>`);
+  wireGalleries(v);
+}
 APP.views.me = (v, r) => {
   const a = A(), tab = r.a === "comments" ? "comments" : "posts";
   setTop(`<h1><button type="button" data-switch>u/${esc(handleOf(a))} ${I.dn}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
@@ -467,12 +477,13 @@ APP.views.me = (v, r) => {
   }
   v.innerHTML = acctStrip() + `<div class="prof">${myAv(86, a)}<div class="meta"><h2>u/${esc(handleOf(a))}</h2>${a.name ? `<div class="hint">${esc(a.name)}</div>` : ""}${a.bio ? `<div class="small" style="margin-top:4px;white-space:pre-wrap">${esc(a.bio)}</div>` : ""}</div></div>
     <div class="pstats num"><div><b>${fmt(k.post + k.comment)}</b><span>Karma</span></div><div><b>${fmt(k.post)}</b><span>Post karma</span></div><div><b>${fmt(k.comment)}</b><span>Comment karma</span></div><div><b>${esc(new Date(cakeDay(a)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</b><span>Cake day</span></div></div>
-    <div class="pad" style="display:flex;gap:8px;padding-top:12px"><button class="btn" type="button" data-switch style="width:auto;flex:1">${LIB.accounts.length > 1 ? "Switch account" : "Account"}</button><a class="btn" href="#/chat/${esc(a.id)}" style="width:auto;flex:1">Chats${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a></div>
+    <div class="pad" style="display:flex;gap:8px;padding-top:12px"><button class="btn" type="button" data-switch style="width:auto;flex:1">${ownAccts().length > 1 ? "Switch account" : "Account"}</button><a class="btn" href="#/chat/${esc(a.id)}" style="width:auto;flex:1">Chats${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a></div>
     <div class="ptabs"><button type="button" data-href="#/me" class="${tab === "posts" ? "on" : ""}">Posts</button><button type="button" data-href="#/me/comments" class="${tab === "comments" ? "on" : ""}">Comments</button></div>` + body;
   wireGalleries(v);
 };
 APP.views.user = (v, r) => {
-  const f = acct(+r.a); if (!pfpIndex) loadPfps();
+  const f = acct(+r.a); if (f.npc){ npcProfile(v, f.npc); return; }
+  if (!pfpIndex) loadPfps();
   setTop(`${backBtn}<h1>u/${esc(f.handle)}</h1>`);
   const theirs = S.posts.flatMap(p => flattenTree(commentTree(p)).filter(c => c.acct === f.i).map(c => ({ c, p }))).sort((x, y) => y.c.at - x.c.at).slice(0, 30);
   v.innerHTML = `<div class="prof">${acctAv(f, 86)}<div class="meta"><h2>u/${esc(f.handle)}</h2><div class="hint">${esc(f.name)}${f.bio ? " · " + esc(f.bio) : ""}</div></div></div>
@@ -485,7 +496,7 @@ APP.views.user = (v, r) => {
 APP.views.create = v => {
   setTop(`<h1>Create</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
   v.innerHTML = `<div class="pad"><div class="card" style="margin-top:14px"><h3>The bot posts for you</h3><div class="hint">Every photo Reel fetched gets posted here by itself, between 9 AM and midnight, to one of your communities (crossposted now and then). Photos never posted here go first; after that, reposts in new combos. Posts you vote on, save or reply to stay up; the rest come down after a while.</div><div class="hint" data-wstatus>${esc(writerLine())}</div></div></div>` +
-    LIB.accounts.map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">u/${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
+    ownAccts().map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">u/${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
       ${st.on ? `<span class="lbl">Posts per day</span><div class="seg" style="margin:6px 0 10px">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}</button>`).join("")}</div>
       <div class="hint">${photosOf(a.id).length} photos in Reel · ${live(a.id).length} up · ${Q.length} queued${Q.length ? ` · next ${esc(until(Q[0].publishAt))}` : ""}</div>
       ${Q.slice(0, 12).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : ""}</div><div class="info"><div>${esc(titleOf(p))}</div><div class="hint">r/${esc(primarySub(p).name)} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : " · new"}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let u/${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
@@ -493,7 +504,7 @@ APP.views.create = v => {
 // Inbox: what happened to her posts.
 function notes(){
   const out = [];
-  for (const a of LIB.accounts) for (const p of live(a.id).slice(0, 20)){
+  for (const a of ownAccts()) for (const p of live(a.id).slice(0, 20)){
     const s = primarySub(p), tree = commentTree(p), flat = flattenTree(tree);
     for (const c of tree.slice(0, 3)) out.push({ at: c.at, acct: c.acct, html: `<b>u/${esc(acct(c.acct).handle)}</b> replied to your post in <b>r/${esc(s.name)}</b>`, q: c.text, p });
     for (const c of flat.filter(x => x.parent && x.parent.op && x.acct >= 0).slice(0, 3)) out.push({ at: c.at, acct: c.acct, html: `<b>u/${esc(acct(c.acct).handle)}</b> replied to your comment in <b>r/${esc(s.name)}</b>`, q: c.text, p });
@@ -521,7 +532,7 @@ APP.views.chat = (v, r) => {
   setTop(`<h1>Chat</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
   const all = dmThreads(a);
   const preview = t => (t.last.me ? "You: " : t.last.post ? "Sent your post: " : "") + t.last.text;
-  v.innerHTML = (LIB.accounts.length > 1 ? `<div class="chips">${LIB.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/chat/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+  v.innerHTML = (ownAccts().length > 1 ? `<div class="chips">${ownAccts().map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/chat/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
     `<div class="pad">${all.length ? all.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="dmrow" href="#/chat/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">u/${esc(f.handle)}</div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))} · ${esc(ago(t.last.at))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No chats yet</h2><p>Fans start messaging once the first posts are up.</p></div>`}</div>`;
 };
 function chatMsgsHTML(a, i){
@@ -553,8 +564,8 @@ APP.views.settings = v => {
   setTop(`${backBtn}<h1>Settings</h1>`);
   v.innerHTML = `<div class="pad form">
     <a class="btn" href="../">Back to Reel</a>
-    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.</div>
-      ${LIB.accounts.map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>u/${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
+    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.${npcAccts().length ? ` Reel's ${npcAccts().length} other accounts post here too, as other people.` : ""}</div>
+      ${ownAccts().map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>u/${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[1,2,4,8,12].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
     </div>
     <div class="card"><h3>Content</h3>
       <button type="button" class="toggle ${blurOn() ? "on" : ""}" data-blur><span><b>Blur NSFW posts</b><div class="hint">Photos stay blurred until you tap them.</div></span><span class="sw"></span></button>
@@ -617,7 +628,7 @@ function postMenu(id){
 }
 APP.onClick = async (t, d) => {
   if (d.tab === "home"){ if (route().name !== "home") go("#/"); refreshFeed(); return; }
-  if (d.tab === "chat"){ go("#/chat/" + (LIB.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
+  if (d.tab === "chat"){ go("#/chat/" + (ownAccts().find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/" + d.tab); return; }
   if (d.sortsheet){ sheet(`<h3>Sort posts by</h3>${[["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]].map(([k,l,ic]) => `<button class="opt" data-s="${k}">${ic} ${l}${d.sortsheet === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); go("#/home/" + b.dataset.s); }); return; }
   if (d.csort){ sheet(`<h3>Sort comments by</h3>${[["best","Best"],["top","Top"],["new","New"]].map(([k,l]) => `<button class="opt" data-s="${k}">${l}${d.csort === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); location.replace(`#/p/${d.p}/${b.dataset.s}`); render(); }); return; }

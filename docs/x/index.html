@@ -175,7 +175,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 4, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
+window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 5, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -236,10 +236,13 @@ function fanItems(p){
   if (fanCache.has(key)) return fanCache.get(key);
   const a = acctOf(p), r = rng(p.seed ^ 0x3779b9), { L } = totals(p), reg = regularsOf(a);
   const fan = () => r() < .35 ? reg[Math.floor(r() * reg.length)] : Math.floor(r() * POOL);
+  // now and then the repost or quote is one of the other accounts (its own rng, so the fans' picks stay as they were)
+  const N = npcAccts(), self = a.npc ? N.indexOf(a) : -1, rn = rng((p.seed ^ 0x27d4eb2f) >>> 0);
+  const who = () => { const b = fan(), x = rn(), y = rn(); if (N.length && x < .2){ let k = Math.floor(y * N.length); if (k === self) k = (k + 1) % N.length; if (k !== self) return POOL + k; } return b; };
   const out = [];
   const nRe = L > 150 ? Math.floor(r() * 3) : (r() < .3 ? 1 : 0), nQ = L > 300 ? Math.floor(r() * 3) : (r() < .25 ? 1 : 0);
-  for (let k = 0; k < nRe; k++) out.push({ type: "repost", p, by: fan(), at: p.publishAt + (5 + r() * 600) * MIN, id: p.id + "r" + k });
-  for (let k = 0; k < nQ; k++){ const by = fan(); out.push({ type: "quote", p, by, at: p.publishAt + (10 + r() * 900) * MIN, id: p.id + "q" + k, text: (p.aiQuotes || [])[k] || quoteLine(a, r) }); }
+  for (let k = 0; k < nRe; k++) out.push({ type: "repost", p, by: who(), at: p.publishAt + (5 + r() * 600) * MIN, id: p.id + "r" + k });
+  for (let k = 0; k < nQ; k++){ const by = who(), t = quoteLine(a, r); out.push({ type: "quote", p, by, at: p.publishAt + (10 + r() * 900) * MIN, id: p.id + "q" + k, text: by >= POOL ? pick(NPC_QUOTES, rn) : (p.aiQuotes || [])[k] || t }); }
   if (r() < .45){ const by = fan(); out.push({ type: "fan", p, by, at: p.publishAt + (30 + r() * 1200) * MIN, id: p.id + "f", text: (p.aiFan || [])[0] || fanPostLine(a, r) }); }
   if (fanCache.size > 300) fanCache.clear();
   fanCache.set(key, out); return out;
@@ -256,6 +259,8 @@ const PHOTO_LINES = ["new one for the timeline", "soft launch of my ass", "light
 // What the men write when they quote one of her posts, and what they post about her on their own.
 const QUOTES = ["she posted this and went offline. the audacity", "this woman is going to end me", "i have seen this 40 times today and it still works", "the timeline is unusable now, thanks", "i'm not ok. nobody check on me", "not me saving this with my whole chest", "she knows exactly what she's doing", "this is the hottest thing on the app today and it's not close", "my entire for you page is her now. i've accepted it", "how is anyone supposed to work after seeing this", "i'd ruin my life for one night, zero hesitation", "god is a woman and she posts at 11pm", "the fact she replies to people makes this ten times worse", "i would do unspeakable things. speakable ones too", "this is why i have a second account", "i'm so hard i can't type. anyway", "every single man who liked this is a weak man. i liked it twice", "the way my hand moved before my brain did", "putting this in my will", "she did this on purpose and i'm grateful", "fuck. just fuck.", "i'd eat her out for an hour and thank her after", "someone's getting fucked tonight and it's sadly not me", "woke up to this and i'm late for work now", "quote posting so i never lose it"];
 const FAN_POSTS = ["@{h} is ruining my timeline and i hope she never stops", "if @{h} replies to me today i'm logging off a happy man", "every time @{h} posts i lose an hour of my life", "the @{h} notifications are the only reason i open this app", "no one on here is doing it like @{h}. no one", "i think about @{h}'s last post more than i think about my job", "someone tell @{h} to post more. actually don't, i can't take it", "@{h} dropped another one and the group chat went silent", "me refreshing @{h}'s page every ten minutes like a normal person", "@{h} has my whole timeline hard and i'm the ringleader", "another day of @{h} posting and me pretending i'm fine", "@{h} is the only woman i'd beg for in public", "whoever gets to fuck @{h} tonight, know that we all hate you", "watching @{h}'s replies is a sport and i'm a season ticket holder", "@{h} if you see this, hi. it's me. again."];
+// What one of the other accounts writes when she quotes a post: one creator about another.
+const NPC_QUOTES = ["she's unreal", "ok this one got me", "the way she just posts and leaves", "my timeline is blessed today", "teach me your ways", "obsessed with her page", "she never misses", "this is why she's my favorite", "ATE. no notes", "the lighting, the angle, the audacity", "girl.", "we need to collab yesterday", "and they say i'm the problem", "the replies under this are feral and she knows it", "posting this on my story too, sorry not sorry", "she makes it look easy and it's not", "my favorite account doing my favorite thing", "ok queen", "this is a 10 and the guys in the replies agree", "taking notes 📝"];
 const X_REPLIES = ["ratio'd by your own body", "the quote tweets are feral and so am i", "i'm not reading the replies, i'm in them", "sir this is a Christian app. anyway hi", "she replies to the filthy ones first, learn the game", "bookmarked for later. you know what later means", "liked before i even saw the photo", "the notification sound hits different when it's you", "my for you page is just you and i'm not fixing it", "muted the word 'behave' because of you", "i'd risk the suspension for this", "you're the reason this app still exists"];
 const quoteLine = (a, r) => genderize(r() < .6 ? pick(QUOTES, r) : menLine(a, r), a.pronouns);
 const fanPostLine = (a, r) => pick(FAN_POSTS, r).replace(/\{h\}/g, handleOf(a));
@@ -315,7 +320,7 @@ APP.renderTabs = r => {
     if (t === "home") b.innerHTML = on ? I.homeOn : I.home;
     if (t === "search") b.innerHTML = on ? I.searchOn : I.search;
     if (t === "notifications"){ const n = unreadNotes(); b.innerHTML = (on ? I.bellOn : I.bell) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
-    if (t === "messages"){ const n = LIB.accounts.reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.mailOn : I.mail) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
+    if (t === "messages"){ const n = ownAccts().reduce((k, x) => k + dmUnreadCount(x), 0); b.innerHTML = (on ? I.mailOn : I.mail) + (n ? `<b class="cnt">${n > 99 ? "99+" : n}</b>` : ""); }
     if (t === "me") b.innerHTML = on ? I.personOn : I.person;
   }
 };
@@ -454,14 +459,24 @@ APP.views.quotes = (v, r) => {
 };
 // Profile: hers, with the account switcher across the top.
 function acctStrip(){
-  if (LIB.accounts.length < 2) return "";
-  return `<div class="astrip">${LIB.accounts.map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
+  if (ownAccts().length < 2) return "";
+  return `<div class="astrip">${ownAccts().map(a => `<button type="button" class="${a.id === A().id ? "on" : ""}" data-accgo="${esc(a.id)}"><span class="ring">${myAv(44, a)}</span><span class="n">${esc(handleOf(a))}</span></button>`).join("")}</div>`;
 }
-APP.views.acct = async (v, r) => { if (accountById(r.a) && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+APP.views.acct = async (v, r) => { const a = accountById(r.a); if (a && a.npc){ npcProfile(v, a); return; } if (a && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
+// One of the other accounts, seen the way you'd see anyone else here: her posts and quotes, follow or not, message.
+function npcProfile(v, a){
+  const i = npcIndex(a), fol = isFollowing(i), L = live(a.id), hers = allFanItems().filter(x => x.by === i), banner = photosOf(a.id)[0];
+  setTop(`${backBtn}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(L.length)} posts</div></h1>`);
+  const items = [...L.map(p => ({ at: p.publishAt, h: tweetCard(p) })), ...hers.map(x => ({ at: x.at, h: fanCard(x) }))].sort((x, y) => y.at - x.at);
+  v.innerHTML = `<div class="pbanner" style="--h:${hashStr(a.id) % 360}">${banner ? picBox(banner, "pic " + (blurOn() ? "nsfw" : ""), { small: true }) : ""}</div>
+    <div class="phead">${myAv(86, a)}<div class="btns"><a class="btn line" href="#/messages/${esc(A().id)}/${i}">${I.mail.replace("<svg", '<svg style="width:18px;height:18px;vertical-align:-4px"')}</a><button class="btn ${fol ? "line" : "primary"}" type="button" data-follow="${i}">${fol ? "Following" : "Follow"}</button></div></div>
+    <div class="pinfo"><h2>${esc(nameOf(a))}${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}</h2><div class="h">@${esc(handleOf(a))}${followsYou(i) ? ' <span class="flair" style="background:var(--soft);border-radius:4px;padding:1px 5px;font-size:12px">Follows you</span>' : ""}</div>${a.bio ? `<div class="bio">${linkify(a.bio)}</div>` : ""}<div class="meta"><span>${I.cal} Joined ${esc(new Date(joinedAt(a)).toLocaleDateString("en-US", { month: "long", year: "numeric" }))}</span></div><div class="fol num"><span><b>${fmt(followingOf(a))}</b> Following</span><span><b>${fmt(followersNow(a) + (fol ? 1 : 0))}</b> Followers</span></div></div>
+    <div class="ftabs" style="position:static;margin-top:12px"><a class="on">Posts</a><a href="#/messages/${esc(A().id)}/${i}">Message</a></div>` + (items.length ? items.map(x => x.h).join("") : `<div class="empty"><h2>No posts yet</h2><p>Her first post here goes up soon.</p></div>`);
+}
 const pinnedOf = a => { const L = live(a.id); return L.find(p => p.pinned) || (L.length >= 4 ? L.slice().sort((x, y) => totals(y).L - totals(x).L)[0] : null); };
 APP.views.me = (v, r) => {
   const a = A(), tab = ["replies", "media", "likes"].includes(r.a) ? r.a : "posts";
-  setTop(`${LIB.accounts.length > 1 ? `<button class="iconbtn" type="button" data-switch aria-label="Accounts">${I.person}</button>` : ""}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(live(a.id).length)} posts</div></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
+  setTop(`${ownAccts().length > 1 ? `<button class="iconbtn" type="button" data-switch aria-label="Accounts">${I.person}</button>` : ""}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(live(a.id).length)} posts</div></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
   const L = live(a.id), pin = pinnedOf(a);
   let body = "";
   if (tab === "posts") body = L.length ? (pin ? tweetCard(pin, { pinned: true }) : "") + L.filter(p => p !== pin).map(p => tweetCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>${acctSet(a).on ? "The bot's first post goes up soon." : "This account doesn't post here. Turn it on in Settings."}</p></div>`;
@@ -477,12 +492,13 @@ APP.views.me = (v, r) => {
   }
   const banner = photosOf(a.id)[0];
   v.innerHTML = acctStrip() + `<div class="pbanner" style="--h:${hashStr(a.id) % 360}">${banner ? picBox(banner, "pic " + (blurOn() ? "nsfw" : ""), { small: true }) : ""}</div>
-    <div class="phead">${myAv(86, a)}<div class="btns"><button class="btn line" type="button" data-switch>${LIB.accounts.length > 1 ? "Switch account" : "Account"}</button></div></div>
+    <div class="phead">${myAv(86, a)}<div class="btns"><button class="btn line" type="button" data-switch>${ownAccts().length > 1 ? "Switch account" : "Account"}</button></div></div>
     <div class="pinfo"><h2>${esc(nameOf(a))}${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}</h2><div class="h">@${esc(handleOf(a))}</div>${a.bio ? `<div class="bio">${linkify(a.bio)}</div>` : ""}<div class="meta"><span>${I.cal} Joined ${esc(new Date(joinedAt(a)).toLocaleDateString("en-US", { month: "long", year: "numeric" }))}</span>${a.link ? `<span>🔗 ${esc(a.link)}</span>` : ""}</div><div class="fol num"><span><b>${fmt(followingOf(a))}</b> Following</span><span><b>${fmt(followersNow(a))}</b> Followers</span></div></div>
     <div class="ftabs four" style="position:static;margin-top:12px"><a class="${tab === "posts" ? "on" : ""}" href="#/me">Posts</a><a class="${tab === "replies" ? "on" : ""}" href="#/me/replies">Replies</a><a class="${tab === "media" ? "on" : ""}" href="#/me/media">Media</a><a class="${tab === "likes" ? "on" : ""}" href="#/me/likes">Likes</a></div>` + body;
 };
 APP.views.user = (v, r) => {
-  const f = acct(+r.a); if (!pfpIndex) loadPfps();
+  const f = acct(+r.a); if (f.npc){ npcProfile(v, f.npc); return; }
+  if (!pfpIndex) loadPfps();
   setTop(`${backBtn}<h1>${esc(f.name)}</h1>`);
   const theirs = allFanItems().filter(x => x.by === f.i).sort((x, y) => y.at - x.at);
   v.innerHTML = `<div class="pbanner" style="background:linear-gradient(120deg,hsl(${f.seed % 360} 60% 40%),hsl(${(f.seed + 80) % 360} 60% 55%))"></div>
@@ -506,10 +522,12 @@ APP.views.search = v => {
   if (!term){
     v.innerHTML = `<div class="sect pad" style="font-size:20px;font-weight:800">Trends for you</div>${trends().map((x, k) => `<a class="trend" href="#/search/${encodeURIComponent(x.t.replace(/^[#@]/, ""))}"><span class="k">${k + 1} · ${esc(x.k)}</span><b>${esc(x.t)}</b><span class="n">${fmt(x.n)} posts</span></a>`).join("")}`;
   } else {
-    const people = [...LIB.accounts.filter(a => handleOf(a).toLowerCase().includes(term) || nameOf(a).toLowerCase().includes(term)).map(a => ({ own: a }))];
+    const people = [...ownAccts().filter(a => handleOf(a).toLowerCase().includes(term) || nameOf(a).toLowerCase().includes(term)).map(a => ({ own: a }))];
+    // the other accounts come up like anyone else on the app, before the fans
+    for (const a of npcAccts()) if (handleOf(a).toLowerCase().includes(term) || nameOf(a).toLowerCase().includes(term)) people.push({ fan: acct(npcIndex(a)) });
     for (let i = 0; i < POOL && people.length < 30; i++){ const f = acct(i); if (f.handle.toLowerCase().includes(term) || f.name.toLowerCase().includes(term)) people.push({ fan: f }); }
     const posts = allLive().filter(p => textOf(p).toLowerCase().includes(term) || handleOf(acctOf(p)).toLowerCase().includes(term)).slice(0, 40);
-    const fans = allFanItems().filter(x => x.text.toLowerCase().includes(term)).slice(0, 20);
+    const fans = allFanItems().filter(x => (x.text || "").toLowerCase().includes(term)).slice(0, 20); // reposts carry no text
     v.innerHTML = (people.length ? `<div class="sect pad">People</div>${people.map(x => x.own ? `<a class="prow" href="#/acct/${esc(x.own.id)}">${myAv(44, x.own)}<div class="who"><div>${nameLine(x.own)}</div><div class="hint">@${esc(handleOf(x.own))} · ${fmt(followersNow(x.own))} followers</div></div></a>` : `<a class="prow" href="#/user/${x.fan.i}">${acctAv(x.fan, 44)}<div class="who"><div>${fanName(x.fan)}</div><div class="hint">@${esc(x.fan.handle)} · ${esc(x.fan.bio || fmt(x.fan.followers) + " followers")}</div></div><button class="btn ${isFollowing(x.fan.i) ? "line" : "primary"}" type="button" data-follow="${x.fan.i}">${isFollowing(x.fan.i) ? "Following" : "Follow"}</button></a>`).join("")}` : "") +
       (posts.length || fans.length ? `<div class="sect pad">Posts</div>${[...posts.map(p => ({ at: p.publishAt, h: tweetCard(p) })), ...fans.map(x => ({ at: x.at, h: fanCard(x) }))].sort((x, y) => y.at - x.at).map(x => x.h).join("")}` : "") +
       (!people.length && !posts.length && !fans.length ? `<div class="empty"><h2>No results for "${esc(searchQ)}"</h2><p>Try searching for something else.</p></div>` : "");
@@ -520,7 +538,7 @@ APP.views.search = v => {
 // Notifications: grouped likes, reposts, follows and mentions.
 function notes(){
   const out = [];
-  for (const a of LIB.accounts) for (const p of live(a.id).slice(0, 20)){
+  for (const a of ownAccts()) for (const p of live(a.id).slice(0, 20)){
     const s = stats(p), tree = commentTree(p), flat = flattenTree(tree), who = likerSample(p, 3);
     if (s.likes > 2) out.push({ kind: "like", at: Math.min(now(), p.publishAt + 25*MIN), who, html: `<b>${esc(acct(who[0]).name)}</b>${s.likes > 3 ? ` and ${full(s.likes - 1)} others` : ""} liked your post`, p });
     for (const x of fanItems(p).filter(x => x.at <= now())){
@@ -554,7 +572,7 @@ APP.views.messages = (v, r) => {
   setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32, a)}</button><h1>Messages</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
   const all = dmThreads(a);
   const preview = t => (t.last.me ? "You: " : t.last.post ? "Sent your post: " : "") + t.last.text;
-  v.innerHTML = (LIB.accounts.length > 1 ? `<div class="chips">${LIB.accounts.map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/messages/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
+  v.innerHTML = (ownAccts().length > 1 ? `<div class="chips">${ownAccts().map(o => { const u = dmUnreadCount(o); return `<a class="chip ${o.id === a.id ? "on" : ""}" href="#/messages/${esc(o.id)}">${myAv(28, o)}<span>${esc(handleOf(o))}</span>${u ? `<b class="cnt">${u}</b>` : ""}</a>`; }).join("")}</div>` : "") +
     `<div class="pad">${all.length ? all.slice(0, 120).map(t => { const f = acct(t.i); const un = dmUnread(a, t); return `<a class="dmrow" href="#/messages/${esc(a.id)}/${t.i}">${acctAv(f, 44)}<div class="who"><div class="${un ? "un" : ""}">${esc(f.name)} <span class="muted small" style="font-weight:400">@${esc(f.handle)} · ${esc(ago(t.last.at))}</span></div><div class="muted small clamp1 ${un ? "un" : ""}">${esc(preview(t))}</div></div>${un ? `<span class="udot"></span>` : ""}</a>`; }).join("") : `<div class="empty"><h2>No messages yet</h2><p>Fans start messaging once the first posts are up.</p></div>`}</div>`;
 };
 function dmMsgsHTML(a, i){
@@ -585,7 +603,7 @@ setInterval(() => { const r = route(); if (r.name === "messages" && r.b) APP.dmR
 APP.views.queue = v => {
   setTop(`${backBtn}<h1>Scheduled</h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
   v.innerHTML = `<div class="pad"><div class="card" style="margin-top:14px"><h3>The bot posts for you</h3><div class="hint">Every photo Reel fetched gets posted here by itself, between 9 AM and midnight, in sets of one to four; about one post in three is text only. Photos never posted here go first; after that, reposts in new combos. Posts you like, bookmark or reply to stay up; the rest come down after a while.</div><div class="hint" data-wstatus>${esc(writerLine())}</div></div></div>` +
-    LIB.accounts.map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">@${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
+    ownAccts().map(a => { const Q = queued(a.id), st = acctSet(a); return `<div class="pad"><div class="sect">@${esc(handleOf(a))}${st.on ? "" : " · off"}</div>
       ${st.on ? `<span class="lbl">Posts per day</span><div class="seg" style="margin:6px 0 10px">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}</button>`).join("")}</div>
       <div class="hint">${photosOf(a.id).length} photos in Reel · ${live(a.id).length} up · ${Q.length} queued${Q.length ? ` · next ${esc(until(Q[0].publishAt))}` : ""}</div>
       ${Q.slice(0, 14).map(p => `<div class="qrow"><div class="th">${p.files[0] ? mediaTag(p.files[0], "", { small: true }) : `<span style="display:grid;place-items:center;height:100%;font-size:20px">💬</span>`}</div><div class="info"><div>${esc(textOf(p))}</div><div class="hint">${p.kind === "text" ? "text post" : (isVideo(p.files[0].mime) ? "video" : p.files.length + (p.files.length === 1 ? " photo" : " photos"))} · ${esc(until(p.publishAt))}${p.cycled ? " · repost" : p.files.length ? " · new" : ""}</div></div><button class="btn" type="button" data-postnow="${esc(p.id)}">Post now</button></div>`).join("")}` : `<button class="btn" type="button" data-acton="${esc(a.id)}">Let @${esc(handleOf(a))} post here</button>`}</div>`; }).join("");
@@ -594,8 +612,8 @@ APP.views.settings = v => {
   setTop(`${backBtn}<h1>Settings</h1>`);
   v.innerHTML = `<div class="pad form">
     <a class="btn" href="../">Back to Reel</a>
-    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.</div>
-      ${LIB.accounts.map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>@${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
+    <div class="card"><h3>Accounts</h3><div class="hint">Reel's accounts post here with their own photos. Pick which ones, and how often.${npcAccts().length ? ` Reel's ${npcAccts().length} other accounts post here too, as other people.` : ""}</div>
+      ${ownAccts().map(a => { const st = acctSet(a); return `<button type="button" class="toggle ${st.on ? "on" : ""}" data-acton="${esc(a.id)}"><span style="display:flex;align-items:center;gap:10px;min-width:0">${myAv(32, a)}<span style="min-width:0"><b>@${esc(handleOf(a))}</b><div class="hint">${photosOf(a.id).length} photos in Reel${photosOf(a.id).length ? "" : " (open Reel to fetch some)"} · ${st.on ? `about ${st.perDay} a day` : "not posting here"}</div></span></span><span class="sw"></span></button>${st.on ? `<div class="seg">${[2,4,6,10,16].map(n => `<button type="button" data-perday="${n}" data-acct="${esc(a.id)}" aria-pressed="${st.perDay === n}">${n}/day</button>`).join("")}</div>` : ""}`; }).join("")}
     </div>
     <div class="card"><h3>Content</h3>
       <button type="button" class="toggle ${blurOn() ? "on" : ""}" data-blur><span><b>Sensitive media warning</b><div class="hint">Photos stay hidden behind a warning until you tap Show.</div></span><span class="sw"></span></button>
@@ -610,7 +628,7 @@ APP.views.settings = v => {
 function postMenu(id){
   const p = S.posts.find(x => x.id === id); if (!p) return;
   const a = acctOf(p);
-  sheet(`<button class="opt" data-o="pin">${I.pin} ${p.pinned ? "Unpin from profile" : "Pin to your profile"}</button>
+  sheet(`${a.npc ? "" : `<button class="opt" data-o="pin">${I.pin} ${p.pinned ? "Unpin from profile" : "Pin to your profile"}</button>`}
     <button class="opt" data-o="save">${p.saved ? I.bmOn : I.bm} ${p.saved ? "Remove bookmark" : "Bookmark"}</button>
     ${p.files.length ? `<button class="opt" data-o="reveal">${I.eyeOff} ${revealed.has(p.id) || !blurOn() ? "Media is shown" : "Show the media"}</button>` : ""}
     <button class="opt" data-o="retext">${I.quote} New text</button>
@@ -629,7 +647,7 @@ function postMenu(id){
 const repaintCard = p => { const el = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); if (!el || route().name === "p") { render(); return; } const soc = el.querySelector(".social"); el.outerHTML = tweetCard(p, { social: soc ? soc.outerHTML : "" }); const n = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); hydrate(n); };
 APP.onClick = async (t, d) => {
   if (d.tab === "home"){ if (route().name !== "home") go("#/"); refreshFeed(); return; }
-  if (d.tab === "messages"){ go("#/messages/" + (LIB.accounts.find(a => dmUnreadCount(a)) || A()).id); return; }
+  if (d.tab === "messages"){ go("#/messages/" + (ownAccts().find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/" + d.tab); return; }
   if (d.like){ const p = S.posts.find(x => x.id === d.like); if (!p) return; p.liked = !p.liked; p.kept = true; await savePost(p); repaintCard(p); return; }
   if (d.bookmark){ const p = S.posts.find(x => x.id === d.bookmark); if (!p) return; p.saved = !p.saved; await savePost(p); toast(p.saved ? "Added to your Bookmarks" : "Removed from Bookmarks"); repaintCard(p); return; }

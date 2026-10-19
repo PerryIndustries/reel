@@ -114,14 +114,19 @@ async function loadLibrary(){
     }
     photos.set(a.id, list);
   }
+  // a.npc marks Reel's "other accounts": made-up creators who post here too, as other people, never as you
   LIB.accounts = accounts.map(a => ({ pronouns: "she", heat: "explicit", level: "normal", followers: 2400, following: 300, growth: 35, ...a }));
   LIB.photos = photos; LIB.mediaKeys = keys;
-  LIB.ok = LIB.accounts.length > 0 && [...photos.values()].some(l => l.length > 0);
+  LIB.ok = ownAccts().length > 0 && [...photos.values()].some(l => l.length > 0);
   LIB.loadedAt = now();
   return LIB.ok;
 }
 const photosOf = aid => LIB.photos.get(aid) || [];
 const accountById = id => LIB.accounts.find(a => a.id === id);
+const ownAccts = () => LIB.accounts.filter(a => !a.npc);
+const npcAccts = () => LIB.accounts.filter(a => a.npc);
+// A fan index past the pool stands for one of the other accounts, so she can comment, reply and quote like a fan.
+const npcIndex = a => POOL + npcAccts().indexOf(a);
 const handleOf = a => (a && a.handle) || "unnamed";
 const nameOf = a => (a && (a.name || a.handle)) || "unnamed";
 // Pronoun words for the owner, per account: she (default), he or they.
@@ -134,17 +139,17 @@ const ageOf = a => 21 + Math.floor(rng(hashStr("age" + (a.seed || a.id)))() * 9)
 
 /* ================= this app's state ================= */
 const S = { settings: {}, misc: {}, posts: [], current: "", writerMsg: "", dmErr: "" };
-const A = () => accountById(S.current) || accountById(LIB.current) || LIB.accounts[0];
+const A = () => { const a = accountById(S.current) || accountById(LIB.current); return a && !a.npc ? a : ownAccts()[0] || LIB.accounts[0]; };
 const acctOf = p => (p && accountById(p.acct)) || A();
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveMisc(){ await DB.put("kv", S.misc, "misc"); }
 async function saveCurrent(){ await DB.put("kv", S.current, "current"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x => x.id === p.id); if (i < 0) S.posts.push(p); else S.posts[i] = p; }
 async function delPost(p){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x.id !== p.id); }
-// Per-account settings for this app: how often it posts here and whether it posts here at all.
-const acctSet = a => ({ perDay: APP.defaults.perDay, on: true, ...((S.settings.acct || {})[a.id] || {}) });
+// Per-account settings for this app: how often it posts here and whether it posts here at all. The other accounts post about half as often.
+const acctSet = a => ({ perDay: a.npc ? Math.max(1, Math.round(APP.defaults.perDay / 2)) : APP.defaults.perDay, on: true, ...((S.settings.acct || {})[a.id] || {}) });
 async function setAcct(a, patch){ S.settings.acct = { ...(S.settings.acct || {}), [a.id]: { ...acctSet(a), ...patch } }; await saveSettings(); }
-async function switchTo(id){ if (!accountById(id)) return; S.current = id; await saveCurrent(); }
+async function switchTo(id){ const a = accountById(id); if (!a || a.npc) return; S.current = id; await saveCurrent(); }
 
 /* ================= media ================= */
 const urls = new Map();
@@ -333,7 +338,14 @@ function gamerName(handle, r){
   return bare + " " + pick(["🦋","🌙","🖤","✨","🍒","⚡","🥀","☁️","🎧","🕊️"], r);
 }
 const acctCache = new Map(), usedHandles = new Set();
+// One of the other accounts in the shape of a fan, so everything that shows a commenter or a liker can show her too.
+function npcShim(i){
+  const N = npcAccts(); if (!N.length) return null;
+  const a = N[(i - POOL) % N.length];
+  return { i, handle: handleOf(a), name: nameOf(a), bio: a.bio || "", followers: followersNow(a), following: a.following || 300, posts: live(a.id).length, verified: !!a.verified, joined: (a.startedAt || now() - 30*D) - 200*D, karma: Math.round((a.followers || 2400) * 3), seed: a.seed || hashStr(a.id), npc: a };
+}
 function acct(i){
+  if (i >= POOL){ const s = npcShim(i); if (s) return s; i = i % POOL; }
   if (acctCache.has(i)) return acctCache.get(i);
   const r = rng(hashStr("acct"+i+"|"+S.settings.seed));
   let handle = gamerHandle(r);
@@ -372,6 +384,7 @@ function pfpFor(a){
   return uri;
 }
 function acctAv(a, size){
+  if (a.npc) return myAv(size, a.npc);
   const pic = pfpFor(a);
   if (pic) return `<span class="av s${size}"><img src="${pic}" alt="" loading="lazy" ${pic.startsWith("http") ? 'style="object-position:50% 18%"' : ""}></span>`;
   loadPfps();
@@ -381,6 +394,7 @@ function acctAv(a, size){
 const regularsOf = a => { const r = rng(hashStr("reg" + a.seed + APP.id)); return Array.from({ length: 15 }, () => Math.floor(r() * POOL)); };
 // Who this follower is. Fixed per fan, so the same person always texts the same way.
 function fanPersona(f){
+  if (f.npc) return `@${f.handle} (name ${f.name}), another creator on the app with her own account (bio: "${f.bio}"). Not a fan: a peer. Friendly, playful, a little competitive, talks shop (posts, lighting, comments, haters), hypes the owner up, flirts a bit. Lowercase, casual, some emoji.`;
   const r = rng(hashStr("persona" + f.i + "|" + S.settings.seed));
   const nerve = pick(["shy and a little nervous, gets bolder the more the owner replies", "confident and forward, says what he wants", "playful and teasing, loves banter", "sweet and a bit clingy, double-texts when ignored", "smooth and cocky, acts unbothered", "chaotic, all caps sometimes, lots of keysmash", "filthy and blunt, no small talk"], r);
   const typing = pick(["all lowercase, barely any punctuation", "lowercase with lots of emoji", "normal capitalisation, a few emoji", "short bursts, often splits one thought into two texts", "abbreviations like u, ur, rn, fr, ngl", "longer messages, asks lots of questions"], r);
@@ -433,7 +447,8 @@ function likerSample(p, n){
 }
 const followMap = () => (S.misc.follows[A().id] ||= {});
 function baseFollowing(i){ return rng(hashStr("fol"+i+A().seed))() < .35; }
-function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : baseFollowing(i); }
+// The other accounts start out followed.
+function isFollowing(i){ const m = followMap(); return (i in m) ? m[i] : i >= POOL ? true : baseFollowing(i); }
 function followsYou(i, o){ return rng(hashStr("fy"+i+(o || A()).seed))() < .8; }
 
 /* ================= lines (Reel's, plus explicit ones) ================= */
@@ -453,6 +468,8 @@ const DM_OPEN = ["hey 👀","hiii","you're actually so fine","ok i have to say i
 const DM_FOLLOW = ["hello??","😳","sorry that was forward","ok ignore me then 😔","pls notice me","just saying hi again","still thinking about that post","?","👀👀","no pressure lol","i'll wait","still hard btw","ok i'll behave. maybe"];
 const DM_POST = ["this one 😮‍💨","ok THIS pic","why'd you post this 😭","saved this one","the fit in this","can't stop looking at this","you know what you did here","this angle tho","explain yourself 😳","been staring at this for 10 min","10/10","be fr this is unfair","this one lives in my head now","came to this one twice","i need the uncropped version of this","this one broke me"];
 const DM_OWNER = ["haha thank you 😌","stop it 😭","maybe 👀","hey you","appreciate you","lol you're sweet","you're trouble","what are you up to","hii 🙂","guess you'll have to wait and see","😏","thank uu","shy? you don't seem shy 😂","ok you're cute","no comment 🤐","lol you're bold","keep talking","and what would you do about it","prove it","ask nicer 😏","we'll see","hmm convince me","earn it","mm i read that one twice","you can send it. i'll decide if i'm impressed","i'm in bed. your move","that depends how good you are with your mouth"];
+// What one of the other accounts says back when the PC is off: a creator talking to a creator.
+const NPC_BACK = ["lol hi","ok we're friends now","finally, someone who gets it","we should do something together fr","your dms are as fun as your posts","ok you're funny","love this for us","say less 😌","knew you'd be cool","the collab is happening, i've decided"];
 const DM_BACK = ["omg you replied","😭😭 hi","ok i'm dead","wait really?","you made my day","nothing much, you?","i'm blushing","you're even nicer than i thought","🥹","ok now i'm nervous","fuck ok. hi","i was not ready for you to answer","you're going to get me in so much trouble","so… what are you wearing","i'd be so good to you","ok that made me harder than the post did","tell me when and i'm there","give me a chance to show you","i'd worship you","say the word"];
 // Lines in the wrong voice: a comment that sounds like her, or a line of hers that sounds like a guy talking about her.
 const MINORISH = /\b(teens?|schoolgirl|school|underage|minor|barely legal|little girl|young girl|daddy'?s little|jailbait|loli|high ?school)\b/i;
@@ -584,7 +601,8 @@ async function loadPcStyle(){
 const WRITERS = 3;
 let writing = false;
 function setWriter(msg){ S.writerMsg = msg; for (const el of document.querySelectorAll("[data-wstatus]")) el.textContent = msg; }
-const needsWriting = p => !p.textWritten || !p.commentsWritten;
+// The other accounts' posts are never written per post (built-in lines and the PC's lists instead), so they add no work.
+const needsWriting = p => (!p.textWritten || !p.commentsWritten) && !acctOf(p).npc;
 // Writes everything that's waiting, a few at a time, live and next-up posts first. The app's writeOne does one post.
 async function writerRun(){
   if (writing || !ollamaURL() || !APP.writeOne) return;
@@ -630,13 +648,15 @@ const treeCache = new Map();
 const TREE_TOP = () => APP.defaults.topComments || 14;
 function commentTree(p){
   const a = acctOf(p);
-  const key = [p.id, p.seed, (p.aiComments||[]).length, (p.aiReplies||[]).length, (p.aiOp||[]).length, p.comTry, S.settings.seed, (p.thread||[]).length, (p.hiddenC||[]).length, (PC() || {}).ver].join("|");
+  const key = [p.id, p.seed, (p.aiComments||[]).length, (p.aiReplies||[]).length, (p.aiOp||[]).length, p.comTry, S.settings.seed, (p.thread||[]).length, (p.hiddenC||[]).length, (PC() || {}).ver, npcAccts().length].join("|");
   if (treeCache.has(key)) return treeCache.get(key);
   const r = rng((p.seed ^ 0x9e3779b9 ^ ((p.comTry || 0) * 0x85ebca6b)) >>> 0);
   const { C, L } = totals(p);
   const n = clamp(Math.round(C * .6), 3, TREE_TOP());
   const reg = regularsOf(a), used = new Set();
-  const fan = () => { let i = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL); let g = 0; while (used.has(i) && g++ < POOL) i = (i+1)%POOL; used.add(i); return i; };
+  // About one in eight is one of the other accounts (its own rng, so the fans' order stays as it was).
+  const N = npcAccts(), self = a.npc ? N.indexOf(a) : -1, rn = rng((p.seed ^ 0x6c62272e) >>> 0);
+  const fan = () => { let i = r() < .3 ? reg[Math.floor(r()*reg.length)] : Math.floor(r()*POOL); const x = rn(), y = rn(); if (N.length && x < .125){ let j = Math.floor(y * N.length); if (j === self) j = (j + 1) % N.length; if (j !== self) i = POOL + j; } let g = 0; while (used.has(i) && g++ < POOL) i = (i+1)%POOL; used.add(i); return i; };
   const aiC = (p.aiComments || []).filter(t => !wrongVoice(t, a, "comments")), aiR = (p.aiReplies || []).filter(t => !wrongVoice(t, a, "comments")), aiO = (p.aiOp || []).filter(t => !wrongVoice(t, a, "caption"));
   let ci = 0, ri = 0, oi = 0;
   const cText = () => aiC.length && ci < aiC.length ? aiC[ci++] : (APP.bank && APP.bank.comment ? APP.bank.comment(a, r) : menLine(a, r));
@@ -776,7 +796,7 @@ const DM_FAN_RULES = "He has a crush on the owner: flirty, eager, horny. Casual 
 async function writeFanTurn(a, i, c){
   const f = acct(i);
   const recent = c.msgs.slice(-20).map(m => `@${m.me ? handleOf(a) : f.handle}: ${m.text}`).join("\n");
-  const sys = `${contextFor(a)}\n\nThis is a DM chat on ${APP.name} between @${handleOf(a)}, the owner's account, and @${f.handle}, a fan. Write the next message or messages from @${f.handle}: 1 to 2 short texts, the way people really text. Answer what was just said, keep it going, and never repeat an earlier line.\n\nWHO @${f.handle} IS\n${fanPersona(f)}\n\nHOW FANS TEXT\n${DM_FAN_RULES}${WHO_COMMENTS}`;
+  const sys = `${contextFor(a)}\n\nThis is a DM chat on ${APP.name} between @${handleOf(a)}, the owner's account, and @${f.handle}, ${f.npc ? "another creator on the app" : "a fan"}. Write the next message or messages from @${f.handle}: 1 to 2 short texts, the way people really text. Answer what was just said, keep it going, and never repeat an earlier line.\n\nWHO @${f.handle} IS\n${fanPersona(f)}\n\n${f.npc ? "HOW SHE TEXTS\nLike one creator texting another: easy, warm, a bit cheeky, never a horny fan." : `HOW FANS TEXT\n${DM_FAN_RULES}${WHO_COMMENTS}`}`;
   const out = await ask(sys, [{ type: "text", text: `The chat so far, oldest first:\n${recent}\n\nWrite @${f.handle}'s next message(s), one per line, nothing else.` }], undefined, 120);
   return listLines(out).map(t => t.replace(/^\s*@[\w.]+\s*:\s*/, "")).filter(t => t && !wrongVoice(t, a, "comments")).slice(0, 2);
 }
@@ -785,13 +805,13 @@ let dmBusy = false;
 async function dmTick(){
   if (dmBusy) return; dmBusy = true; let changed = false;
   try {
-    for (const a of LIB.accounts) for (const [k, c] of Object.entries(S.misc.convos[a.id] || {})){
+    for (const a of ownAccts()) for (const [k, c] of Object.entries(S.misc.convos[a.id] || {})){
       const n = c.next; if (!n) continue;
       if (!n.ready){
         if (now() < n.at - 25e3) continue;
         let lines = [];
         if (ollamaURL()){ try { lines = await writeFanTurn(a, +k, c); S.dmErr = ""; } catch(e){ const kind = errKind(e); S.dmErr = kind === "conn" ? "Waiting for your PC. Replies come in once Ollama can be reached." : kind === "model" ? `Ollama doesn't have ${ollamaModel()} yet.` : ""; if (kind === "conn" && now() < n.at + 2*MIN) continue; } }
-        if (!lines.length) lines = [pick(DM_BACK, rng(hashStr(a.id + k + n.at)))];
+        if (!lines.length) lines = [pick(+k >= POOL ? NPC_BACK : DM_BACK, rng(hashStr(a.id + k + n.at)))];
         n.ready = lines; changed = true;
       }
       if (now() < n.at) continue;
@@ -843,7 +863,7 @@ function pickFiles(a, r, n){
 }
 function makePost(a, files, at, r, kind){
   const cnt = countsOf(a);
-  const p = { id: uid("p_"), acct: a.id, kind: kind || "photo", files, publishAt: at, seed: hashStr(uid("s") + at), createdAt: now(), text: "", textWritten: false, commentsWritten: false, thread: [], hiddenC: [], cVotes: {}, cycled: files.length && files.every(f => cnt[f.key]) ? 1 : 0 };
+  const p = { id: uid("p_"), acct: a.id, kind: kind || "photo", files, publishAt: at, seed: hashStr(uid("s") + at), createdAt: now(), text: "", textWritten: !!a.npc, commentsWritten: !!a.npc, thread: [], hiddenC: [], cVotes: {}, cycled: files.length && files.every(f => cnt[f.key]) ? 1 : 0 };
   for (const f of files) cnt[f.key] = (cnt[f.key] || 0) + 1;
   if (APP.decorate) APP.decorate(p, a, r);
   return p;
@@ -1045,7 +1065,7 @@ function sheet(html, onClick){
 }
 function closeSheet(){ $("#layer").innerHTML = ""; }
 function accountSwitcher(onPick){
-  sheet(`<h3>Accounts</h3>${LIB.accounts.map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(APP.handleStyle ? APP.handleStyle(a) : handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} ${APP.followersWord || "followers"} · ${live(a.id).length} posts · ${photosOf(a.id).length} photos in Reel${acctSet(a).on ? "" : " · not posting here"}</div></div>${a.id === A().id ? `<span class="check">✓</span>` : ""}</button>`).join("")}`, async el => {
+  sheet(`<h3>Accounts</h3>${ownAccts().map(a => `<button type="button" class="arow" data-acc="${esc(a.id)}">${myAv(44, a)}<div class="who"><b>${esc(APP.handleStyle ? APP.handleStyle(a) : handleOf(a))}</b><div class="hint">${fmt(followersNow(a))} ${APP.followersWord || "followers"} · ${live(a.id).length} posts · ${photosOf(a.id).length} photos in Reel${acctSet(a).on ? "" : " · not posting here"}</div></div>${a.id === A().id ? `<span class="check">✓</span>` : ""}</button>`).join("")}`, async el => {
     const b = el.closest("[data-acc]"); if (!b) return;
     closeSheet(); await switchTo(b.dataset.acc); onPick ? onPick() : render(); window.scrollTo(0, 0);
   });
@@ -1083,7 +1103,7 @@ document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id
 /* ================= boot ================= */
 async function afterLibrary(){
   document.querySelector(".tabbar").hidden = false;
-  if (!accountById(S.current)){ S.current = accountById(LIB.current) ? LIB.current : LIB.accounts[0].id; await saveCurrent(); }
+  if (!accountById(S.current) || accountById(S.current).npc){ S.current = accountById(LIB.current) && !accountById(LIB.current).npc ? LIB.current : ownAccts()[0].id; await saveCurrent(); }
   if (APP.onBoot) await APP.onBoot();
   await botRun();
 }
