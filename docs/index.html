@@ -250,6 +250,13 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .info{position:absolute;left:14px;right:70px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .rv .info .u{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px}
 .rv .shade{position:absolute;inset:0;background:linear-gradient(transparent 60%,rgba(0,0,0,.55));pointer-events:none}
+.rv .scrub{position:absolute;left:0;right:0;bottom:env(safe-area-inset-bottom,0px);height:26px;display:flex;align-items:flex-end;touch-action:none;z-index:1}
+.rv .scrub .bar{position:relative;width:100%;height:2px;background:rgba(255,255,255,.3);transition:height .15s}
+.rv .scrub .fill{height:100%;width:0;background:#fff}
+.rv .scrub .knob{position:absolute;top:50%;left:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff;opacity:0;transition:opacity .15s}
+.rv .r.paused .scrub .bar,.rv .r.scrubbing .scrub .bar{height:6px}
+.rv .r.paused .scrub .knob,.rv .r.scrubbing .scrub .knob{opacity:1}
+.rv .r.paused::after{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(0,0,0,.45) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E") center/34px no-repeat;pointer-events:none}
 .rv .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff}
 .rv .close svg{width:28px;height:28px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}.slide img{transition:none}}
@@ -548,7 +555,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 94;
+const APP_VERSION = 95;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -2072,7 +2079,7 @@ async function autoRedo(a, what){
   return n;
 }
 const WRITERS = 4;
-function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; const h = $("#hwstatus"); if (h){ h.textContent = /^Writing/.test(msg) ? msg + " Pull down to see the new ones on top." : ""; h.hidden = !h.textContent; } }
+function setWriter(msg){ S.writerMsg = msg; const el = $("#wstatus"); if (el) el.textContent = msg; const h = $("#hwstatus"); if (h){ h.textContent = /^Writing/.test(msg) ? msg: ""; h.hidden = !h.textContent; } }
 // Writes everything that's waiting, a few at a time, live and next-up posts first.
 async function writerRun(){
   if (writing || !ollamaURL()) return;
@@ -2681,6 +2688,28 @@ function vExplore(v){
   if (exploreTerm) search();
 }
 let homeOrder = null;
+// Liked or opened posts (and reposts of them) get 3x the pull: a random order where they tend to come up sooner.
+const favored = p => !!(p.liked || p.clicked);
+function randomOrder(list){
+  return list.map(p => [Math.pow(Math.random(), 1 / (favored(p) ? 3 : 1)), p]).sort((x, y) => y[0] - x[0]).map(x => x[1]);
+}
+// Keeps the same account from showing twice close together: each next post is the first one in line whose account
+// wasn't among the last few shown (as many as the number of accounts allows). An account with half or more of what's
+// left goes next whenever it can, so a big account still gets spread out instead of bunching up at the end.
+function spreadAccounts(list){
+  const gap = Math.min(3, new Set(list.map(p => p.acct)).size - 1);
+  const rest = list.slice(), out = [];
+  while (rest.length){
+    const recent = out.slice(-gap).map(p => p.acct), last = recent[recent.length - 1];
+    const n = {}; for (const p of rest) n[p.acct] = (n[p.acct] || 0) + 1;
+    const big = Object.keys(n).filter(k => k !== last).sort((x, y) => n[y] - n[x])[0];
+    let i = big !== undefined && n[big] * 2 >= rest.length ? rest.findIndex(p => p.acct === big)
+      : gap > 0 ? rest.findIndex(p => !recent.includes(p.acct)) : 0;
+    if (i < 0) i = rest.findIndex(p => p.acct !== (out[out.length - 1] || {}).acct);
+    out.push(rest.splice(Math.max(0, i), 1)[0]);
+  }
+  return out;
+}
 // A post that's already up and gets a new caption (rewrite, redo or your own edit) goes to the top of Home until you've seen it.
 function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(); homeOrder = null; } }
 // A rewritten post goes on top (the 6 newest rewrites at most) until you've seen it once; then it rejoins the normal rotation.
@@ -2688,19 +2717,14 @@ const capNew = p => p.capAt && now() - p.capAt < D && (S.postSeen[p.id] || 0) < 
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = feedAccts().flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
-  // Unseen first (newest on top), then everything already seen, the ones looked at longest ago first.
-  // Posts with a new caption come before all of that, the latest change on top.
-  if (!homeOrder){
-    const adj = all.filter(capNew).sort((x, y) => y.capAt - x.capAt).slice(0, 6), rest = all.filter(p => !adj.includes(p));
-    const fresh = rest.filter(p => !S.postSeen[p.id]);
-    homeOrder = { ids: [...adj, ...fresh, ...rest.filter(p => S.postSeen[p.id]).sort((x, y) => S.postSeen[x.id] - S.postSeen[y.id])].map(p => p.id), fresh: adj.length + fresh.length };
-  }
+  // Completely random every time the feed reloads; posts you liked or opened tend to land higher. No account twice in a row.
+  if (!homeOrder) homeOrder = { ids: spreadAccounts(randomOrder(all)).map(p => p.id) };
   const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
+  // Anything that went up since the feed was ordered joins at the bottom, so nothing jumps around while you scroll.
   const added = all.filter(p => !pos.has(p.id));
-  const L = [...added, ...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean)];
-  const splitAt = added.length + homeOrder.fresh;
+  const L = spreadAccounts([...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean), ...shuffleInPlace(added)]);
   const writingNow = /^Writing/.test(S.writerMsg || "");
-  const banner = `<div class="hint pad" id="hwstatus" style="padding-top:8px"${writingNow ? "" : " hidden"}>${writingNow ? esc(S.writerMsg) + " Pull down to see the new ones on top." : ""}</div>` + (needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "");
+  const banner = `<div class="hint pad" id="hwstatus" style="padding-top:8px"${writingNow ? "" : " hidden"}>${writingNow ? esc(S.writerMsg): ""}</div>` + (needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "");
   if (!L.length){
     const setup = !hasSetup();
     v.innerHTML = banner + storyTray() + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
@@ -2708,7 +2732,7 @@ function vHome(v){
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  v.innerHTML = banner + storyTray() + L.map((p, i) => (i === splitAt && splitAt > 0 && splitAt < L.length ? `<div class="caught pad"><b>You're all caught up</b><div class="hint">Posts you've already seen</div></div>` : "") + postCard(p)).join("");
+  v.innerHTML = banner + storyTray() + L.map(postCard).join("");
 }
 
 function profileHeader(o){
@@ -2848,8 +2872,9 @@ function vUser(v, r){
 }
 
 let postScrolled = "";
+const markClicked = p => { if (p && !p.clicked){ p.clicked = now(); savePost(p); } };
 function vPost(v, r){
-  const p = S.posts.find(x => x.id === r.a);
+  const p = S.posts.find(x => x.id === r.a); markClicked(p);
   const owner = p && (accountById(p.acct) || A());
   const list = p && r.b === "more" && p.publishAt <= now() ? pinnedFirst(live(owner.id)) : p ? [p] : [];
   setTop(`${backBtn}<h1>${list.length > 1 ? `<span style="display:block;font-size:12px;font-weight:600;color:var(--muted)">${esc(handleOf(owner))}</span>Posts` : "Post"}</h1>`);
@@ -2863,7 +2888,7 @@ function vPost(v, r){
 }
 
 function vComments(v, r){
-  const p = S.posts.find(x => x.id === r.a);
+  const p = S.posts.find(x => x.id === r.a); markClicked(p);
   setTop(`${backBtn}<h1>Comments</h1>`);
   if (!p){ v.innerHTML = `<div class="empty"><h2>Post not found</h2></div>`; return; }
   const owner = accountById(p.acct) || A();
@@ -2977,10 +3002,9 @@ function vReelsTab(v, r){
     reelIO.observe($("#rmore"));
   }
 }
-// Videos never watched come first in a random order, then watched ones, the ones watched longest ago first.
+// Every video in a random order, watched or not; ones whose post you liked or opened tend to come up sooner.
 function recycleOrder(V){
-  const unseen = shuffleInPlace(V.filter(x => !S.vidSeen[x.key]));
-  return [...unseen, ...V.filter(x => S.vidSeen[x.key]).sort((x, y) => S.vidSeen[x.key] - S.vidSeen[y.key])];
+  return V.map(x => [Math.pow(Math.random(), 1 / (x.post && favored(x.post) ? 3 : 1)), x]).sort((a, b) => b[0] - a[0]).map(a => a[1]);
 }
 let vidSave = 0;
 // Full-screen player for the shuffled library. Only the video on screen and its neighbours are loaded.
@@ -2989,7 +3013,7 @@ async function openVault(list, startKey){
   let start = Math.max(0, list.findIndex(x => x.key === startKey));
   $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-vclose aria-label="Close">${I.back}</button>
     ${list.map((x, k) => { const a = accountById(x.post.acct); const up = x.post.publishAt && x.post.publishAt <= now(); return `<section class="r" data-k="${k}">
-      <video playsinline loop ${reelsMuted ? "muted" : ""} preload="auto" data-vkey="${esc(x.key)}" data-vmime="${esc(x.mime)}"></video><div class="shade"></div>
+      <video playsinline loop ${reelsMuted ? "muted" : ""} preload="auto" data-vkey="${esc(x.key)}" data-vmime="${esc(x.mime)}"></video><div class="shade"></div>${SCRUB}
       <div class="side">
         <button type="button" data-vsave="${esc(x.key)}" class="${(S.savedVids||{})[x.key] ? "liked" : ""}">${(S.savedVids||{})[x.key] ? I.saveOn : I.save}<span>${(S.savedVids||{})[x.key] ? "Saved" : "Save"}</span></button>
         <button type="button" data-vphone="${esc(x.key)}">${I.share}<span>To phone</span></button>
@@ -3009,15 +3033,17 @@ async function openVault(list, startKey){
       if (Math.abs(j - k) <= 1){ if (!vd.getAttribute("src")){ const u = await mediaURL(vd.dataset.vkey); if (u){ wireVideoFallback(vd, vd.dataset.vkey, vd.dataset.vmime); vd.src = u; } } }
       else if (vd.getAttribute("src")){ vd.pause(); vd.removeAttribute("src"); vd.load(); }
     }
+    rv.querySelectorAll(".r.paused").forEach(x => x.classList.remove("paused"));
     vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} playVid(vd); } else vd.pause(); });
     // get the file ready so "To phone" can open the share sheet straight from the tap
     const x = list[k]; if (x){ S.vidSeen[x.key] = now(); clearTimeout(vidSave); vidSave = setTimeout(saveMisc, 1500); }
     if (x && !files.has(x.key)){ DB.get("media", x.key).then(b => { if (b) files.set(x.key, new File([b], "reel-" + (k + 1) + "." + (/quicktime/.test(x.mime) ? "mov" : (x.mime.split("/")[1] || "mp4")), { type: x.mime })); }); }
   };
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
+  wireScrub(rv);
   activate();
   rv.addEventListener("click", async e => {
-    const t = e.target.closest("button"); if (!t){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
+    const t = e.target.closest("button"); if (!t){ tapPause(e); return; }
     if ("vclose" in t.dataset){ closeFull(); render(); return; }
     if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; vids.forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
     if (t.dataset.vsave){
@@ -3036,10 +3062,10 @@ async function openVault(list, startKey){
   });
 }
 async function openReels(list, startId){
-  const start = Math.max(0, list.findIndex(p => p.id === startId));
+  const start = Math.max(0, list.findIndex(p => p.id === startId)); markClicked(list[start]);
   $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-closefull aria-label="Close">${I.back}</button>
     ${list.map(p => { const a = accountById(p.acct) || A(); const e = engage(p); return `<section class="r" data-reel="${esc(p.id)}">
-      ${mediaTag(p.files[0],"",{auto:true})}<div class="shade"></div>
+      ${mediaTag(p.files[0],"",{auto:true})}<div class="shade"></div>${SCRUB}
       <div class="side">
         <button type="button" data-rlike="${esc(p.id)}" class="${p.liked?"liked":""}">${p.liked?I.heartOn:I.heart}<span>${fmt(e.likes)}</span></button>
         <a href="#/c/${esc(p.id)}" data-closefull>${I.comment}<span>${fmt(e.comments)}</span></a>
@@ -3056,12 +3082,14 @@ async function openReels(list, startId){
   let current = -1;
   const activate = () => {
     const k = Math.round(rv.scrollTop / rv.clientHeight); if (k === current) return; current = k;
+    rv.querySelectorAll(".r.paused").forEach(x => x.classList.remove("paused"));
     vids.forEach((vd, j) => { vd.dataset.want = j === k ? "1" : "0"; if (j === k){ vd.muted = reelsMuted; try { if (vd.readyState > 0) vd.currentTime = 0; } catch(_){} playVid(vd); } else vd.pause(); });
   };
   let st = 0; rv.addEventListener("scroll", () => { clearTimeout(st); st = setTimeout(activate, 120); }, { passive: true });
+  wireScrub(rv);
   activate();
   rv.addEventListener("click", async e => {
-    const t = e.target.closest("button,a"); if (!t){ const vd = e.target.closest(".r")?.querySelector("video"); if (vd){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); } return; }
+    const t = e.target.closest("button,a"); if (!t){ tapPause(e); return; }
     if ("closefull" in t.dataset){ closeFull(); if (t.tagName === "A") return; if (route().name === "reels" && route().a) history.back(); return; }
     if (t.dataset.rlike){ const p = S.posts.find(x => x.id === t.dataset.rlike); p.liked = !p.liked; await savePost(p); t.className = p.liked ? "liked" : ""; t.innerHTML = (p.liked?I.heartOn:I.heart) + `<span>${fmt(engage(p).likes)}</span>`; return; }
     if ("rmute" in t.dataset){ reelsMuted = !reelsMuted; rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
@@ -3069,6 +3097,29 @@ async function openReels(list, startId){
   });
 }
 let reelsMuted = true;
+// Like Instagram: a thin progress line along the bottom of a reel. Tapping the reel pauses it and the line grows into a
+// bar you can drag to move through the video; tap again to keep playing. Sound is the speaker button.
+const SCRUB = `<div class="scrub"><div class="bar"><div class="fill"></div><div class="knob"></div></div></div>`;
+const reelVid = sec => sec && (sec.querySelector("video:not(.bg)") || sec.querySelector("video"));
+function tapPause(e){
+  const sec = e.target.closest(".r"), vd = reelVid(sec); if (!vd) return;
+  if (sec.classList.toggle("paused")){ vd.dataset.want = "0"; vd.pause(); }
+  else { vd.dataset.want = "1"; playVid(vd); }
+}
+function wireScrub(rv){
+  rv.querySelectorAll(".r").forEach(sec => {
+    const vd = reelVid(sec), sc = sec.querySelector(".scrub"); if (!vd || !sc) return;
+    const bar = sc.querySelector(".bar"), fill = sc.querySelector(".fill"), knob = sc.querySelector(".knob");
+    const show = f => { const pct = Math.min(100, Math.max(0, f * 100)) + "%"; fill.style.width = pct; knob.style.left = pct; };
+    vd.addEventListener("timeupdate", () => { if (!sec.classList.contains("scrubbing") && vd.duration) show(vd.currentTime / vd.duration); });
+    const seek = e => { const r = bar.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); show(f); if (vd.duration){ try { vd.currentTime = f * vd.duration; } catch(_){} } };
+    sc.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); try { sc.setPointerCapture(e.pointerId); } catch(_){} sec.classList.add("scrubbing"); vd.pause(); seek(e); });
+    sc.addEventListener("pointermove", e => { if (sec.classList.contains("scrubbing")) seek(e); });
+    const end = () => { if (!sec.classList.contains("scrubbing")) return; sec.classList.remove("scrubbing"); if (!sec.classList.contains("paused")) playVid(vd); };
+    sc.addEventListener("pointerup", end); sc.addEventListener("pointercancel", end);
+    sc.addEventListener("click", e => e.stopPropagation());
+  });
+}
 function closeFull(){ $("#full").querySelectorAll("video").forEach(v => v.pause()); $("#full").innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF); }
 
 /* ---------- stories ---------- */
@@ -3456,8 +3507,22 @@ function wireSeen(root){
 }
 // iPhone only starts a video with sound when a tap started it. One it refuses plays muted instead of sitting frozen,
 // and the sound buttons go back to muted, so one tap turns sound on again.
+// Only one video ever has sound: when one plays with sound on, every other video goes quiet, and videos left behind
+// by a redraw (no longer on the page, but still playing) are stopped.
+const playedVids = new Set();
+function oneSound(v){
+  if (v.muted || v.paused) return;
+  for (const o of playedVids){
+    if (o === v) continue;
+    if (!o.isConnected){ o.pause(); playedVids.delete(o); }
+    else if (!o.muted && !o.paused) o.muted = true;
+  }
+}
+for (const ev of ["play", "volumechange"]) document.addEventListener(ev, e => { const v = e.target; if (v instanceof HTMLVideoElement){ playedVids.add(v); oneSound(v); } }, true);
 function playVid(v){
+  playedVids.add(v);
   const p = v.play(); if (!p) return;
+  p.then(() => oneSound(v), () => {});
   p.catch(err => {
     if (!err || err.name !== "NotAllowedError" || v.muted) return;
     v.muted = true; v.play().catch(() => {});
@@ -3483,8 +3548,10 @@ function wireAutoplay(root){
 // iPhone pauses videos by itself now and then (switching apps, the screen dimming, low memory) and nothing tells the
 // feed, so a video that should be playing and isn't gets started again; one stuck on the same frame is reloaded where it was.
 setInterval(() => {
+  for (const o of playedVids) if (!o.isConnected){ o.pause(); playedVids.delete(o); }
   if (document.visibilityState !== "visible") return;
   for (const v of document.querySelectorAll("video[data-auto]")){
+    if (v.dataset.want === "1" && $("#full .rv") && !v.closest("#full")){ v.pause(); continue; }
     if (v.dataset.want !== "1" || !v.isConnected || !v.getAttribute("src")) continue;
     if (v.paused || v.ended){ playVid(v); v.dataset.stuck = 0; continue; }
     const t = v.currentTime;
