@@ -548,7 +548,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 93;
+const APP_VERSION = 94;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -558,12 +558,14 @@ const DEFAULT_ACCOUNT = { name:"", handle:"", bio:"", link:"", avatar:null, avat
 const PER_ACCOUNT = ["captionStyle","myCaptions","capDirection","comDirection","storyStyle","myStoryTexts","storyDirection","storiesPerDay"];
 const acctOf = p => (p && accountById(p.acct)) || A();
 function shuffleInPlace(arr){ for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
-// Photos that have never been up go before reposts: same posting times, the new ones take the earliest.
-// Reposts follow, the ones reposted least (then the longest waiting) first.
+// Random order (the default): new photos and reposts are shuffled together, so older photos keep turning up
+// between new ones. Other orders: photos that have never been up take the earliest slots, then reposts,
+// the ones reposted least (then the longest waiting) first. Same posting times either way.
 async function freshFirst(a){
   const Q = queued(a.id); if (Q.length < 2) return;
   const times = Q.map(p => p.publishAt);
-  const order = [...Q.filter(p => !p.cycled), ...Q.filter(p => p.cycled).sort((x, y) => x.cycled - y.cycled || x.publishAt - y.publishAt)];
+  const order = (a.order || "random") === "random" ? shuffleInPlace(Q.slice())
+    : [...Q.filter(p => !p.cycled), ...Q.filter(p => p.cycled).sort((x, y) => x.cycled - y.cycled || x.publishAt - y.publishAt)];
   for (let i = 0; i < order.length; i++) if (order[i].publishAt !== times[i]){ order[i].publishAt = times[i]; await savePost(order[i]); }
 }
 // Mixes up what an account has queued: same posting times, different files in them.
@@ -1521,7 +1523,7 @@ async function cyclePosts(force = {}){
           caption: i === 0 ? again.caption : "", captionManual: i === 0 && !!p.captionManual, captionAuto: i === 0 ? again.captionAuto : false, captionWritten: false }));
       } else back.push(again);
     }
-    if (back.length) await enqueue(await groupPosts(shuffleInPlace(back), a), a);
+    if (back.length){ await enqueue(await groupPosts(shuffleInPlace(back), a), a); await freshFirst(a); }
   }
 }
 /* ================= stories ================= */
@@ -2424,7 +2426,8 @@ async function refreshAdvance(){
   lastAdvance = Date.now();
   const force = {}; let n = 0;
   for (const a of S.accounts){
-    const next = queued(a.id).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
+    const next = (a.order || "random") === "random" ? shuffleInPlace(queued(a.id))
+      : queued(a.id).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
     for (const p of next.slice(0, 1 + Math.floor(Math.random() * 3))){
       p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p);
       force[a.id] = (force[a.id] || 0) + 1; n++;
