@@ -555,7 +555,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 96;
+const APP_VERSION = 97;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -1432,6 +1432,7 @@ function nextSlot(a){
 }
 const perDay = a => Math.round(1440 / (+a.interval || 720) * 10) / 10;
 // Settings → Feed: one number of new posts a day for the whole app, shared out evenly between your accounts.
+const DAILY_DEFAULT = 50;
 async function setDaily(n){
   n = Math.round(Math.min(1000, Math.max(1, n || 0))); if (!n || !own().length) return;
   S.settings.dailyFresh = n; await saveSettings();
@@ -3929,6 +3930,12 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   }
   // Queues made before posting went bursty get the new random spacing once.
   if (!S.settings.burstyPosts){ for (const a of S.accounts) await respace(a); S.settings.burstyPosts = 1; await saveSettings(); }
+  // 50 new posts a day across your accounts unless you pick something else; an account added later gets its share too.
+  if (!S.settings.dailyDefault){ if (!S.settings.dailyFresh) S.settings.dailyFresh = DAILY_DEFAULT; S.settings.dailyDefault = 1; await saveSettings(); }
+  if (S.settings.dailyFresh && own().length){
+    const iv = Math.max(3, Math.round(1440 / (S.settings.dailyFresh / own().length)));
+    for (const a of own()) if (+a.interval !== iv){ a.interval = iv; await respace(a); }
+  }
   await saveAccounts();
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
