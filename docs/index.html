@@ -555,7 +555,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 95;
+const APP_VERSION = 96;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -1422,7 +1422,7 @@ function humanize(t){
   return t;
 }
 function nextSlot(a){
-  const step = Math.max(15, +a.interval || 720) * 60e3 * 15 / 24; // waking hours only
+  const step = Math.max(3, +a.interval || 720) * 60e3 * 15 / 24; // waking hours only
   const q = queued(a.id); const last = q.length ? q[q.length-1].publishAt : 0;
   const from = last || live(a.id)[0]?.publishAt || 0;
   // Bursty like a real person: sometimes two or three posts close together, sometimes a long quiet stretch; same average.
@@ -1431,6 +1431,16 @@ function nextSlot(a){
   return humanize(Math.max(now() + 5*60e3, from + gap));
 }
 const perDay = a => Math.round(1440 / (+a.interval || 720) * 10) / 10;
+// Settings → Feed: one number of new posts a day for the whole app, shared out evenly between your accounts.
+async function setDaily(n){
+  n = Math.round(Math.min(1000, Math.max(1, n || 0))); if (!n || !own().length) return;
+  S.settings.dailyFresh = n; await saveSettings();
+  for (const a of own()) a.interval = Math.max(3, Math.round(1440 / (n / own().length)));
+  await saveAccounts();
+  for (const a of own()) await respace(a);
+  await cyclePosts(); homeOrder = null;
+  toast(`About ${n} new posts a day`); render();
+}
 function runway(a){ const Q = queued(a.id); return Q.length ? (Q[Q.length-1].publishAt - now()) / D : 0; }
 async function backdate(posts, a){
   const r = rng(hashStr("bd"+now()+a.id)); let t = now() - (1 + r()*3)*H;
@@ -1505,8 +1515,9 @@ function lifeOf(p){
   return x < .15 ? (.5 + r() * 7.5) * H : x < .6 ? (12 + r() * 60) * H : (3 + r() * 5) * D;
 }
 const keeps = p => !!(p.liked || S.saved[p.id] || (p.pinned && acctOf(p).pinTouched));
-// A profile shows at most this many posts you haven't kept; older ones rotate out so the grid keeps changing.
-const CYCLE_KEEP_MAX = 18;
+// A profile shows at most this many posts you haven't kept (about a day's worth, never fewer than 18); older ones
+// rotate out so the grid keeps changing.
+const keepMax = a => Math.max(18, Math.ceil(perDay(a)));
 // force: how many of the oldest posts (that you haven't kept) come down now even if their time isn't up, per account.
 async function cyclePosts(force = {}){
   for (const a of S.accounts){
@@ -1516,7 +1527,7 @@ async function cyclePosts(force = {}){
     for (const p of L.slice().reverse()){
       if (up <= CYCLE_KEEP_MIN) break;
       if (keeps(p)) continue;
-      const over = L.filter(x => !keeps(x)).length - (L.length - up) > CYCLE_KEEP_MAX;
+      const over = L.filter(x => !keeps(x)).length - (L.length - up) > keepMax(a);
       if (!over && now() - p.publishAt < lifeOf(p)){ if (forced >= (force[a.id] || 0)) continue; forced++; }
       await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); up--;
       const again = { ...p, id: uid("p_"), seed: hashStr(p.id + "again" + now()), publishAt: 0, cycled: (p.cycled || 0) + 1,
@@ -2435,7 +2446,7 @@ async function refreshAdvance(){
   for (const a of S.accounts){
     const next = (a.order || "random") === "random" ? shuffleInPlace(queued(a.id))
       : queued(a.id).sort((x, y) => (x.cycled ? 1 : 0) - (y.cycled ? 1 : 0) || x.publishAt - y.publishAt);
-    for (const p of next.slice(0, 1 + Math.floor(Math.random() * 3))){
+    for (const p of next.slice(0, 1 + Math.floor(Math.random() * Math.max(3, Math.ceil(perDay(a) / 6))))){
       p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p);
       force[a.id] = (force[a.id] || 0) + 1; n++;
     }
@@ -2718,10 +2729,16 @@ function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   const all = feedAccts().flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
   // Completely random every time the feed reloads; posts you liked or opened tend to land higher. No account twice in a row.
-  if (!homeOrder) homeOrder = { ids: spreadAccounts(randomOrder(all)).map(p => p.id) };
+  // Posts you kept stay up for good, so the ones older than 2 days come back as a random handful per reload (at most
+  // a quarter of the feed), a different handful each time, instead of all of them every time.
+  if (!homeOrder){
+    const old = p => keeps(p) && now() - p.publishAt > 2*D;
+    const rest = all.filter(p => !old(p)), kept = shuffleInPlace(all.filter(old));
+    homeOrder = { ids: spreadAccounts(randomOrder([...rest, ...kept.slice(0, Math.max(3, Math.ceil(rest.length / 3)))])).map(p => p.id) };
+  }
   const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
   // Anything that went up since the feed was ordered joins at the bottom, so nothing jumps around while you scroll.
-  const added = all.filter(p => !pos.has(p.id));
+  const added = all.filter(p => !pos.has(p.id) && now() - p.publishAt < 2*D);
   const L = spreadAccounts([...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean), ...shuffleInPlace(added)]);
   const writingNow = /^Writing/.test(S.writerMsg || "");
   const banner = `<div class="hint pad" id="hwstatus" style="padding-top:8px"${writingNow ? "" : " hidden"}>${writingNow ? esc(S.writerMsg): ""}</div>` + (needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "");
@@ -3253,7 +3270,16 @@ function vEdit(v){
 function vSettings(v){
   setTop(`${backBtn}<h1>Settings</h1>`);
   const st = S.settings, signed = !!tokenOK();
+  const mineP = S.posts.filter(p => !isStory(p) && !p.others && own().some(a => a.id === p.acct));
+  const upN = mineP.filter(p => p.publishAt && p.publishAt <= now()).length, waitN = mineP.length - upN;
+  const dayN = Math.round(own().reduce((n, a) => n + perDay(a), 0));
   v.innerHTML = `<div class="pad form">
+    <div class="card"><h3>Feed</h3>
+      <span class="lbl">New posts a day, all your accounts together</span>
+      <div class="seg">${[10, 25, 50, 100, 200].map(n => `<button type="button" data-daily="${n}" aria-pressed="${+st.dailyFresh === n}">${n}</button>`).join("")}</div>
+      <div class="field"><label for="sdaily">Or type a number</label><input type="number" id="sdaily" min="1" max="1000" inputmode="numeric" value="${esc(st.dailyFresh || dayN)}"></div>
+      <div class="hint">Shared out between your accounts. Each refresh or return to the app also swaps a few in. Posts you liked, saved or pinned stay up, but only a random few of the older ones show on Home each time.</div>
+      <div class="hint">Up now: <b>${upN}</b> · waiting to go up: <b>${waitN}</b>${waitN < dayN * 2 ? ". That's only about " + Math.max(1, Math.round(waitN / Math.max(1, dayN))) + " day" + (waitN / Math.max(1, dayN) >= 1.5 ? "s" : "") + " of new posts, so you'll see repeats sooner: add more photos and videos to your folders." : ""}</div></div>
     <div class="card"><h3>Thread and Wire</h3>
       <div class="hint">Your Reddit-style and X-style feeds, posting the same photos. Open them from here: on iPhone, apps added to the Home Screen can't see each other's photos.</div>
       <a class="btn primary" href="r/">Open Thread</a>
@@ -3320,6 +3346,7 @@ function vSettings(v){
   $("#sclient").addEventListener("change", async e => { st.clientId = e.target.value.trim() || CLIENT_ID; await saveSettings(); });
   $("#surl").addEventListener("change", async e => { S.secret.url = e.target.value.trim(); await saveSecret(); setWriter(""); toast(S.secret.url ? "Ollama address saved on this phone" : "Address removed"); render(); if (S.secret.url) writerRun(); });
   $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}. Rewriting everything now.`); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); writerRun(); });
+  $("#sdaily").addEventListener("change", e => setDaily(+e.target.value));
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
   $("#ofolder").addEventListener("change", async e => { const o = others(); setFolder(o, e.target.value); await saveSettings(); await autoRun(); if (othersActive()){ toast("Folder saved. Reading it now."); sync(false); } else { toast(o.on ? "Folder removed" : "Folder saved"); render(); } });
   $("#importFile").addEventListener("change", async e => {
@@ -3354,7 +3381,7 @@ function vAset(v, r){
       ${seg("writer", a.writer || "text", [["off","Off"],["text","Text only"],["photos","Sees photos"]])}
       <div class="hint">${a.writer === "off" ? `${AI()} doesn't write anything for this account. It uses the built-in lines and your own lines, and nothing is sent to ${CO()}.` : a.writer === "photos" ? (modelSeesPhotos() ? `${AI()} sees a small copy of each photo (or a frame of each video) from this account so the captions and comments can react to it. Those copies go to ${CO()}.` : `${ollamaModel()} can't see photos, so this account writes from text for now. To have it react to the photos, type gemma3:12b as the model in Settings (it's tamer).`) : `${AI()} writes from your direction boxes only. No photos or videos from this account are sent to ${CO()}.`}</div></div>
     <div class="card"><h3>Posting</h3>
-      <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
+      <div class="field"><label for="aint">Posts per day</label><input type="number" id="aint" min="0.1" max="300" step="0.5" inputmode="decimal" value="${esc(perDay(a))}"></div>
       <div class="field"><label for="astories">Stories per day</label><input type="number" id="astories" min="0" step="1" inputmode="numeric" value="${esc(a.storiesPerDay)}"></div>
       <span class="lbl">Several photos in one post</span>
       ${seg("multi", a.multi || "some", [["off","Never"],["some","Sometimes"],["lots","Often"]])}
@@ -3425,7 +3452,7 @@ function vAset(v, r){
   </div>`;
   $("#apcfolder").addEventListener("change", async e => { a.pcFolder = e.target.value.trim(); await saveAccounts(); if (a.pcFolder){ toast(`Reading ${a.pcFolder} on the PC…`); syncPc(true); } else toast("PC folder removed"); });
   $("#afolder").addEventListener("change", async e => { setFolder(a, e.target.value); await saveAccounts(); toast(`@${handleOf(a)} folder saved. Reading it now.`); sync(false, true); });
-  $("#aint").addEventListener("change", async e => { const n = Math.min(24, Math.max(.1, +e.target.value || 2)); a.interval = Math.round(1440/n); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
+  $("#aint").addEventListener("change", async e => { const n = Math.min(300, Math.max(.1, +e.target.value || 2)); a.interval = Math.max(3, Math.round(1440/n)); delete S.settings.dailyFresh; await saveSettings(); await saveAccounts(); await respace(a); toast(`@${handleOf(a)} posts about ${perDay(a)} a day`); });
   $("#astories").addEventListener("change", async e => { a.storiesPerDay = Math.max(0, Math.round(+e.target.value || 0)); await saveAccounts(); await autoStories(); });
   // A new direction (or new own lines) rewrites this account's posts by itself, the ones already up included.
   const aiOn = () => !!ollamaURL() && a.writer !== "off";
@@ -3704,7 +3731,8 @@ document.addEventListener("click", async e => {
   if (d.otherscount){ const o = others(); o.count = +d.otherscount; await saveSettings(); await autoRun(); render(); toast(`${o.count} other accounts`); return; }
   if ("othersnew" in d){ const o = others(); o.gen = Math.floor(Math.random() * 1e9); o.unfollowed = {}; await saveSettings(); await autoRun(); render(); toast("New other accounts"); return; }
   if ("otherspick" in d){ pickFolder(others()); return; }
-  if (d.interval){ A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
+  if (d.daily){ await setDaily(+d.daily); return; }
+  if (d.interval){ delete S.settings.dailyFresh; await saveSettings(); A().interval = +d.interval; await saveAccounts(); await respace(A()); toast(perDay(A()) >= 1 ? `@${handleOf(A())} posts about ${perDay(A())} a day` : "Posts every 2 days"); render(); return; }
   if (d.pickfolder){ pickFolder(accountById(d.pickfolder)); return; }
   if (d.writer){ const a = accountById(d.acct) || A(); a.writer = d.writer; await saveAccounts(); render(); toast(d.writer === "photos" ? `${AI()} sees @${handleOf(a)}'s photos` : d.writer === "text" ? `@${handleOf(a)}: text only, no photos sent` : `${AI()} is off for @${handleOf(a)}`); if (d.writer !== "off") writerRun(); return; }
   if (d.comstyle){ const a = accountById(d.acct) || A(); a.comStyle = d.comstyle; await saveAccounts(); genCache.clear(); render(); toast(d.comstyle === "mine" ? (ownComments(a).length ? "Comments now come only from your list" : "Type your comments in the box, one per line") : `${AI()} writes the comments again`); if (d.comstyle !== "mine") writerRun(); return; }
