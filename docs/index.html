@@ -107,6 +107,8 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .dots{display:flex;justify-content:center;gap:4px;padding-top:8px;min-height:14px}
 .dots i{width:6px;height:6px;border-radius:50%;background:var(--line)}
 .dots i.on{background:var(--link)}
+.upb{display:flex;align-items:center;gap:2px}.upn{font-size:13px;font-weight:700}
+.post.less{padding:0}.lessbar{display:flex;justify-content:space-between;align-items:center;padding-top:14px;padding-bottom:14px;color:var(--muted,#888);font-size:14px}
 .burst{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
 .burst svg{width:96px;height:96px;color:#fff;filter:drop-shadow(0 4px 14px rgba(0,0,0,.4));animation:pop .8s ease-out forwards}
 @keyframes pop{0%{transform:scale(.2);opacity:0}20%{transform:scale(1.15);opacity:1}40%{transform:scale(.95)}80%{opacity:1}100%{transform:scale(1);opacity:0}}
@@ -352,6 +354,7 @@ const I = {
   reels:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M3 8.5h18M8.5 3l3 5.5M14.5 3l3 5.5"/><path d="M10 12.2v5l4.3-2.5z" fill="currentColor"/></svg>',
   reelsOn:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M3 8.5h18M8.5 3l3 5.5M14.5 3l3 5.5"/><path d="M10 12.2v5l4.3-2.5z" fill="currentColor"/></svg>',
   heart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
+  thumbDown:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.7a2 2 0 0 0-2 1.7l-1.4 9A2 2 0 0 0 4.3 15H10z"/><path d="M17 2h2.7A2.3 2.3 0 0 1 22 4.3v6.4a2.3 2.3 0 0 1-2.3 2.3H17"/></svg>',
   heartOn:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20.5s-8.5-5-8.5-11A4.8 4.8 0 0 1 12 6.6a4.8 4.8 0 0 1 8.5 2.9c0 6-8.5 11-8.5 11z"/></svg>',
   comment:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M20.5 11.5a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2A8.5 8.5 0 1 1 20.5 11.5z"/></svg>',
   share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21.5 3 10 14M21.5 3 15 21l-5-7-7-3z"/></svg>',
@@ -555,7 +558,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 97;
+const APP_VERSION = 98;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -584,7 +587,7 @@ async function shuffleQueue(a){
   const orders = W.map(p => p.order || 0); shuffleInPlace(orders);
   for (let i = 0; i < W.length; i++){ W[i].order = orders[i]; await savePost(W[i]); }
 }
-const S = { savedVids:{}, vidSeen:{}, dms:{}, convos:{}, dmRead:{}, postSeen:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
+const S = { savedVids:{}, vidSeen:{}, dms:{}, convos:{}, dmRead:{}, postSeen:{}, taste:{}, secret:{ key:"" }, settings:{...DEFAULT_SETTINGS}, accounts:[], current:"", posts:[], follows:{}, seenAt:{}, saved:{}, storySeen:{} };
 // Your own accounts, and the other accounts (a.npc): other people on the app, never "you".
 const own = () => S.accounts.filter(a => !a.npc);
 const npcs = () => S.accounts.filter(a => a.npc);
@@ -599,7 +602,7 @@ const feedAccts = () => S.accounts.filter(a => !a.npc || isFollowing(npcIndex(a)
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveAccounts(){ await DB.put("kv", S.accounts, "accounts"); await DB.put("kv", S.current, "current"); }
 async function saveSecret(){ await DB.put("kv", S.secret, "secret"); }
-async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, dms:S.dms, convos:S.convos, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
+async function saveMisc(){ await DB.put("kv", {follows:S.follows, seenAt:S.seenAt, saved:S.saved, storySeen:S.storySeen, postSeen:S.postSeen, taste:S.taste, dms:S.dms, convos:S.convos, dmRead:S.dmRead, savedVids:S.savedVids, vidSeen:S.vidSeen}, "misc"); }
 async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x=>x.id===p.id); if (i<0) S.posts.push(p); else S.posts[i] = p; }
 function newAccount(n){ const h = gamerHandle(rng(Math.floor(Math.random()*1e9))); return { ...DEFAULT_ACCOUNT, handle: h, id: uid("a_"), seed: Math.floor(Math.random()*1e9), startedAt: now() - 30*D, followers: [2400, 860, 5100, 1500, 3300][n % 5], growth: [35, 18, 60, 25, 40][n % 5] }; }
 // One of the other accounts, made from the set's seed and its number, so the same set comes back the same every time.
@@ -787,7 +790,7 @@ async function hydrate(root){
     later.push(el);
   }
   for (const el of root.querySelectorAll("[data-media]")){
-    if (el.getAttribute("src") || el.dataset.sm) continue;
+    if (el.getAttribute("src") || el.dataset.sm || el.dataset.parked) continue;
     if (el.tagName === "VIDEO" && el.dataset.poster) continue;
     const k = String(el.dataset.media), hit = k.startsWith("url:") ? "" : urls.get(k);
     if (hit){ el.classList.add("ld"); put(el, hit); } else later.push(el);
@@ -1519,13 +1522,17 @@ const keeps = p => !!(p.liked || S.saved[p.id] || (p.pinned && acctOf(p).pinTouc
 // A profile shows at most this many posts you haven't kept (about a day's worth, never fewer than 18); older ones
 // rotate out so the grid keeps changing.
 const keepMax = a => Math.max(18, Math.ceil(perDay(a)));
-// force: how many of the oldest posts (that you haven't kept) come down now even if their time isn't up, per account.
+// When you last saw this post or any of its photos (a repost is a new post, so its photos carry the memory over).
+const lastSeenOf = p => Math.max(S.postSeen[p.id] || 0, ...p.files.map(f => S.postSeen["f:" + f.key] || 0));
+const seenSinceUp = p => lastSeenOf(p) > (p.publishAt || 0);
+// force: how many posts (that you haven't kept) come down now even if their time isn't up, per account. Posts you've
+// already seen since they went up go first, oldest first, then the oldest of the rest.
 async function cyclePosts(force = {}){
   for (const a of S.accounts){
     const L = live(a.id);
     let up = L.length, forced = 0;
     const back = [];
-    for (const p of L.slice().reverse()){
+    for (const p of L.slice().reverse().sort((x, y) => seenSinceUp(y) - seenSinceUp(x))){
       if (up <= CYCLE_KEEP_MIN) break;
       if (keeps(p)) continue;
       const over = L.filter(x => !keeps(x)).length - (L.length - up) > keepMax(a);
@@ -2141,7 +2148,7 @@ function safeRender(){
   const wait = watching() ? 4000 : 3000 - (Date.now() - lastInteract);
   if (wait > 0){ clearTimeout(renderLater); renderLater = setTimeout(safeRender, wait + 50); return; }
   // Explore has nothing that changes by itself, and a redraw there reloads every tile and clears the search.
-  if (route().name === "explore") return;
+  if (route().name === "explore" || (route().name === "home" && homeOrder)) return;
   if (!$("#layer").innerHTML && !$("#full").innerHTML && !["INPUT","TEXTAREA"].includes(document.activeElement?.tagName)) render();
 }
 
@@ -2540,11 +2547,11 @@ function render(){
   const views = { explore: vExplore, fp: vFanPost, dm: vDM, aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
-  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); });
+  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); if (route().name === "home") wireParking(v); });
 }
 
 /* ================= views ================= */
-function postCard(p){
+function postCard(p, home){
   const a = accountById(p.acct) || A();
   const e = engage(p);
   const vc = visibleComments(p);
@@ -2566,9 +2573,11 @@ function postCard(p){
     <div class="pad">
       ${many?`<div class="dots">${p.files.map((_,i)=>`<i class="${i?"":"on"}"></i>`).join("")}</div>`:""}
       <div class="pbar">
-        <button type="button" data-like="${esc(p.id)}" class="${p.liked?"liked":""}" aria-label="Like">${p.liked?I.heartOn:I.heart}</button>
+        ${home ? `<button type="button" data-up="${esc(keysOf(p).join("|"))}" class="upb${tasteOf(keysOf(p)).up ? " liked" : ""}" aria-label="Like (tap again for more)">${upButton(keysOf(p))}</button>`
+          : `<button type="button" data-like="${esc(p.id)}" class="${p.liked?"liked":""}" aria-label="Like">${p.liked?I.heartOn:I.heart}</button>`}
         <a href="#/c/${esc(p.id)}" aria-label="Comments" style="display:flex">${I.comment}</a>
         <button type="button" data-share aria-label="Share">${I.share}</button>
+        ${home ? `<button type="button" data-down="${esc(keysOf(p).join("|"))}" aria-label="Show less like this">${I.thumbDown}</button>` : ""}
         <span class="sp"></span>
         <button type="button" data-save="${esc(p.id)}" aria-label="Save">${S.saved[p.id]?I.saveOn:I.save}</button>
       </div>
@@ -2577,7 +2586,7 @@ function postCard(p){
       ${p.caption?`<div class="caption clamp"><a href="#/acct/${esc(a.id)}"><b>${esc(handleOf(a))}</b></a> ${esc(p.caption)}</div>`:""}
       ${e.comments ? `<a class="morec" href="#/c/${esc(p.id)}">View all ${full(e.comments)} comments</a>` : ""}
       ${vc.slice(-4).map(c => { const f = c.mine ? null : acct(c.acct), me = a.npc ? A() : a; return `<div class="caption clamp"><a href="${f ? "#/u/"+f.i : "#/acct/"+esc(me.id)}"><b>${esc(f ? f.handle : handleOf(me))}</b></a> ${esc(c.text)}</div>`; }).join("")}
-      <div class="when">${esc(ago(p.publishAt, true))}</div>
+      <div class="when">${esc(ago(Math.min(p.publishAt, now()), true))}</div>
       ${p.publishAt <= now() && !a.npc ? `<button type="button" class="ins" data-insights="${esc(p.id)}">View insights</button>` : ""}
     </div>
   </article>`;
@@ -2722,35 +2731,137 @@ function spreadAccounts(list){
   }
   return out;
 }
-// A post that's already up and gets a new caption (rewrite, redo or your own edit) goes to the top of Home until you've seen it.
-function capChanged(p){ if (p.publishAt && p.publishAt <= now()){ p.capAt = now(); homeOrder = null; } }
-// A rewritten post goes on top (the 6 newest rewrites at most) until you've seen it once; then it rejoins the normal rotation.
+// A post that gets a new caption (rewrite, redo or your own edit) is marked, but Home's stream isn't restarted for it.
+function capChanged(p){ if (p.publishAt && p.publishAt <= now()) p.capAt = now(); }
 const capNew = p => p.capAt && now() - p.capAt < D && (S.postSeen[p.id] || 0) < p.capAt;
+/* Home is one endless stream: every photo and video of your accounts and the ones you follow, posted or still waiting,
+   picked by how new it is to you and how you rated it. Never seen beats seen; seen long ago slowly becomes new again.
+   Each like (tap the heart as often as you want) makes a photo come up more and come back sooner; each dislike cuts it
+   to a quarter, so two or three and it's practically gone. Ratings belong to the photo, so they follow it into reposts. */
+const tasteOf = keys => keys.reduce((t, k) => { const x = S.taste[k] || {}; return { up: Math.max(t.up, x.up || 0), down: Math.max(t.down, x.down || 0) }; }, { up: 0, down: 0 });
+const keysOf = p => p.files.map(f => f.key);
+function homeWeight(p){
+  const t = tasteOf(keysOf(p)), seen = lastSeenOf(p);
+  const novelty = seen ? Math.max(.02, 1 - Math.exp(-(now() - seen) / (3 * D / (1 + t.up)))) : 1;
+  return novelty * Math.pow(1 + Math.min(t.up, 20), .7) * Math.pow(.25, t.down);
+}
+// One post per photo (the first photo decides), from everything your feed accounts have that isn't a story.
+function homePool(){
+  const by = new Map();
+  for (const a of feedAccts()) for (const p of postsOf(a.id)){
+    if (!p.publishAt || !p.files.length) continue;
+    const k = p.files[0].key, had = by.get(k);
+    if (!had || (had.publishAt > now() && p.publishAt <= now())) by.set(k, p);
+  }
+  return [...by.values()];
+}
+let homeShown = new Set();
+// The next few posts for the stream: weighted random picks among what this stream hasn't shown yet (once everything
+// has been shown, it starts over). A picked post that was still waiting goes up now, so it's real on its profile too.
+async function homeBatch(n){
+  const fresh = () => homePool().filter(p => !homeShown.has(p.files[0].key));
+  let pool = fresh();
+  if (pool.length < n){
+    const recent = (homeOrder ? homeOrder.ids.slice(-30) : []).map(id => S.posts.find(x => x.id === id)).filter(Boolean);
+    homeShown = new Set(recent.map(p => p.files[0].key)); pool = fresh();
+  }
+  const picks = spreadAccounts(pool.map(p => [Math.pow(Math.random(), 1 / homeWeight(p)), p]).sort((x, y) => y[0] - x[0]).slice(0, n).map(x => x[1]));
+  for (const p of picks){
+    homeShown.add(p.files[0].key);
+    if (p.publishAt > now()){ p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p); }
+  }
+  return picks;
+}
+const HOME_BATCH = 8, HOME_MAX = 90;
+const homeCard = p => postCard(p, true);
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
-  const all = feedAccts().flatMap(a => live(a.id)).sort((x,y) => y.publishAt - x.publishAt);
-  // Completely random every time the feed reloads; posts you liked or opened tend to land higher. No account twice in a row.
-  // Posts you kept stay up for good, so the ones older than 2 days come back as a random handful per reload (at most
-  // a quarter of the feed), a different handful each time, instead of all of them every time.
   if (!homeOrder){
-    const old = p => keeps(p) && now() - p.publishAt > 2*D;
-    const rest = all.filter(p => !old(p)), kept = shuffleInPlace(all.filter(old));
-    homeOrder = { ids: spreadAccounts(randomOrder([...rest, ...kept.slice(0, Math.max(3, Math.ceil(rest.length / 3)))])).map(p => p.id) };
+    const mine = homeOrder = { ids: [] };
+    homeBatch(HOME_BATCH * 2).then(ps => { if (homeOrder !== mine || !ps.length) return; mine.ids = ps.map(p => p.id); if (route().name === "home") render(); });
   }
-  const pos = new Map(homeOrder.ids.map((id, i) => [id, i]));
-  // Anything that went up since the feed was ordered joins at the bottom, so nothing jumps around while you scroll.
-  const added = all.filter(p => !pos.has(p.id) && now() - p.publishAt < 2*D);
-  const L = spreadAccounts([...homeOrder.ids.map(id => all.find(p => p.id === id)).filter(Boolean), ...shuffleInPlace(added)]);
   const writingNow = /^Writing/.test(S.writerMsg || "");
   const banner = `<div class="hint pad" id="hwstatus" style="padding-top:8px"${writingNow ? "" : " hidden"}>${writingNow ? esc(S.writerMsg): ""}</div>` + (needsGoogle() && S.settings.clientId ? `<div class="pad" style="padding-top:12px"><div class="card"><div class="hint">Google signed you out, so the bot can't see new files in your folders. Posts already downloaded keep going up.</div><button class="btn primary" type="button" data-sync>Sign in to Google</button></div></div>` : "");
-  if (!L.length){
+  if (!homeOrder.ids.length){
     const setup = !hasSetup();
     v.innerHTML = banner + storyTray() + `<div class="empty"><h2>${setup ? "Connect your Drive folder" : "Nothing posted yet"}</h2>
       <p>${setup ? "Type your Drive folder name once in settings. After that the bot posts from it by itself." : queued().length ? `The bot's first post goes up ${esc(until(queued()[0].publishAt))}.` : "The bot is watching your Drive folders. Put photos in them and they'll start going up."}</p>
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  v.innerHTML = banner + storyTray() + L.map(postCard).join("");
+  const L = homeOrder.ids.map(id => S.posts.find(p => p.id === id)).filter(Boolean);
+  v.innerHTML = banner + storyTray() + `<div id="homefeed">${L.map(homeCard).join("")}</div><div id="homemore" class="hint pad" style="text-align:center;padding:28px 0">Loading more…</div>`;
+  wireHomeMore();
+}
+let homeMoreIO = null, homeLoading = false;
+function wireHomeMore(){
+  if (homeMoreIO) homeMoreIO.disconnect();
+  const el = $("#homemore"); if (!el) return;
+  homeMoreIO = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) homeMore(); }, { rootMargin: "1500px 0px" });
+  homeMoreIO.observe(el);
+}
+async function homeMore(){
+  if (homeLoading || route().name !== "home" || !homeOrder || !homeOrder.ids.length) return;
+  homeLoading = true;
+  try {
+    const feed = $("#homefeed"); if (!feed) return;
+    const ps = await homeBatch(HOME_BATCH); if (!ps.length || !feed.isConnected) return;
+    homeOrder.ids.push(...ps.map(p => p.id));
+    const box = document.createElement("div"); box.innerHTML = ps.map(homeCard).join("");
+    const added = [...box.children]; feed.append(...added);
+    await Promise.all(added.map(n => { wireCarousels(n); return hydrate(n); }));
+    // A long stream drops its oldest cards from the top (keeping your place) so the phone doesn't run out of memory.
+    const cards = feed.querySelectorAll("article.post");
+    if (cards.length > HOME_MAX){
+      const drop = [...cards].slice(0, cards.length - HOME_MAX + HOME_BATCH * 2);
+      const h = drop.reduce((t, c) => t + c.getBoundingClientRect().height, 0);
+      drop.forEach(c => { c.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); c.remove(); });
+      homeOrder.ids = homeOrder.ids.slice(drop.length);
+      window.scrollBy(0, -h);
+    }
+    wireAutoplay($("#view")); wireSeen($("#view")); wireParking($("#view"));
+  } finally {
+    homeLoading = false;
+    const el = $("#homemore"); if (el && el.getBoundingClientRect().top < innerHeight + 1500) setTimeout(homeMore, 300);
+  }
+}
+// Rating from Home: a like adds one each tap (no limit), a dislike folds the card away with an undo.
+function upButton(keys){
+  const t = tasteOf(keys);
+  return `${t.up ? I.heartOn : I.heart}<span class="upn num">${t.up > 1 ? "×" + t.up : ""}</span>`;
+}
+async function rateHome(keys, dir, card){
+  for (const k of keys){ const x = S.taste[k] || (S.taste[k] = { up: 0, down: 0 }); if (dir > 0) x.up++; else x.down++; }
+  await saveMisc();
+  if (!card) return;
+  if (dir > 0){
+    const b = card.querySelector("[data-up]"); if (b){ b.classList.add("liked"); b.innerHTML = upButton(keys); }
+    const box = card.querySelector(".carousel"); if (box){ const z = document.createElement("div"); z.className = "burst"; z.innerHTML = I.heartOn; box.appendChild(z); setTimeout(() => z.remove(), 900); }
+  } else {
+    card.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); });
+    card.dataset.was = card.innerHTML; card.classList.add("less");
+    card.innerHTML = `<div class="pad lessbar"><span>Got it, you'll see this less.</span><button type="button" class="link" data-undown="${esc(keys.join("|"))}">Undo</button></div>`;
+  }
+}
+async function undoDown(keys, card){
+  for (const k of keys){ const x = S.taste[k]; if (x && x.down) x.down--; }
+  await saveMisc();
+  if (!card || !card.dataset.was) return;
+  card.innerHTML = card.dataset.was; delete card.dataset.was; card.classList.remove("less");
+  card.querySelectorAll("[data-media]").forEach(x => { x.removeAttribute("src"); delete x.dataset.th; delete x.dataset.sm; delete x.dataset.fb; delete x.dataset.parked; });
+  wireCarousels(card);
+  hydrate(card).then(() => { wireAutoplay($("#view")); wireSeen($("#view")); wireParking($("#view")); });
+}
+// Videos far off screen give back their memory (iPhone stops loading videos once too many are open) and load again on the way back.
+let parkIO = null;
+function wireParking(root){
+  if (parkIO) parkIO.disconnect();
+  parkIO = new IntersectionObserver(es => es.forEach(en => {
+    const v = en.target;
+    if (!en.isIntersecting && v.getAttribute("src") && v.paused){ v.dataset.parked = v.getAttribute("src"); v.removeAttribute("src"); v.load(); }
+    else if (en.isIntersecting && v.dataset.parked){ v.src = v.dataset.parked; delete v.dataset.parked; }
+  }), { rootMargin: "2500px 0px" });
+  root.querySelectorAll("#homefeed video").forEach(v => parkIO.observe(v));
 }
 
 function profileHeader(o){
@@ -3514,7 +3625,9 @@ function wireCarousels(root){
     c.addEventListener("click", e => {
       if (e.target.closest("[data-mute]")) return;
       const t = now();
-      if (t - lastTap < 320){ likePost(c.dataset.dbl, true); const b = document.createElement("div"); b.className = "burst"; b.innerHTML = I.heartOn; c.appendChild(b); setTimeout(() => b.remove(), 900); }
+      const up = c.closest("article.post")?.querySelector("[data-up]");
+      if (t - lastTap < 320 && up){ rateHome(up.dataset.up.split("|"), 1, c.closest("article.post")); }
+      else if (t - lastTap < 320){ likePost(c.dataset.dbl, true); const b = document.createElement("div"); b.className = "burst"; b.innerHTML = I.heartOn; c.appendChild(b); setTimeout(() => b.remove(), 900); }
       lastTap = t;
     });
   }
@@ -3528,7 +3641,11 @@ function wireSeen(root){
   const timers = new Map();
   seenIO = new IntersectionObserver(es => es.forEach(en => {
     const id = en.target.dataset.post; if (!id || (now() - (S.postSeen[id] || 0) < 10*60e3 && !S.posts.some(x => x.id === id && capNew(x)))) return;
-    if (en.isIntersecting) timers.set(id, setTimeout(() => { S.postSeen[id] = now(); clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500); }, 1000));
+    if (en.isIntersecting) timers.set(id, setTimeout(() => {
+      S.postSeen[id] = now();
+      const p = S.posts.find(x => x.id === id); if (p) for (const f of p.files) S.postSeen["f:" + f.key] = now();
+      clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500);
+    }, 1000));
     else { clearTimeout(timers.get(id)); timers.delete(id); }
   }), { threshold: .5 });
   root.querySelectorAll("article.post[data-post]").forEach(el => seenIO.observe(el));
@@ -3712,6 +3829,9 @@ document.addEventListener("click", async e => {
   if ("sync" in d){ try { localStorage.setItem("reel-needs-signin","0"); } catch(_){} sync(false); return; }
   if ("switch" in d){ accountSwitcher(); return; }
   if ("mute" in d){ feedMuted = !feedMuted; document.querySelectorAll("video[data-auto]").forEach(v => v.muted = feedMuted); document.querySelectorAll("[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); if (!feedMuted) unlockVids(document); return; }
+  if (d.up){ rateHome(d.up.split("|"), 1, t.closest("article.post")); return; }
+  if (d.down){ rateHome(d.down.split("|"), -1, t.closest("article.post")); return; }
+  if (d.undown){ undoDown(d.undown.split("|"), t.closest("article.post")); return; }
   if (d.like){ likePost(d.like); return; }
   if (d.save){ S.saved[d.save] = !S.saved[d.save]; await saveMisc(); t.innerHTML = S.saved[d.save] ? I.saveOn : I.save; return; }
   if ("share" in d){ toast("Shared"); return; }
@@ -3940,7 +4060,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   const misc = await DB.get("kv","misc") || {};
   S.follows = (misc.follows && !Object.keys(misc.follows).every(k => /^\d+$/.test(k))) ? misc.follows : {};
   S.seenAt = typeof misc.seenAt === "object" && misc.seenAt ? misc.seenAt : {};
-  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.dms = misc.dms || {}; S.convos = misc.convos || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {}; S.vidSeen = misc.vidSeen || {};
+  S.saved = misc.saved || {}; S.storySeen = misc.storySeen || {}; S.postSeen = misc.postSeen || {}; S.taste = misc.taste || {}; S.dms = misc.dms || {}; S.convos = misc.convos || {}; S.dmRead = misc.dmRead || {}; S.savedVids = misc.savedVids || {}; S.vidSeen = misc.vidSeen || {};
   if (navigator.storage?.persist) navigator.storage.persist().catch(()=>{});
   loadPfps();
   const back = takeOAuthReturn();
