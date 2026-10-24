@@ -91,7 +91,7 @@ DB.clear = st => DB.tx(st,"readwrite",s=>s.clear());
 /* ================= Reel's library ================= */
 // Accounts, the writer's address and every photo and video Reel fetched, per account. Posts in Reel (up or queued) carry the
 // files, and a file counts only while its blob is still there.
-const LIB = { ok:false, accounts:[], current:"", secret:{ url:"", model:"" }, settings:{}, photos:new Map(), mediaKeys:new Set(), loadedAt:0 };
+const LIB = { ok:false, accounts:[], current:"", secret:{ url:"", model:"" }, settings:{}, photos:new Map(), mediaKeys:new Set(), loadedAt:0, taste:{}, seen:{} };
 async function loadLibrary(){
   const okOpen = await REEL.open();
   if (!okOpen){ LIB.ok = false; LIB.accounts = []; LIB.photos = new Map(); return false; }
@@ -103,6 +103,8 @@ async function loadLibrary(){
     LIB.settings = (await REEL.get("kv","settings")) || {};
     posts = (await REEL.all("posts")) || [];
     keys = new Set((await REEL.keys("media")) || []);
+    const misc = (await REEL.get("kv","misc")) || {};
+    LIB.taste = misc.taste || {}; LIB.seen = misc.postSeen || {};
   } catch(e){ LIB.ok = false; return false; }
   const photos = new Map();
   for (const a of accounts){
@@ -144,7 +146,7 @@ const acctOf = p => (p && accountById(p.acct)) || A();
 async function saveSettings(){ await DB.put("kv", S.settings, "settings"); }
 async function saveMisc(){ await DB.put("kv", S.misc, "misc"); }
 async function saveCurrent(){ await DB.put("kv", S.current, "current"); }
-async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x => x.id === p.id); if (i < 0) S.posts.push(p); else S.posts[i] = p; }
+async function savePost(p){ await DB.put("posts", p); const i = S.posts.findIndex(x => x.id === p.id); if (i < 0) S.posts.push(p); else S.posts[i] = p; rememberRating(p); }
 async function delPost(p){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x.id !== p.id); }
 // Per-account settings for this app: how often it posts here and whether it posts here at all. The other accounts post about half as often.
 const acctSet = a => ({ perDay: a.npc ? Math.max(1, Math.round(APP.defaults.perDay / 2)) : APP.defaults.perDay, on: true, ...((S.settings.acct || {})[a.id] || {}) });
@@ -973,17 +975,142 @@ async function comeBack(){
   if (route().name === "home"){ window.scrollTo(0, 0); safeRender(); }
 }
 
+/* ================= novelty streams (the same idea as Reel's Home) =================
+   A feed is an endless stream over every post its accounts have, up or still waiting, picked by how new it is to you
+   and how you rated it. Never seen beats seen; seen long ago slowly becomes new again. Ratings and "seen" belong to
+   the photo, so they follow it into reposts, and what you liked, disliked or saw in Reel counts here too. */
+// a text post (no photo) is rated and seen under its own id
+const fileKeys = p => p.files && p.files.length ? p.files.map(f => f.key) : ["t:" + p.id], streamKey = p => fileKeys(p)[0];
+// Upvote, like or save here = one up for the photo; downvote = one down. Kept per photo in this app's misc.
+function rememberRating(p){
+  const up = (p.vote > 0 ? 1 : 0) + (p.liked ? 1 : 0) + (p.saved ? 1 : 0), down = p.vote < 0 ? 1 : 0, T = (S.misc.taste ||= {});
+  let changed = false;
+  for (const k of fileKeys(p)){ const x = T[k]; if ((x ? x.up : 0) === up && (x ? x.down : 0) === down) continue; if (up || down) T[k] = { up, down }; else delete T[k]; changed = true; }
+  if (changed){ clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 800); }
+}
+function tasteOf(p){
+  let up = 0, down = 0, ru = 0, rd = 0;
+  for (const k of fileKeys(p)){ const x = (S.misc.taste || {})[k] || {}, y = LIB.taste[k] || {}; up = Math.max(up, x.up || 0); down = Math.max(down, x.down || 0); ru = Math.max(ru, y.up || 0); rd = Math.max(rd, y.down || 0); }
+  return { up: up + ru, down: down + rd };
+}
+const lastSeenOf = p => Math.max(0, ...fileKeys(p).map(k => Math.max((S.misc.postSeen || {})["f:" + k] || 0, LIB.seen["f:" + k] || 0)));
+function noveltyWeight(p){
+  const t = tasteOf(p), seen = lastSeenOf(p);
+  const novelty = seen ? Math.max(.02, 1 - Math.exp(-(now() - seen) / (3 * D / (1 + t.up)))) : 1;
+  return novelty * Math.pow(1 + Math.min(t.up, 20), .7) * Math.pow(.25, t.down);
+}
+const noveltyOrder = L => L.map(p => [Math.pow(Math.random(), 1 / noveltyWeight(p)), p]).sort((x, y) => y[0] - x[0]).map(x => x[1]);
+// The same account twice in a row only when nothing else is left.
+function spreadAccts(L){
+  const rest = L.slice(), out = [];
+  while (rest.length){ const last = out.length ? out[out.length - 1].acct : null; let i = rest.findIndex(p => p.acct !== last); out.push(rest.splice(i < 0 ? 0 : i, 1)[0]); }
+  return out;
+}
+// One post per photo (the first photo decides; a text post is its own), preferring one that's already up.
+function streamPool(L){
+  const by = new Map();
+  for (const p of L){
+    if (!p.publishAt) continue;
+    const k = streamKey(p), had = by.get(k);
+    if (!had || (had.publishAt > now() && p.publishAt <= now())) by.set(k, p);
+  }
+  return [...by.values()];
+}
+// A stream: st = { ids, shown, from, pool: () => posts }. The next n picks among what it hasn't shown yet; when it runs
+// out it shows the last few, then starts over. A picked post that was still waiting goes up now.
+const newStream = pool => ({ ids: [], shown: new Set(), from: 0, pool });
+async function streamBatch(st, n){
+  const fresh = () => streamPool(st.pool()).filter(p => !st.shown.has(streamKey(p)));
+  let picks = noveltyOrder(fresh()).slice(0, n);
+  if (picks.length < n){
+    const recent = st.ids.slice(-30).map(id => S.posts.find(x => x.id === id)).filter(Boolean).concat(picks);
+    st.shown.clear(); for (const p of recent) st.shown.add(streamKey(p));
+    picks = picks.concat(noveltyOrder(fresh()).slice(0, n - picks.length));
+  }
+  picks = spreadAccts(picks);
+  for (const p of picks){
+    st.shown.add(streamKey(p));
+    if (p.publishAt > now()){ p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p); }
+  }
+  return picks;
+}
+const STREAM_BATCH = 8, STREAM_MAX = 90;
+const streamPosts = st => st.ids.slice(st.from).map(id => S.posts.find(x => x.id === id)).filter(Boolean);
+const MORE_EL = `<div id="more" class="hint" style="text-align:center;padding:28px 0">Loading more…</div>`;
+// Keeps a stream going at the bottom of the page: f = { st, ok, cards(posts) -> html, one top-level element per post }. The first screenful comes from
+// startStream; long streams drop their oldest cards (keeping your place) so the phone doesn't run out of memory.
+async function startStream(st){ if (!st.ids.length) st.ids.push(...(await streamBatch(st, STREAM_BATCH * 2)).map(p => p.id)); }
+let moreIO = null, moreLoading = false;
+function wireMore(f){
+  if (moreIO) moreIO.disconnect();
+  const el = $("#more"); if (!el) return;
+  moreIO = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) streamMore(f); }, { rootMargin: "1500px 0px" });
+  moreIO.observe(el);
+}
+async function streamMore(f){
+  if (moreLoading || !f.ok()) return;
+  moreLoading = true;
+  try {
+    const feed = $("#feed"); if (!feed) return;
+    const ps = await streamBatch(f.st, STREAM_BATCH); if (!ps.length || !feed.isConnected || !f.ok()) return;
+    f.st.ids.push(...ps.map(p => p.id));
+    const box = document.createElement("div"); box.innerHTML = f.cards(ps);
+    const added = [...box.children]; feed.append(...added);
+    await Promise.all(added.map(n => hydrate(n))); if (f.after) f.after(feed);
+    const cards = feed.children;
+    if (cards.length > STREAM_MAX){
+      const drop = [...cards].slice(0, cards.length - STREAM_MAX + STREAM_BATCH * 2);
+      const h = drop.reduce((t, c) => t + c.getBoundingClientRect().height, 0);
+      drop.forEach(c => { c.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); c.remove(); });
+      f.st.from = Math.min(f.st.ids.length, f.st.from + drop.length);
+      window.scrollBy(0, -h);
+    }
+    wireSeen($("#view"));
+  } finally {
+    moreLoading = false;
+    const el = $("#more"); if (el && el.getBoundingClientRect().top < innerHeight + 1500) setTimeout(() => streamMore(f), 300);
+  }
+}
+// A post counts as seen once half of it has been on screen for a second.
+let seenIO = null, seenSave = 0;
+function wireSeen(root){
+  if (seenIO) seenIO.disconnect();
+  const timers = new Map(), seen = (S.misc.postSeen ||= {});
+  seenIO = new IntersectionObserver(es => es.forEach(en => {
+    const id = en.target.dataset.post; if (!id) return;
+    if (en.isIntersecting) timers.set(id, setTimeout(() => {
+      const p = S.posts.find(x => x.id === id); if (!p) return;
+      for (const k of fileKeys(p)) seen["f:" + k] = now();
+      clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 1500);
+    }, 1000));
+    else { clearTimeout(timers.get(id)); timers.delete(id); }
+  }), { threshold: .5 });
+  root.querySelectorAll("[data-post]").forEach(el => { if (el.tagName === "ARTICLE") seenIO.observe(el); });
+}
+/* Profiles get a fresh mix each time you come to one (pinned stays first), held still while you're on it and its posts.
+   APP.profRoutes are the profile pages; coming to one from anywhere else draws new orders. */
+let profOrders = {};
+function profOrder(aid, L){
+  let ids = profOrders[aid];
+  if (!ids) ids = profOrders[aid] = noveltyOrder(L).map(p => p.id);
+  const known = new Set(ids); for (const p of L) if (!known.has(p.id)) ids.unshift(p.id); // posted since: on top
+  const rank = new Map(ids.map((id, i) => [id, i]));
+  return L.slice().sort((x, y) => rank.get(x.id) - rank.get(y.id));
+}
+
 /* ================= router, rendering, gestures ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
-function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b, c] = h.split("/").map(x => { try { return decodeURIComponent(x); } catch(e){ return x; } }); return { name: name || "home", a, b, c }; }
+function route(hash = location.hash){ const h = hash.replace(/^#\/?/, ""); const [name, a, b, c] = h.split("/").map(x => { try { return decodeURIComponent(x); } catch(e){ return x; } }); return { name: name || "home", a, b, c }; }
 const scrollMem = {}; let curHash = location.hash, navN = (history.state && history.state.n) || 0;
 if (!history.state || typeof history.state.n !== "number") history.replaceState({ n: navN }, "");
 window.addEventListener("scroll", () => { scrollMem[curHash] = window.scrollY; }, { passive:true });
 window.addEventListener("hashchange", () => {
   const st = history.state; let back = false;
   if (st && typeof st.n === "number"){ back = st.n < navN; navN = st.n; } else { navN++; history.replaceState({ n: navN }, ""); }
-  curHash = location.hash;
+  const was = route(curHash).name; curHash = location.hash;
   if (!back && APP.feedReset) APP.feedReset();
+  const PR = APP.profRoutes || [];
+  if (!back && PR.includes(route().name) && !PR.includes(was) && was !== APP.postRoute) profOrders = {};
   render();
   if (back && scrollMem[curHash]){ const y = scrollMem[curHash]; window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 60); }
   else window.scrollTo(0, 0);
@@ -1006,6 +1133,7 @@ function render(){
   const v = $("#view");
   (APP.views[r.name] || APP.views.home)(v, r);
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]);
+  wireSeen(v);
 }
 // Reel hasn't fetched anything yet (no accounts, or no photos): nothing to post from.
 function renderEmpty(){
@@ -1020,7 +1148,7 @@ async function refreshFeed(){
   const ptr = $("#ptr"); ptr.classList.add("spin"); ptr.style.transition = "opacity .15s, transform .15s"; ptr.style.opacity = "1"; ptr.style.transform = "scale(1)";
   window.scrollTo({ top: 0, behavior: "smooth" });
   const started = Date.now();
-  try { await loadLibrary(); await refreshAdvance(); await botRun(); APP.feedReset && APP.feedReset(); await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); render(); writerRun(); }
+  try { await loadLibrary(); await refreshAdvance(); await botRun(); APP.feedReset && APP.feedReset(); profOrders = {}; await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - started)))); render(); writerRun(); }
   finally { refreshing = false; ptr.style.opacity = "0"; ptr.style.transform = "scale(.6)"; setTimeout(() => { if (!refreshing) ptr.classList.remove("spin"); }, 200); }
 }
 document.addEventListener("touchstart", e => {
@@ -1125,7 +1253,7 @@ async function boot(){
   setInterval(() => { if (LIB.ok){ dmTick(); threadTick(); } }, 20e3);
   dmTick(); threadTick();
   document.addEventListener("visibilitychange", async () => {
-    if (document.visibilityState === "hidden"){ markLeft(); return; }
+    if (document.visibilityState === "hidden"){ markLeft(); APP.feedReset && APP.feedReset(); profOrders = {}; return; }
     if (!LIB.ok){ await loadLibrary(); if (LIB.ok){ await afterLibrary(); render(); } return; }
     comeBack(); dmTick();
   });

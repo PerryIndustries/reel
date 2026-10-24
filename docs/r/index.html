@@ -167,7 +167,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 5, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"] };
+window.APP = { id: "thread", name: "Thread", db: "reel-thread", version: 6, defaults: { perDay: 4, maxFiles: 4, topComments: 14, followerScale: 1 }, postRoute: "p", roots: ["home", "communities", "create", "chat", "inbox"], pullRoutes: ["home"], liveRoutes: ["home", "inbox", "c"], profRoutes: ["me", "acct", "user"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -369,13 +369,33 @@ function wireGalleries(root){
     g.addEventListener("scroll", () => { const i = Math.round(g.scrollLeft / g.clientWidth); if (cnt) cnt.textContent = (i+1)+"/"+g.children.length; dots.forEach((d,k) => d.classList.toggle("on", k===i)); }, { passive: true });
   }
 }
-const sortChips = (cur, base) => `<div class="sorts">${[["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]].map(([k,l,ic]) => `<a class="chip ${cur===k?"on":""}" href="${base}${k}">${ic}${l}</a>`).join("")}</div>`;
-let homeOrder = null;
-APP.feedReset = () => { homeOrder = null; };
+const I_BEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg>';
+const SORTS = [["best","Best",I_BEST],["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]];
+const sortChips = (cur, base) => `<div class="sorts">${SORTS.map(([k,l,ic]) => `<a class="chip ${cur===k?"on":""}" href="${base}${k}">${ic}${l}</a>`).join("")}</div>`;
+let homeOrder = null, streams = {};
+APP.feedReset = () => { homeOrder = null; streams = {}; };
+/* Best (the default, on Home and in each community) is an endless stream like Reel's Home: every post, up or still
+   waiting, never-seen and upvoted photos first, seen-long-ago ones slowly coming back. Hot, New and Top stay as they were. */
+function bestFeed(v, key, pool, opts){
+  const st = streams[key] ||= newStream(pool);
+  if (!streamPool(st.pool()).length) return false;
+  const h = location.hash;
+  if (!st.ids.length){ v.insertAdjacentHTML("beforeend", `<div class="hint" style="text-align:center;padding:28px 0">Loading…</div>`); startStream(st).then(() => { if (streams[key] === st && location.hash === h) render(); }); return true; }
+  const cards = ps => ps.map(p => postCard(p, opts)).join("");
+  v.insertAdjacentHTML("beforeend", `<div id="feed">${cards(streamPosts(st))}</div>${MORE_EL}`);
+  wireMore({ st, ok: () => streams[key] === st && location.hash === h, cards, after: n => wireGalleries(n) });
+  return true;
+}
+const onHere = p => acctSet(acctOf(p)).on;
 APP.views.home = (v, r) => {
-  const sort = ["hot","new","top"].includes(r.a) ? r.a : "hot";
-  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><h1><button type="button" class="hometitle" data-sortsheet="${sort}">${sort === "hot" ? "Home" : sort === "new" ? "New" : "Top"} ${I.dn}</button></h1><a class="iconbtn" href="#/communities" aria-label="Search">${I.search}</a><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  const all = allLive().filter(p => acctSet(acctOf(p)).on);
+  const sort = ["best","hot","new","top"].includes(r.a) ? r.a : "best";
+  setTop(`<button type="button" class="iconbtn" data-switch aria-label="Accounts">${myAv(32)}</button><h1><button type="button" class="hometitle" data-sortsheet="${sort}">${sort === "best" ? "Home" : SORTS.find(x => x[0] === sort)[1]} ${I.dn}</button></h1><a class="iconbtn" href="#/communities" aria-label="Search">${I.search}</a><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
+  const all = allLive().filter(onHere);
+  if (sort === "best"){
+    const writingNow = /^Writing/.test(S.writerMsg || "");
+    v.innerHTML = sortChips(sort, "#/home/") + (writingNow ? `<div class="hint pad" style="padding-bottom:8px">${esc(S.writerMsg)}</div>` : "");
+    if (bestFeed(v, "home", () => S.posts.filter(onHere))){ wireGalleries(v); return; }
+  }
   if (!all.length){ v.innerHTML = `<div class="empty"><h2>Nothing posted yet</h2><p>The bot posts by itself from the photos Reel fetched. ${queued(A().id).length ? `Next post goes up ${esc(until(queued(A().id)[0].publishAt))}.` : "Pull down to refresh."}</p></div>`; return; }
   const L = sortPosts(all, sort);
   const writingNow = /^Writing/.test(S.writerMsg || "");
@@ -385,7 +405,7 @@ APP.views.home = (v, r) => {
 APP.views.c = (v, r) => {
   const s = subs().find(x => x.name === r.a);
   if (!s){ v.innerHTML = `<div class="empty"><h2>No such community</h2></div>`; setTop(`${backBtn}<h1>r/?</h1>`); return; }
-  const sort = ["hot","new","top"].includes(r.b) ? r.b : "hot";
+  const sort = ["best","hot","new","top"].includes(r.b) ? r.b : "best";
   setTop(`${backBtn}<h1>r/${esc(s.name)}</h1><button class="iconbtn" type="button" data-editsub="${esc(s.name)}" aria-label="Edit">${I.dots}</button>`);
   const L = sortPosts(allLive().filter(p => postSubs(p).includes(s.name)), sort);
   v.innerHTML = `<div class="banner" style="--h:${s.hue}"></div>
@@ -393,8 +413,9 @@ APP.views.c = (v, r) => {
     <div class="cdesc">${esc(s.title)}${s.desc ? ` · ${esc(s.desc)}` : ""}</div>
     ${s.rules && s.rules.length ? `<details class="rules"><summary>r/${esc(s.name)} rules</summary><ol>${s.rules.map(x => `<li>${esc(x)}</li>`).join("")}</ol></details>` : ""}
     ${s.flairs && s.flairs.length ? `<div class="flairs pad" style="padding-top:10px">${s.flairs.map(f => `<span class="flair">${esc(f)}</span>`).join("")}</div>` : ""}
-    ${sortChips(sort, `#/c/${esc(s.name)}/`)}
-    ${L.length ? L.map(p => postCard(p, { sub: s.name })).join("") : `<div class="empty"><h2>Nothing here yet</h2><p>Posts land in r/${esc(s.name)} when the bot picks it.</p></div>`}`;
+    ${sortChips(sort, `#/c/${esc(s.name)}/`)}`;
+  if (!(sort === "best" && bestFeed(v, "c:" + s.name, () => S.posts.filter(p => postSubs(p).includes(s.name)), { sub: s.name })))
+    v.insertAdjacentHTML("beforeend", L.length ? L.map(p => postCard(p, { sub: s.name })).join("") : `<div class="empty"><h2>Nothing here yet</h2><p>Posts land in r/${esc(s.name)} when the bot picks it.</p></div>`);
   wireGalleries(v);
 };
 let commQ = "";
@@ -457,7 +478,7 @@ function acctStrip(){
 APP.views.acct = async (v, r) => { const a = accountById(r.a); if (a && a.npc){ npcProfile(v, a); return; } if (a && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
 // One of the other accounts, seen the way you'd see anyone else here: her posts, follow or not, chat.
 function npcProfile(v, a){
-  const i = npcIndex(a), fol = isFollowing(i), k = karmaOf(a), L = sortPosts(live(a.id), "new");
+  const i = npcIndex(a), fol = isFollowing(i), k = karmaOf(a), L = profOrder(a.id, live(a.id));
   setTop(`${backBtn}<h1>u/${esc(handleOf(a))}</h1>`);
   v.innerHTML = `<div class="prof">${myAv(86, a)}<div class="meta"><h2>u/${esc(handleOf(a))}</h2>${a.name ? `<div class="hint">${esc(a.name)}</div>` : ""}${a.bio ? `<div class="small" style="margin-top:4px;white-space:pre-wrap">${esc(a.bio)}</div>` : ""}</div></div>
     <div class="pstats num"><div><b>${fmt(k.post + k.comment)}</b><span>Karma</span></div><div><b>${esc(new Date(cakeDay(a)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}</b><span>Cake day</span></div></div>
@@ -468,7 +489,7 @@ function npcProfile(v, a){
 APP.views.me = (v, r) => {
   const a = A(), tab = r.a === "comments" ? "comments" : "posts";
   setTop(`<h1><button type="button" data-switch>u/${esc(handleOf(a))} ${I.dn}</button></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.menu}</a>`);
-  const k = karmaOf(a), L = sortPosts(live(a.id), "new");
+  const k = karmaOf(a), L = profOrder(a.id, live(a.id));
   let body;
   if (tab === "posts") body = L.length ? L.map(p => postCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>${acctSet(a).on ? "The bot's first post goes up soon." : "This account doesn't post here. Turn it on in Settings."}</p></div>`;
   else {
@@ -630,7 +651,7 @@ APP.onClick = async (t, d) => {
   if (d.tab === "home"){ if (route().name !== "home") go("#/"); refreshFeed(); return; }
   if (d.tab === "chat"){ go("#/chat/" + (ownAccts().find(a => dmUnreadCount(a)) || A()).id); return; }
   if (d.tab){ go("#/" + d.tab); return; }
-  if (d.sortsheet){ sheet(`<h3>Sort posts by</h3>${[["hot","Hot",I.hot],["new","New",I.neww],["top","Top",I.top]].map(([k,l,ic]) => `<button class="opt" data-s="${k}">${ic} ${l}${d.sortsheet === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); go("#/home/" + b.dataset.s); }); return; }
+  if (d.sortsheet){ sheet(`<h3>Sort posts by</h3>${SORTS.map(([k,l,ic]) => `<button class="opt" data-s="${k}">${ic} ${l}${d.sortsheet === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); go("#/home/" + b.dataset.s); }); return; }
   if (d.csort){ sheet(`<h3>Sort comments by</h3>${[["best","Best"],["top","Top"],["new","New"]].map(([k,l]) => `<button class="opt" data-s="${k}">${l}${d.csort === k ? " ✓" : ""}</button>`).join("")}`, el => { const b = el.closest("[data-s]"); if (!b) return; closeSheet(); location.replace(`#/p/${d.p}/${b.dataset.s}`); render(); }); return; }
   if (d.vote !== undefined && d.p){ const p = S.posts.find(x => x.id === d.p); if (!p) return; const v = +d.vote; p.vote = p.vote === v ? 0 : v; p.kept = true; await savePost(p); const el = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); if (el){ el.outerHTML = postCard(p, route().name === "c" ? { sub: route().a } : {}); const n = document.querySelector(`[data-post="${CSS.escape(p.id)}"]`); hydrate(n); wireGalleries(n); } return; }
   if (d.save){ const p = S.posts.find(x => x.id === d.save); if (!p) return; p.saved = !p.saved; await savePost(p); t.classList.toggle("saved", p.saved); t.innerHTML = p.saved ? I.saveOn : I.save; toast(p.saved ? "Saved" : "Removed from saved"); return; }

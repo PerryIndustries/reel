@@ -175,7 +175,7 @@
 
 <script>
 "use strict";
-window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 5, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"] };
+window.APP = { id: "wire", name: "Wire", db: "reel-wire", version: 6, defaults: { perDay: 6, maxFiles: 4, topComments: 12, followerScale: 2.2 }, postRoute: "p", roots: ["home", "search", "notifications", "messages", "me"], pullRoutes: ["home"], liveRoutes: ["home", "notifications"], profRoutes: ["me", "acct", "user"] };
 </script>
 <script src="../kit/core.js"></script>
 <script>
@@ -373,8 +373,19 @@ function fanCard(x, opts = {}){
   </article>`;
 }
 const social = (icon, text) => `<div class="social">${icon} ${text}</div>`;
-let homeOrder = null;
-APP.feedReset = () => { homeOrder = null; };
+let homeOrder = null, forYou = null;
+APP.feedReset = () => { homeOrder = null; forYou = null; };
+const itemCard = x => x.type === "post" ? tweetCard(x.p) : x.type === "repost" ? tweetCard(x.p, { social: social(I.rt, `${esc(acct(x.by).name)} reposted`) }) : fanCard(x);
+/* For you is an endless stream like Reel's Home: every post, up or still waiting, never-seen and liked photos first,
+   seen-long-ago ones slowly coming back, with the fans' reposts, quotes and posts about her mixed in between.
+   Following stays newest first. */
+function fanBits(st, p){
+  if (st.after[p.id]) return st.after[p.id];
+  const pool = allFanItems().filter(x => !st.fanShown.has(x.id)), out = [];
+  for (let k = Math.random() < .6 ? 1 : 0; k > 0 && pool.length; k--){ const x = pool.splice(Math.floor(Math.random() * pool.length), 1)[0]; st.fanShown.add(x.id); out.push(x); }
+  return (st.after[p.id] = out);
+}
+const forYouCards = st => ps => ps.map(p => `<div class="sitem">${tweetCard(p) + fanBits(st, p).map(itemCard).join("")}</div>`).join("");
 // For you: her posts with the fans' reposts, quotes and posts about her mixed in. Following: just the accounts.
 APP.views.home = (v, r) => {
   const tab = r.a === "following" ? "following" : "foryou";
@@ -386,11 +397,15 @@ APP.views.home = (v, r) => {
   const tabs = `<div class="ftabs"><a class="${tab === "foryou" ? "on" : ""}" href="#/">For you</a><a class="${tab === "following" ? "on" : ""}" href="#/home/following">Following</a></div>`;
   if (!mine.length){ v.innerHTML = tabs + `<div class="empty"><h2>Nothing posted yet</h2><p>The bot posts by itself from the photos Reel fetched. ${queued(A().id).length ? `Next post goes up ${esc(until(queued(A().id)[0].publishAt))}.` : "Pull down to refresh."}</p></div>` + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`; return; }
   const writingNow = /^Writing/.test(S.writerMsg || "");
-  v.innerHTML = tabs + (writingNow ? `<div class="hint pad" style="padding:8px 16px">${esc(S.writerMsg)} Pull down to see the new ones.</div>` : "") + items.slice(0, 120).map(x => {
-    if (x.type === "post") return tweetCard(x.p);
-    if (x.type === "repost") return tweetCard(x.p, { social: social(I.rt, `${esc(acct(x.by).name)} reposted`) });
-    return fanCard(x);
-  }).join("") + `<div class="caught"><b>You're all caught up</b><div class="hint">Pull down later for more</div></div>` + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`;
+  if (tab === "foryou"){
+    const st = forYou ||= Object.assign(newStream(() => S.posts.filter(p => acctSet(acctOf(p)).on)), { after: {}, fanShown: new Set() }), h = location.hash;
+    v.innerHTML = tabs + (writingNow ? `<div class="hint pad" style="padding:8px 16px">${esc(S.writerMsg)}</div>` : "") + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`;
+    if (!st.ids.length){ v.insertAdjacentHTML("beforeend", `<div class="hint" style="text-align:center;padding:28px 0">Loading…</div>`); startStream(st).then(() => { if (forYou === st && location.hash === h) render(); }); return; }
+    v.insertAdjacentHTML("beforeend", `<div id="feed">${forYouCards(st)(streamPosts(st))}</div>${MORE_EL}`);
+    wireMore({ st, ok: () => forYou === st && location.hash === h, cards: forYouCards(st) });
+    return;
+  }
+  v.innerHTML = tabs + (writingNow ? `<div class="hint pad" style="padding:8px 16px">${esc(S.writerMsg)} Pull down to see the new ones.</div>` : "") + items.slice(0, 120).map(itemCard).join("") + `<div class="caught"><b>You're all caught up</b><div class="hint">Pull down later for more</div></div>` + `<a class="fab" href="#/queue" aria-label="Queue">${I.plus}</a>`;
 };
 // Post page: the post in full, then the replies as conversation chains.
 let replyTo = null, shownTop = {};
@@ -465,9 +480,12 @@ function acctStrip(){
 APP.views.acct = async (v, r) => { const a = accountById(r.a); if (a && a.npc){ npcProfile(v, a); return; } if (a && A().id !== r.a) await switchTo(r.a); location.replace("#/me"); };
 // One of the other accounts, seen the way you'd see anyone else here: her posts and quotes, follow or not, message.
 function npcProfile(v, a){
-  const i = npcIndex(a), fol = isFollowing(i), L = live(a.id), hers = allFanItems().filter(x => x.by === i), banner = photosOf(a.id)[0];
+  const i = npcIndex(a), fol = isFollowing(i), L = profOrder(a.id, live(a.id)), hers = allFanItems().filter(x => x.by === i), banner = photosOf(a.id)[0];
   setTop(`${backBtn}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(L.length)} posts</div></h1>`);
-  const items = [...L.map(p => ({ at: p.publishAt, h: tweetCard(p) })), ...hers.map(x => ({ at: x.at, h: fanCard(x) }))].sort((x, y) => y.at - x.at);
+  // her posts in the profile's mix, her quotes and posts slotted in between (each at its own fixed spot)
+  const items = L.map((p, k) => ({ at: k, h: tweetCard(p) }));
+  for (const x of hers) items.push({ at: rng(hashStr("slot" + x.id))() * Math.max(1, L.length), h: fanCard(x) });
+  items.sort((x, y) => x.at - y.at);
   v.innerHTML = `<div class="pbanner" style="--h:${hashStr(a.id) % 360}">${banner ? picBox(banner, "pic " + (blurOn() ? "nsfw" : ""), { small: true }) : ""}</div>
     <div class="phead">${myAv(86, a)}<div class="btns"><a class="btn line" href="#/messages/${esc(A().id)}/${i}">${I.mail.replace("<svg", '<svg style="width:18px;height:18px;vertical-align:-4px"')}</a><button class="btn ${fol ? "line" : "primary"}" type="button" data-follow="${i}">${fol ? "Following" : "Follow"}</button></div></div>
     <div class="pinfo"><h2>${esc(nameOf(a))}${verifiedOwner(a) ? `<span class="check">${I.check}</span>` : ""}</h2><div class="h">@${esc(handleOf(a))}${followsYou(i) ? ' <span class="flair" style="background:var(--soft);border-radius:4px;padding:1px 5px;font-size:12px">Follows you</span>' : ""}</div>${a.bio ? `<div class="bio">${linkify(a.bio)}</div>` : ""}<div class="meta"><span>${I.cal} Joined ${esc(new Date(joinedAt(a)).toLocaleDateString("en-US", { month: "long", year: "numeric" }))}</span></div><div class="fol num"><span><b>${fmt(followingOf(a))}</b> Following</span><span><b>${fmt(followersNow(a) + (fol ? 1 : 0))}</b> Followers</span></div></div>
@@ -477,7 +495,7 @@ const pinnedOf = a => { const L = live(a.id); return L.find(p => p.pinned) || (L
 APP.views.me = (v, r) => {
   const a = A(), tab = ["replies", "media", "likes"].includes(r.a) ? r.a : "posts";
   setTop(`${ownAccts().length > 1 ? `<button class="iconbtn" type="button" data-switch aria-label="Accounts">${I.person}</button>` : ""}<h1>${esc(nameOf(a))}<div class="hint" style="font-weight:400">${fmt(live(a.id).length)} posts</div></h1><a class="iconbtn" href="#/settings" aria-label="Settings">${I.gear}</a>`);
-  const L = live(a.id), pin = pinnedOf(a);
+  const L = profOrder(a.id, live(a.id)), pin = pinnedOf(a);
   let body = "";
   if (tab === "posts") body = L.length ? (pin ? tweetCard(pin, { pinned: true }) : "") + L.filter(p => p !== pin).map(p => tweetCard(p)).join("") : `<div class="empty"><h2>No posts yet</h2><p>${acctSet(a).on ? "The bot's first post goes up soon." : "This account doesn't post here. Turn it on in Settings."}</p></div>`;
   else if (tab === "replies"){
