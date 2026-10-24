@@ -558,7 +558,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 98;
+const APP_VERSION = 99;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -2426,7 +2426,8 @@ function setSync(label, frac){
 
 /* ================= router ================= */
 function go(h){ if (location.hash === h) render(); else location.hash = h; }
-function route(){ const h = location.hash.replace(/^#\/?/, ""); const [name, a, b, c] = h.split("/"); return { name: name || "home", a, b, c }; }
+const PROF_ROUTES = ["me", "acct", "all"];
+function route(hash = location.hash){ const h = hash.replace(/^#\/?/, ""); const [name, a, b, c] = h.split("/"); return { name: name || "home", a, b, c }; }
 // Each history entry gets a number, so going back can be told apart from opening a new page.
 const scrollMem = {}; let curHash = location.hash, navN = (history.state && history.state.n) || 0;
 if (!history.state || typeof history.state.n !== "number") history.replaceState({ n: navN }, "");
@@ -2434,8 +2435,9 @@ window.addEventListener("scroll", () => { scrollMem[curHash] = window.scrollY; }
 window.addEventListener("hashchange", () => {
   const st = history.state; let back = false;
   if (st && typeof st.n === "number"){ back = st.n < navN; navN = st.n; } else { navN++; history.replaceState({ n: navN }, ""); }
-  curHash = location.hash;
+  const was = route(curHash).name; curHash = location.hash;
   if (!back){ homeOrder = null; if (route().name === "explore") exploreSeed = 0; }
+  if (!back && PROF_ROUTES.includes(route().name) && !PROF_ROUTES.includes(was) && was !== "p") profStreams = {};
   if (!back) postScrolled = "";
   render();
   if (back && scrollMem[curHash]){ const y = scrollMem[curHash]; window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 60); }
@@ -2547,7 +2549,7 @@ function render(){
   const views = { explore: vExplore, fp: vFanPost, dm: vDM, aset: vAset, all: vAll, acct: vAcct, home: vHome, reels: vReelsTab, me: vMe, activity: vActivity, p: vPost, c: vComments, u: vUser, list: vList, settings: vSettings, edit: vEdit, new: vNew, editpost: vEditPost };
   (views[r.name] || vHome)(v, r);
   wireCarousels(v);
-  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); if (route().name === "home") wireParking(v); });
+  Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]).then(() => { wireAutoplay(v); wireSeen(v); if (route().name === "home" || $("#homefeed")) wireParking(v); });
 }
 
 /* ================= views ================= */
@@ -2746,38 +2748,61 @@ function homeWeight(p){
   return novelty * Math.pow(1 + Math.min(t.up, 20), .7) * Math.pow(.25, t.down);
 }
 // One post per photo (the first photo decides), from everything your feed accounts have that isn't a story.
-function homePool(){
+function homePool(accts = feedAccts()){
   const by = new Map();
-  for (const a of feedAccts()) for (const p of postsOf(a.id)){
+  for (const a of accts) for (const p of postsOf(a.id)){
     if (!p.publishAt || !p.files.length) continue;
     const k = p.files[0].key, had = by.get(k);
     if (!had || (had.publishAt > now() && p.publishAt <= now())) by.set(k, p);
   }
   return [...by.values()];
 }
-let homeShown = new Set();
-// The next few posts for the stream: weighted random picks among what this stream hasn't shown yet (once everything
-// has been shown, it starts over). A picked post that was still waiting goes up now, so it's real on its profile too.
-async function homeBatch(n){
-  const fresh = () => homePool().filter(p => !homeShown.has(p.files[0].key));
-  let pool = fresh();
-  if (pool.length < n){
-    const recent = (homeOrder ? homeOrder.ids.slice(-30) : []).map(id => S.posts.find(x => x.id === id)).filter(Boolean);
-    homeShown = new Set(recent.map(p => p.files[0].key)); pool = fresh();
+const homeShown = new Set();
+const noveltyOrder = L => L.map(p => [Math.pow(Math.random(), 1 / homeWeight(p)), p]).sort((x, y) => y[0] - x[0]).map(x => x[1]);
+// The next few posts for a stream (st = { ids, shown }): weighted random picks among what this stream hasn't shown yet
+// (once everything has been shown, it starts over). A picked post that was still waiting goes up now, so it's real on
+// its profile too.
+async function streamBatch(n, accts, st){
+  const fresh = () => homePool(accts).filter(p => !st.shown.has(p.files[0].key));
+  let picks = noveltyOrder(fresh()).slice(0, n);
+  if (picks.length < n){
+    const recent = st.ids.slice(-30).map(id => S.posts.find(x => x.id === id)).filter(Boolean).concat(picks);
+    st.shown.clear(); for (const p of recent) st.shown.add(p.files[0].key);
+    picks = picks.concat(noveltyOrder(fresh()).slice(0, n - picks.length));
   }
-  const picks = spreadAccounts(pool.map(p => [Math.pow(Math.random(), 1 / homeWeight(p)), p]).sort((x, y) => y[0] - x[0]).slice(0, n).map(x => x[1]));
+  picks = spreadAccounts(picks);
   for (const p of picks){
-    homeShown.add(p.files[0].key);
+    st.shown.add(p.files[0].key);
     if (p.publishAt > now()){ p.publishAt = now() - Math.floor(Math.random() * 20) * 60e3 - 30e3; await savePost(p); }
   }
   return picks;
 }
+const homeBatch = n => streamBatch(n, feedAccts(), { ids: homeOrder ? homeOrder.ids : [], shown: homeShown });
+/* Profiles work the same way. A profile's grid is its posts in a novelty pick (pinned ones stay first), drawn when you
+   come to the profile and held still while you're on it and its posts. Tapping a photo opens the scrolling feed in
+   that order, and it keeps going past the grid with the rest of that account's photos, posted or still waiting. */
+let profStreams = {};
+function profStream(aid){
+  let st = profStreams[aid];
+  const L = live(aid);
+  if (!st){
+    const pins = L.filter(p => p.pinned).sort((x, y) => y.pinned - x.pinned);
+    st = profStreams[aid] = { ids: [...pins, ...noveltyOrder(L.filter(p => !p.pinned))].map(p => p.id), shown: new Set(), from: 0 };
+  }
+  // anything posted since the order was drawn goes in right after the pinned ones (the feed's own picks are added by it)
+  const known = new Set(st.ids), add = L.filter(p => !known.has(p.id) && !(p.files.length && st.shown.has(p.files[0].key))).map(p => p.id);
+  if (add.length){ const at = st.ids.findIndex(id => { const p = S.posts.find(x => x.id === id); return !p || !p.pinned; }); st.ids.splice(at < 0 ? st.ids.length : at, 0, ...add); }
+  for (const id of st.ids){ const p = S.posts.find(x => x.id === id); if (p && p.files.length) st.shown.add(p.files[0].key); }
+  return st;
+}
+// The profile grid: the posts that are up, in the profile's drawn order.
+const profGrid = aid => pinnedFirst([...new Set(profStream(aid).ids)].map(id => S.posts.find(x => x.id === id)).filter(p => p && p.publishAt && p.publishAt <= now() && !isStory(p)));
 const HOME_BATCH = 8, HOME_MAX = 90;
 const homeCard = p => postCard(p, true);
 function vHome(v){
   setTop(`<h1 class="logo">Reel</h1><button class="iconbtn" type="button" data-sync aria-label="Check Drive now">${I.sync}</button><a class="iconbtn dmicon" href="#/activity" aria-label="Activity">${I.heart}${unseen() ? '<span class="dot"></span>' : ""}</a>`);
   if (!homeOrder){
-    const mine = homeOrder = { ids: [] };
+    const mine = homeOrder = { ids: [], from: 0 };
     homeBatch(HOME_BATCH * 2).then(ps => { if (homeOrder !== mine || !ps.length) return; mine.ids = ps.map(p => p.id); if (route().name === "home") render(); });
   }
   const writingNow = /^Writing/.test(S.writerMsg || "");
@@ -2789,25 +2814,28 @@ function vHome(v){
       ${setup ? `<a class="btn primary" href="#/settings">Set it up</a>` : ""}</div>`;
     return;
   }
-  const L = homeOrder.ids.map(id => S.posts.find(p => p.id === id)).filter(Boolean);
-  v.innerHTML = banner + storyTray() + `<div id="homefeed">${L.map(homeCard).join("")}</div><div id="homemore" class="hint pad" style="text-align:center;padding:28px 0">Loading more…</div>`;
-  wireHomeMore();
+  const L = homeOrder.ids.slice(homeOrder.from).map(id => S.posts.find(p => p.id === id)).filter(Boolean);
+  v.innerHTML = banner + storyTray() + `<div id="homefeed">${L.map(homeCard).join("")}</div>${MORE_EL}`;
+  wireMore(homeFeed);
 }
-let homeMoreIO = null, homeLoading = false;
-function wireHomeMore(){
-  if (homeMoreIO) homeMoreIO.disconnect();
+const MORE_EL = `<div id="homemore" class="hint pad" style="text-align:center;padding:28px 0">Loading more…</div>`;
+// What an endless stream needs: is it still the one on screen, its state, how to get more, how to draw a card.
+const homeFeed = { ok: () => route().name === "home" && homeOrder && homeOrder.ids.length, st: () => homeOrder, batch: homeBatch, card: homeCard };
+let moreIO = null, moreLoading = false;
+function wireMore(f){
+  if (moreIO) moreIO.disconnect();
   const el = $("#homemore"); if (!el) return;
-  homeMoreIO = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) homeMore(); }, { rootMargin: "1500px 0px" });
-  homeMoreIO.observe(el);
+  moreIO = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) streamMore(f); }, { rootMargin: "1500px 0px" });
+  moreIO.observe(el);
 }
-async function homeMore(){
-  if (homeLoading || route().name !== "home" || !homeOrder || !homeOrder.ids.length) return;
-  homeLoading = true;
+async function streamMore(f){
+  if (moreLoading || !f.ok()) return;
+  moreLoading = true;
   try {
     const feed = $("#homefeed"); if (!feed) return;
-    const ps = await homeBatch(HOME_BATCH); if (!ps.length || !feed.isConnected) return;
-    homeOrder.ids.push(...ps.map(p => p.id));
-    const box = document.createElement("div"); box.innerHTML = ps.map(homeCard).join("");
+    const st = f.st(), ps = await f.batch(HOME_BATCH); if (!ps.length || !feed.isConnected || st !== f.st()) return;
+    st.ids.push(...ps.map(p => p.id));
+    const box = document.createElement("div"); box.innerHTML = ps.map(f.card).join("");
     const added = [...box.children]; feed.append(...added);
     await Promise.all(added.map(n => { wireCarousels(n); return hydrate(n); }));
     // A long stream drops its oldest cards from the top (keeping your place) so the phone doesn't run out of memory.
@@ -2816,13 +2844,13 @@ async function homeMore(){
       const drop = [...cards].slice(0, cards.length - HOME_MAX + HOME_BATCH * 2);
       const h = drop.reduce((t, c) => t + c.getBoundingClientRect().height, 0);
       drop.forEach(c => { c.querySelectorAll("video").forEach(x => { x.pause(); x.removeAttribute("src"); x.load(); }); c.remove(); });
-      homeOrder.ids = homeOrder.ids.slice(drop.length);
+      st.from += drop.length;
       window.scrollBy(0, -h);
     }
     wireAutoplay($("#view")); wireSeen($("#view")); wireParking($("#view"));
   } finally {
-    homeLoading = false;
-    const el = $("#homemore"); if (el && el.getBoundingClientRect().top < innerHeight + 1500) setTimeout(homeMore, 300);
+    moreLoading = false;
+    const el = $("#homemore"); if (el && el.getBoundingClientRect().top < innerHeight + 1500) setTimeout(() => streamMore(f), 300);
   }
 }
 // Rating from Home: a like adds one each tap (no limit), a dislike folds the card away with an undo.
@@ -2891,7 +2919,7 @@ function vMe(v, r){
   const L = live(), Q = queued(), R = liveReels();
   let body;
   if (tab === "grid"){
-    body = L.length ? `<div class="grid">${pinnedFirst(L).map(p => tileFor(p,false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
+    body = L.length ? `<div class="grid">${profGrid(a.id).map(p => tileFor(p,false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2><p>Posts the bot publishes show up here.</p></div>`;
   } else if (tab === "reels"){
     body = R.length ? `<div class="grid">${R.map(p => tileFor(p,true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2><p>Videos in your Drive folder become reels.</p></div>`;
   } else {
@@ -2931,7 +2959,7 @@ function vAll(v){
       extra: `<div class="hint" style="margin-top:6px">${Q.length ? `Next post ${esc(until(Q[0].publishAt))} · ${Q.length} queued` : "Nothing queued"}</div><div class="hint">${esc(actionsLine(a))}</div>`,
       buttons: `<a class="btn" href="#/acct/${esc(a.id)}">Open profile</a><a class="btn" href="#/dm/${esc(a.id)}">Messages${dmUnreadCount(a) ? ` (${dmUnreadCount(a)})` : ""}</a>`
       , after: highlightsRow(a)
-    }) + (L.length ? `<div class="grid">${pinnedFirst(L).slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
+    }) + (L.length ? `<div class="grid">${profGrid(a.id).slice(0, 9).map(p => tileFor(p, false)).join("")}</div>${L.length > 9 ? `<a class="morec pad" style="display:block;padding:10px 16px" href="#/acct/${esc(a.id)}">See all ${L.length} posts</a>` : ""}` : `<div class="hint pad" style="padding-bottom:14px">No posts yet.</div>`) + `</section>`;
   }).join("");
 }
 async function vAcct(v, r){
@@ -2982,7 +3010,7 @@ function vNpc(v, a, r){
     buttons: `<button class="btn ${fol ? "" : "blue"}" type="button" data-follow="${i}">${fol ? "Following" : "Follow"}</button><a class="btn" href="#/dm/${esc(A().id)}/${i}">Message</a>`,
     after: highlightsRow(a)
   }) + `<div class="ptabs" style="grid-template-columns:1fr 1fr"><button type="button" data-href="#/acct/${esc(a.id)}" class="${tab === "grid" ? "on" : ""}" aria-label="Posts">${I.grid}</button><button type="button" data-href="#/acct/${esc(a.id)}/reels" class="${tab === "reels" ? "on" : ""}" aria-label="Reels">${I.reels}</button></div>` +
-    (tab === "grid" ? (L.length ? `<div class="grid">${pinnedFirst(L).map(p => tileFor(p, false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2></div>`) : (R.length ? `<div class="grid">${R.map(p => tileFor(p, true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2></div>`));
+    (tab === "grid" ? (L.length ? `<div class="grid">${profGrid(a.id).map(p => tileFor(p, false)).join("")}</div>` : `<div class="empty"><h2>No posts yet</h2></div>`) : (R.length ? `<div class="grid">${R.map(p => tileFor(p, true)).join("")}</div>` : `<div class="empty"><h2>No reels yet</h2></div>`));
 }
 function vUser(v, r){
   const a = acct(+r.a); const fol = isFollowing(a.i);
@@ -3005,9 +3033,12 @@ const markClicked = p => { if (p && !p.clicked){ p.clicked = now(); savePost(p);
 function vPost(v, r){
   const p = S.posts.find(x => x.id === r.a); markClicked(p);
   const owner = p && (accountById(p.acct) || A());
-  const list = p && r.b === "more" && p.publishAt <= now() ? pinnedFirst(live(owner.id)) : p ? [p] : [];
-  setTop(`${backBtn}<h1>${list.length > 1 ? `<span style="display:block;font-size:12px;font-weight:600;color:var(--muted)">${esc(handleOf(owner))}</span>Posts` : "Post"}</h1>`);
-  v.innerHTML = list.length ? list.map(postCard).join("") : `<div class="empty"><h2>Post not found</h2></div>`;
+  const more = p && r.b === "more" && p.publishAt <= now(), st = more && profStream(owner.id);
+  if (st && st.ids.indexOf(p.id) < st.from) st.from = 0;
+  const list = st ? st.ids.slice(st.from).map(id => S.posts.find(x => x.id === id)).filter(Boolean) : p ? [p] : [];
+  setTop(`${backBtn}<h1>${more ? `<span style="display:block;font-size:12px;font-weight:600;color:var(--muted)">${esc(handleOf(owner))}</span>Posts` : "Post"}</h1>`);
+  v.innerHTML = list.length ? (more ? `<div id="homefeed">${list.map(x => postCard(x)).join("")}</div>${MORE_EL}` : list.map(postCard).join("")) : `<div class="empty"><h2>Post not found</h2></div>`;
+  if (more){ const h = location.hash; wireMore({ ok: () => location.hash === h && profStreams[owner.id] === st, st: () => profStreams[owner.id], batch: n => streamBatch(n, [owner], st), card: x => postCard(x) }); }
   const card = p && v.querySelector(`[data-post="${CSS.escape(p.id)}"]`);
   const c = card && card.querySelector(".caption.clamp"); if (c) c.classList.remove("clamp");
   if (card && list.length > 1 && postScrolled !== location.hash){
@@ -4079,7 +4110,7 @@ for (const ev of ["gesturestart","gesturechange","gestureend"]) document.addEven
   await migrateDms(); dmTick();
   setInterval(dmTick, 20e3);
   setInterval(() => { if (route().name === "dm" && route().b) dmRepaint(); }, 4e3);
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden"){ homeOrder = null; markLeft(); } else comeBack(); });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden"){ homeOrder = null; profStreams = {}; markLeft(); } else comeBack(); });
   window.addEventListener("pagehide", markLeft);
   comeBack();
   document.addEventListener("visibilitychange", () => { let l = 0; try { l = +localStorage.getItem("reel-synced-at") || 0; } catch(e){} if (document.visibilityState === "visible"){ autoStories().then(render); dmTick(); if (now() - l > 20*60e3) sync(true); syncPc(false); } });
