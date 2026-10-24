@@ -558,7 +558,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 99;
+const APP_VERSION = 100;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -594,7 +594,10 @@ const npcs = () => S.accounts.filter(a => a.npc);
 const A = () => S.accounts.find(a => a.id === S.current && !a.npc) || own()[0] || S.accounts[0];
 const accountById = id => S.accounts.find(a => a.id === id);
 const others = () => S.settings.others || (S.settings.others = { ...OTHERS_DEFAULT });
-const othersActive = () => { const o = others(); return !!o.on && !!(o.folderId || (o.folderName || "").trim()); };
+const othersFolder = () => { const o = others(); return !!o.on && !!(o.folderId || (o.folderName || "").trim()); };
+// With no folder of their own they still exist, posting copies of what's in your accounts' folders (see borrowOthers).
+const othersBorrow = () => !!others().on && !othersFolder() && own().some(a => hasFolder(a) || (a.pcFolder || "").trim());
+const othersActive = () => othersFolder() || othersBorrow();
 // A fan index past the pool stands for one of the other accounts, so they can be commenters, likers and DM senders like fans.
 const npcIndex = a => POOL + npcs().indexOf(a);
 // Home and the stories tray show your accounts and the other accounts you follow; the rest stay in Explore.
@@ -646,6 +649,26 @@ async function ensureOthers(){
   }
   for (const p of S.posts.filter(p => !accountById(p.acct) && gone.some(g => g.id === p.acct))){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); }
   if (changed){ await saveAccounts(); genCache.clear(); }
+}
+// With no folder of their own, the other accounts post copies of the photos and videos your accounts have: each file goes
+// to one of them (always the same one, like dealTo), nothing new is downloaded. Copies still waiting go when the file
+// leaves your accounts or they get a folder of their own; ones already up stay.
+async function borrowOthers(){
+  const B = S.posts.filter(p => p.borrowed);
+  const mine = new Map();
+  if (othersBorrow() && npcs().length) for (const p of S.posts) if (!isStory(p) && !p.others && p.acct && accountById(p.acct) && !accountById(p.acct).npc) for (const f of p.files) if (f.key && !mine.has(f.key)) mine.set(f.key, f);
+  const have = new Set();
+  for (const p of B){
+    const keys = p.driveKeys || [p.driveKey];
+    if (!p.publishAt || p.publishAt > now()) if (keys.some(k => !mine.has(k))){ await DB.del("posts", p.id); S.posts = S.posts.filter(x => x !== p); continue; }
+    for (const k of keys) have.add(k);
+  }
+  let order = Math.max(0, ...S.posts.map(p => p.order || 0));
+  for (const [key, f] of shuffleInPlace([...mine])){
+    if (have.has(key)) continue;
+    const to = dealTo(key); if (!to) break;
+    await savePost({ id: uid("p_"), kind: "post", driveKey: key, source: "borrow", borrowed: true, others: true, acct: to.id, shared: false, files: [{ ...f }], caption: "", captionManual: false, createdAt: now(), publishAt: 0, seed: hashStr("borrow|" + key), order: ++order, myComments: [], hidden: [] });
+  }
 }
 // Every so often one of them changes her profile picture to another of her photos, and now and then her bio.
 async function npcDrift(){
@@ -1459,7 +1482,7 @@ async function respace(a){
 // Like a real account, some posts are several photos at once: the bot folds a few loose photos into one post
 // (usually 2 or 3, now and then up to 6). The post keeps every file's Drive id so syncing still follows them.
 const MULTI = { off: 0, some: .3, lots: .6 };
-const groupable = p => !isStory(p) && p.source === "drive" && p.driveKey && p.files.length === 1 && isImage(p.files[0].mime) && !p.liked && !p.pinned;
+const groupable = p => !isStory(p) && (p.source === "drive" || p.borrowed) && p.driveKey && p.files.length === 1 && isImage(p.files[0].mime) && !p.liked && !p.pinned;
 async function groupPosts(list, a){
   const prob = MULTI[a.multi || "some"] || 0; if (!prob) return list;
   const out = [], gone = new Set();
@@ -1669,7 +1692,7 @@ function avatarChooser(){
   hydrate($("#layer"));
 }
 
-async function autoRun(){ await ensureOthers(); for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
+async function autoRun(){ await ensureOthers(); await borrowOthers(); for (const a of S.accounts) if (!a.multiInit){ a.multiInit = true; await regroupQueue(a); await saveAccounts(); }
   await autoSchedule(); await cyclePosts(); await autoCaptions(); await ensureAvatars(); await npcDrift(); await autoStories(); await autoHighlights(); await autoPin(); setTimeout(async () => { await loadPcStyle(); writerRun(); if (!PC()) autoPools(); }, 400); }
 
 /* ================= caption writer (Ollama, running on the owner's own PC) ================= */
@@ -2207,7 +2230,7 @@ const base = n => n.replace(/\.[^.]+$/, "").toLowerCase();
 const isText = f => f.mimeType === "text/plain" || /\.txt$/i.test(f.name);
 const isMedia = f => isImage(f.mimeType) || isVideo(f.mimeType);
 const hasFolder = a => !!(a.folderId || (a.folderName || "").trim());
-const hasSetup = () => own().some(hasFolder) || othersActive();
+const hasSetup = () => own().some(hasFolder) || othersFolder();
 // Every photo and video under a folder, any depth, each on its own (no "a subfolder is one post" here), with name.txt
 // next to name.jpg as that file's caption. Folders inside folders inside folders: up to 8 levels down.
 async function listTree(id, token, out = [], depth = 0){
@@ -2243,7 +2266,7 @@ async function sync(auto, full){
   try {
     // every account reads only its own folder; the other accounts share one folder, read all the way down
     const sources = own().filter(hasFolder).map(a => ({ owner: a.id, holder: a, save: saveAccounts }));
-    if (othersActive()) sources.push({ owner: null, holder: others(), others: true, save: saveSettings });
+    if (othersFolder()) sources.push({ owner: null, holder: others(), others: true, save: saveSettings });
     if (full) for (const a of S.accounts) if (!a.folderLink) a.folderId = "";
     if (full && !others().folderLink) others().folderId = "";
     const failed = new Set(), problems = [];
@@ -2753,7 +2776,8 @@ function homePool(accts = feedAccts()){
   for (const a of accts) for (const p of postsOf(a.id)){
     if (!p.publishAt || !p.files.length) continue;
     const k = p.files[0].key, had = by.get(k);
-    if (!had || (had.publishAt > now() && p.publishAt <= now())) by.set(k, p);
+    // the same photo on your account and on another account's (a borrowed copy): either one can come up
+    if (!had || (had.publishAt > now() && p.publishAt <= now()) || ((had.publishAt <= now()) === (p.publishAt <= now()) && Math.random() < .5)) by.set(k, p);
   }
   return [...by.values()];
 }
@@ -3433,7 +3457,7 @@ function vSettings(v){
       ${own().length < 5 ? `<button class="btn" type="button" data-switch>Add account</button>` : ""}
     </div>
     ${(() => { const o = others(), N = npcs(), P = S.posts.filter(p => p.others && !isStory(p)), nf = l => l.reduce((n, p) => n + (p.driveKeys || [p.driveKey]).length, 0), files = nf(P), queuedN = nf(P.filter(p => p.publishAt > now() || !p.publishAt)); return `<div class="card"><h3>Other accounts</h3>
-      <div class="hint">Made-up creators who post from one Drive folder of yours: every photo and video in it and in its subfolders, dealt out between them, each one its own post. They post and put up stories by themselves, show up in Home, Explore and Reels, comment on and like your posts, follow you and each other, slide into your DMs now and then, and grow and change over time. They're in Thread and Wire too.</div>
+      <div class="hint">Made-up creators who post from one Drive folder of yours: every photo and video in it and in its subfolders, dealt out between them, each one its own post. They post and put up stories by themselves, show up in Home, Explore and Reels, comment on and like your posts, follow you and each other, slide into your DMs now and then, and grow and change over time. They're in Thread and Wire too. With no folder picked here, they post copies of your accounts' photos and videos instead.</div>
       <div class="field"><label for="ofolder">Folder name or link</label><input type="text" id="ofolder" value="${esc(o.folderName || "")}" placeholder="e.g. Others, or paste a Drive folder link" autocapitalize="off" autocorrect="off"></div>
       <button class="btn" type="button" data-otherspick>Pick from Drive</button>
       <span class="lbl">Other accounts</span>
@@ -3442,7 +3466,7 @@ function vSettings(v){
       <div class="seg">${[5, 10, 15, 20].map(n => `<button type="button" data-otherscount="${n}" aria-pressed="${+o.count === n}">${n}</button>`).join("")}</div>
       <button class="btn" type="button" data-othersnew>New random accounts</button>
       <div class="hint">New names, pictures and follower counts. What's already posted stays up under the new names.</div>
-      <div class="hint">${N.length ? `${N.length} ${N.length === 1 ? "account" : "accounts"} · ${files} ${files === 1 ? "file" : "files"} · ${queuedN} queued` : othersActive() ? "Reading the folder next time Drive is checked." : o.on ? "Pick a folder to get them started." : "Off."}</div>
+      <div class="hint">${N.length ? `${N.length} ${N.length === 1 ? "account" : "accounts"} · ${files} ${files === 1 ? "file" : "files"} · ${queuedN} queued` : othersFolder() ? "Reading the folder next time Drive is checked." : o.on ? "Give one of your accounts a folder to get them started." : "Off."}</div>
       ${N.length ? `<div class="hint">${N.map(a => `<a href="#/acct/${esc(a.id)}">@${esc(handleOf(a))}</a>`).join(" · ")}</div>` : ""}
     </div>`; })()}
     <div class="card"><h3>Google Drive</h3>
@@ -3491,7 +3515,7 @@ function vSettings(v){
   $("#smodel").addEventListener("change", async e => { S.secret.model = e.target.value.trim(); await saveSecret(); setWriter(""); toast(`Writing with ${ollamaModel()}. Rewriting everything now.`); for (const a of S.accounts) await autoRedo(a, { cap: 1, com: 1, story: 1 }); writerRun(); });
   $("#sdaily").addEventListener("change", e => setDaily(+e.target.value));
   $("#sstart").addEventListener("change", async e => { st.starter = Math.max(0, Math.round(+e.target.value || 0)); await saveSettings(); });
-  $("#ofolder").addEventListener("change", async e => { const o = others(); setFolder(o, e.target.value); await saveSettings(); await autoRun(); if (othersActive()){ toast("Folder saved. Reading it now."); sync(false); } else { toast(o.on ? "Folder removed" : "Folder saved"); render(); } });
+  $("#ofolder").addEventListener("change", async e => { const o = others(); setFolder(o, e.target.value); await saveSettings(); await autoRun(); if (othersFolder()){ toast("Folder saved. Reading it now."); sync(false); } else { toast(o.on ? "Folder removed" : "Folder saved"); render(); } });
   $("#importFile").addEventListener("change", async e => {
     const f = e.target.files[0], b = $("[data-importpick]"); if (!f || !b) return;
     b.disabled = true; b.textContent = "Importing…";
@@ -3879,7 +3903,7 @@ document.addEventListener("click", async e => {
     });
     return;
   }
-  if (d.otherson){ const o = others(); o.on = d.otherson === "on"; await saveSettings(); await autoRun(); render(); toast(o.on ? (othersActive() ? "The other accounts are back" : "On. Pick a folder to get them started.") : "The other accounts are off"); if (othersActive()) sync(true); return; }
+  if (d.otherson){ const o = others(); o.on = d.otherson === "on"; await saveSettings(); await autoRun(); render(); toast(o.on ? (othersActive() ? "The other accounts are back" : "On. Give one of your accounts a folder first.") : "The other accounts are off"); if (othersFolder()) sync(true); return; }
   if (d.otherscount){ const o = others(); o.count = +d.otherscount; await saveSettings(); await autoRun(); render(); toast(`${o.count} other accounts`); return; }
   if ("othersnew" in d){ const o = others(); o.gen = Math.floor(Math.random() * 1e9); o.unfollowed = {}; await saveSettings(); await autoRun(); render(); toast("New other accounts"); return; }
   if ("otherspick" in d){ pickFolder(others()); return; }
