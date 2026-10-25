@@ -71,6 +71,7 @@ function fanHandle(i, body) {
 const IMPORT_ORIGINS = new Set(['https://perryindustries.github.io']);
 function importCors(req, res) {
   const o = req.headers.origin;
+  console.log(`[import] ${req.method} origin=${o || '-'} len=${req.headers['content-length'] || '-'} ua=${(req.headers['user-agent'] || '').slice(0, 60)}`);
   if (o && IMPORT_ORIGINS.has(o)) { res.setHeader('Access-Control-Allow-Origin', o); res.setHeader('Vary', 'Origin'); }
 }
 
