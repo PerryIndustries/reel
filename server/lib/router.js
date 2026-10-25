@@ -49,7 +49,7 @@ function match(segs, parts) {
   return parts.length === segs.length ? params : null;
 }
 
-function readBody(req) {
+function readBody(req, limit = BODY_LIMIT) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
@@ -57,7 +57,7 @@ function readBody(req) {
     req.on('data', (c) => {
       size += c.length;
       if (over) return; // already answered 413; drain and discard the rest
-      if (size > BODY_LIMIT) { over = true; chunks.length = 0; reject(new HttpError(413, 'body too large')); return; }
+      if (size > limit) { over = true; chunks.length = 0; reject(new HttpError(413, 'body too large')); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -72,8 +72,9 @@ function readBody(req) {
 export function makeRouter(log = () => {}) {
   const routes = [];
 
-  function add(method, pattern, handler) {
-    routes.push({ method: method.toUpperCase(), pattern, segs: compile(pattern), handler });
+  // opts.bodyLimit: bytes allowed for this route's JSON body (default BODY_LIMIT)
+  function add(method, pattern, handler, opts = {}) {
+    routes.push({ method: method.toUpperCase(), pattern, segs: compile(pattern), handler, bodyLimit: opts.bodyLimit || BODY_LIMIT });
   }
 
   // -> Promise<boolean>: true when a route matched (and the response was handled)
@@ -91,11 +92,12 @@ export function makeRouter(log = () => {}) {
     if (!route) return false;
     const query = Object.fromEntries(url.searchParams);
     try {
-      const body = BODY_METHODS.has(req.method) ? await readBody(req) : undefined;
+      const body = BODY_METHODS.has(req.method) ? await readBody(req, route.bodyLimit) : undefined;
       const out = await route.handler(req, res, params, query, body);
       if (out !== undefined && !res.headersSent && !res.writableEnded) sendJson(res, 200, out);
     } catch (e) {
       const code = e instanceof HttpError ? e.code : 500;
+      if (code !== 500) log('warn', `${req.method} ${url.pathname} -> ${code}: ${e.message}`);
       if (code === 500) log('error', `${req.method} ${url.pathname} failed: ${e.message}`, { stack: e.stack });
       if (!res.headersSent) {
         if (code === 413) res.setHeader('connection', 'close');

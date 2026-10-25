@@ -218,5 +218,10 @@ export function importPhone(ctx, body, now = Date.now()) {
 }
 
 export function routes(router, ctx) {
-  router.add('POST', '/reel/api/import', (req, res, params, query, body) => importPhone(ctx, body, Date.now()));
+  // The phone's whole export (accounts, chats, seen marks) can be far over the default 10 MB.
+  router.add('POST', '/reel/api/import', (req, res, params, query, body) => {
+    const out = importPhone(ctx, body, Date.now());
+    ctx.log('info', `import: ${JSON.stringify(out)}`);
+    return out;
+  }, { bodyLimit: 200 * 1024 * 1024 });
 }

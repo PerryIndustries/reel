@@ -188,7 +188,7 @@ test('unmatched taste keys are counted in dropped', () => {
   } finally { u.done(); }
 });
 
-test('POST /reel/api/import answers counts; a body over 10 MB is 413', async () => {
+test('POST /reel/api/import answers counts and accepts a phone export well over 10 MB', async () => {
   const eng = await startTestEngine();
   try {
     const r = await postJson(`${eng.base}/reel/api/import`, phoneBody());
@@ -199,7 +199,12 @@ test('POST /reel/api/import answers counts; a body over 10 MB is 413', async () 
     assert.deepEqual(own.map((a) => a.handle).sort(), ['mia.fit', 'zed']);
     assert.equal(list.body.filter((a) => a.own === false).length, 6, 'the seeded npcs are untouched');
     assert.deepEqual(own.find((a) => a.handle === 'mia.fit').settings.directions.caption, 'short and teasing');
-    const big = await postJson(`${eng.base}/reel/api/import`, { accounts: [], pad: 'x'.repeat(10.5 * 1024 * 1024) });
-    assert.equal(big.status, 413);
+    // a real phone export (chats, seen marks) runs past the router's default 10 MB
+    const big = await postJson(`${eng.base}/reel/api/import`, { ...phoneBody(), pad: 'x'.repeat(12 * 1024 * 1024) });
+    assert.equal(big.status, 200);
+    assert.equal(big.body.accounts, 2);
+    // other routes keep the 10 MB default
+    const other = await postJson(`${eng.base}/reel/api/seen`, { items: [], pad: 'x'.repeat(10.5 * 1024 * 1024) });
+    assert.equal(other.status, 413);
   } finally { await eng.stop(); }
 });
