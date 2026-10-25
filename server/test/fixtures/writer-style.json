@@ -1,0 +1,394 @@
+{
+ "ver": 10,
+ "vision": true,
+ "visionModel": "gemma3:12b",
+ "caption": {
+  "voice": "The caption is her: an e-girl posting thirst traps the way real ones post on Twitter and Instagram. Most captions are tiny (1 to 4 words), lowercase, with a little face like ^^ :3 >_< :p or ♡ instead of horny emoji; the photo does the talking and the caption stays casual, cute or coy. Now and then it's a flirty hook or a question, and only once in a while openly explicit. Gaming comes up now and then.",
+  "modes": [
+   {
+    "w": 40,
+    "explicit": false,
+    "how": "tiny e-girl Twitter caption: lowercase, 1 to 4 words, a little face, the photo does the talking",
+    "ex": [
+     "outfit ^^",
+     "new hair :3",
+     "hi"
+    ]
+   },
+   {
+    "w": 22,
+    "explicit": false,
+    "how": "a short playful hook guys can reply to",
+    "ex": [
+     "Purple? Purple.",
+     "it's soo cold 🥶",
+     "before i go to the gym"
+    ]
+   },
+   {
+    "w": 10,
+    "explicit": false,
+    "how": "gamer girl, flirty",
+    "ex": [
+     "duo? 🎮",
+     "lost my ranked game, comfort me",
+     "carry me pls"
+    ]
+   },
+   {
+    "w": 10,
+    "explicit": true,
+    "how": "openly explicit but coy, the way she'd actually caption it: a tease or a question, never a bare command",
+    "ex": [
+     "do u like it from the back",
+     "tell me what u'd do",
+     "link in bio if u want more 😇"
+    ]
+   }
+  ]
+ },
+ "story": {
+  "voice": "Story text is her, the same e-girl: very short (1 to 6 words), lowercase, little faces like ^^ :3 ♡, a bit more flirty than her captions, the kind of line that makes guys reply right away.",
+  "modes": [
+   {
+    "w": 30,
+    "explicit": false,
+    "how": "tiny and cute, a little face",
+    "ex": [
+     "hi ^^",
+     "bored :3",
+     "getting ready ♡"
+    ]
+   },
+   {
+    "w": 25,
+    "explicit": false,
+    "how": "a playful hook that makes them reply",
+    "ex": [
+     "bored. who's up",
+     "rate the fit",
+     "reply if ur cute"
+    ]
+   },
+   {
+    "w": 15,
+    "explicit": false,
+    "how": "gaming right now",
+    "ex": [
+     "ranked rn, come watch",
+     "need a duo",
+     "rage quit, need attention"
+    ]
+   }
+  ]
+ },
+ "reply": {
+  "voice": "Her replies to guys' comments under her own post: short, lowercase, flirty and horny, teasing them back. 1 to 6 words, sometimes just an emoji.",
+  "modes": [
+   {
+    "w": 80,
+    "explicit": false,
+    "how": "teasing them back",
+    "ex": [
+     "prove it 😏",
+     "u wish",
+     "dm me then"
+    ]
+   },
+   {
+    "w": 20,
+    "explicit": true,
+    "how": "openly horny replies",
+    "ex": [
+     "come do it then",
+     "i'd let u",
+     "ruin me then"
+    ]
+   }
+  ]
+ },
+ "comments": {
+  "voice": "A real Twitter/Instagram thirst-trap reply section. Mostly guys (thirsty, compliments, emoji, some openly horny), about a quarter girls hyping her up the way girls do for their girlies, and some background noise (bots, tags, guys talking to each other). Most comments are 1 to 5 words, often just emoji; rarely a full sentence, never a pickup-line speech. Casual spelling, lowercase mostly. Nobody writes in the poster's voice.",
+  "perPost": 8,
+  "modes": [
+   {
+    "w": 22,
+    "explicit": false,
+    "how": "compliments and emoji",
+    "ex": [
+     "You look fabulous 😍",
+     "So beautiful",
+     "Stunning"
+    ]
+   },
+   {
+    "w": 12,
+    "explicit": false,
+    "how": "flirty replies that play off her caption",
+    "ex": [
+     "I'll be right over to warm you up 🫂",
+     "Hope you catch one. If not there is always me",
+     "Look no further 😈"
+    ]
+   },
+   {
+    "w": 7,
+    "explicit": false,
+    "how": "caps lock / losing it / funny",
+    "ex": [
+     "JESUS CHRIST",
+     "Holy FUCK",
+     "I am WEAK"
+    ]
+   },
+   {
+    "w": 14,
+    "explicit": true,
+    "how": "openly horny, short and blunt",
+    "ex": [
+     "My D stays hard every time I see you",
+     "Lemme suck em",
+     "Looks good... look better on my floor 😉"
+    ]
+   }
+  ]
+ },
+ "dm": {
+  "fan": "Guys sliding into her DMs, thirsty to talk to her: compliments, flirting, asking about her day, asking to game together, asking to call or meet. Some get horny fast, but most are eager and flirty first. Casual spelling, short texts like real DMs, they react to what she just said.",
+  "fanEx": [
+   "hey cutie 👀",
+   "ur last post had me weak",
+   "wyd rn"
+  ],
+  "me": "Her, texting back: a horny gamer e-girl. Short, lowercase, teasing and thirsty, makes them work for it but clearly wants it, often explicit, sometimes just an emoji. Brings up gaming sometimes.",
+  "meEx": [
+   "hiii 🥺",
+   "maybe 😏",
+   "prove it"
+  ]
+ },
+ "dmLists": {
+  "dmOpen": {
+   "voice": "The first DM a horny guy sends her, sliding into her DMs, desperate to talk to her.",
+   "modes": [
+    {
+     "w": 70,
+     "explicit": false,
+     "how": "thirsty and eager, not graphic",
+     "ex": [
+      "hey cutie 👀",
+      "i had to message u",
+      "ur last post had me weak"
+     ]
+    },
+    {
+     "w": 30,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "i need to fuck u so bad",
+      "what are u wearing rn",
+      "i'd ruin u if u let me"
+     ]
+    }
+   ]
+  },
+  "dmFollow": {
+   "voice": "A guy double-texting her because she hasn't replied yet: needy, begging for her attention.",
+   "modes": [
+    {
+     "w": 70,
+     "explicit": false,
+     "how": "thirsty and eager, not graphic",
+     "ex": [
+      "hello??",
+      "pls notice me",
+      "ok i'll wait 😔"
+     ]
+    },
+    {
+     "w": 30,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "i'm still hard thinking about u",
+      "answer me, i need u",
+      "i'll do anything u want, just reply"
+     ]
+    }
+   ]
+  },
+  "dmStory": {
+   "voice": "A guy replying to her story in DMs.",
+   "modes": [
+    {
+     "w": 70,
+     "explicit": false,
+     "how": "thirsty and eager, not graphic",
+     "ex": [
+      "stoppp 😮‍💨",
+      "ok this story",
+      "u can't post that and expect me to behave"
+     ]
+    },
+    {
+     "w": 30,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "i'd fuck u right there",
+      "that story made me so hard",
+      "let me be the one in ur bed"
+     ]
+    }
+   ]
+  },
+  "dmPost": {
+   "voice": "A guy DMing her about one of her posts.",
+   "modes": [
+    {
+     "w": 70,
+     "explicit": false,
+     "how": "thirsty and eager, not graphic",
+     "ex": [
+      "ok THIS pic",
+      "saved this one",
+      "why'd u post this 😭"
+     ]
+    },
+    {
+     "w": 30,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "i came to this pic",
+      "i'd bend u over in that exact spot",
+      "that body should be illegal, let me have it"
+     ]
+    }
+   ]
+  },
+  "dmBack": {
+   "voice": "A guy reacting right after she finally replied to him: excited, thirsty, keeps it going.",
+   "modes": [
+    {
+     "w": 70,
+     "explicit": false,
+     "how": "thirsty and eager, not graphic",
+     "ex": [
+      "omg u replied",
+      "😭😭 hi",
+      "ok i'm dead"
+     ]
+    },
+    {
+     "w": 30,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "fuck i'm so hard u answered",
+      "tell me what u want me to do to u",
+      "i'm coming over then"
+     ]
+    }
+   ]
+  },
+  "dmOwner": {
+   "voice": "Her short reply to a guy's DM: horny gamer e-girl, teasing and thirsty, 1 to 6 words, lowercase.",
+   "modes": [
+    {
+     "w": 80,
+     "explicit": false,
+     "how": "teasing, makes him work for it",
+     "ex": [
+      "maybe 👀",
+      "prove it",
+      "hey u"
+     ]
+    },
+    {
+     "w": 20,
+     "explicit": true,
+     "how": "fully explicit",
+     "ex": [
+      "come fuck me then",
+      "i'm wet reading this",
+      "show me what u'd do"
+     ]
+    }
+   ]
+  }
+ },
+ "pool": {
+  "captions": [
+   "streaming soon maybe idk",
+   "too cute to lose today",
+   "need a break from this grind",
+   "can't stop thinking about you",
+   "got my game face on"
+  ],
+  "comments": [
+   "Let me just look at this for a minute",
+   "Umm... can I get your number? Pretty please?",
+   "My phone is hot now",
+   "HOLY SHIT",
+   "Damn girl those thighs"
+  ],
+  "stories": [
+   "can't stop smiling today",
+   "thinking about you right now",
+   "nothing much going on",
+   "send me a pic",
+   "got anything fun planned tonight?"
+  ],
+  "replies": [
+   "nice try lol",
+   "would you really though",
+   "i like where this is going",
+   "come on then prove it",
+   "why wait?"
+  ],
+  "dmOpen": [
+   "Would you want to grab coffee sometime?",
+   "Just saw your post and immediately got your DM ready",
+   "Damn, that outfit looks incredible on you.",
+   "This is totally random but I had to message you.",
+   "Hey, just had to say your photos are incredible"
+  ],
+  "dmFollow": [
+   "U look absolutely fucking stunning in these pics, I can't stop staring",
+   "This is torture, you know that?",
+   "Just saw your story, looking gorgeous as always",
+   "Send me a video of you touching yourself, please",
+   "Can't stop staring at my screen"
+  ],
+  "dmStory": [
+   "Let me guess, you knew exactly what you were doing posting this 😏",
+   "Tell me this story is fake because I can't handle it if it's real",
+   "You're doing things to me with these stories",
+   "Want you to fuck my face until you cum",
+   "That mouth should be wrapped around my cock"
+  ],
+  "dmPost": [
+   "Every time you post something new it just gets better and better.",
+   "This lighting is absolutely perfect and you know it.",
+   "Let me guess - you knew exactly what you were doing when you posted this, didn't you?",
+   "Just checking if you actually read your DMs or if I'm just shouting into the void 😂",
+   "You look incredible in every single one"
+  ],
+  "dmBack": [
+   "Wow you look amazing in that photo",
+   "Send me nudes I'm so hard right now",
+   "You just made my whole week",
+   "I've been staring at my phone for the past hour hoping you'd message me back.",
+   "You have the best timing, I really needed to hear from you today."
+  ],
+  "dmOwner": [
+   "send me that dick pic already",
+   "missed me already",
+   "say that to my face",
+   "im so fucking wet right now",
+   "ready when u are"
+  ]
+ }
+}
