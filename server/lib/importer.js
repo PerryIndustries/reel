@@ -68,6 +68,12 @@ function fanHandle(i, body) {
   return gamerHandle(rng(hashStr(`acct${i}|${st.nameSeed || st.seed || 0}${bump}`)));
 }
 
+const IMPORT_ORIGINS = new Set(['https://perryindustries.github.io']);
+function importCors(req, res) {
+  const o = req.headers.origin;
+  if (o && IMPORT_ORIGINS.has(o)) { res.setHeader('Access-Control-Allow-Origin', o); res.setHeader('Vary', 'Origin'); }
+}
+
 export function importPhone(ctx, body, now = Date.now()) {
   const { db } = ctx;
   if (!isObj(body)) throw new HttpError(400, 'body must be an object');
@@ -218,8 +224,15 @@ export function importPhone(ctx, body, now = Date.now()) {
 }
 
 export function routes(router, ctx) {
+  // The old app may still be open from its github.io copy, which posts here cross-origin.
+  router.add('OPTIONS', '/reel/api/import', (req, res) => {
+    importCors(req, res);
+    res.writeHead(204, { 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '600' });
+    res.end();
+  });
   // The phone's whole export (accounts, chats, seen marks) can be far over the default 10 MB.
   router.add('POST', '/reel/api/import', (req, res, params, query, body) => {
+    importCors(req, res);
     const out = importPhone(ctx, body, Date.now());
     ctx.log('info', `import: ${JSON.stringify(out)}`);
     return out;

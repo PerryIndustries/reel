@@ -208,3 +208,19 @@ test('POST /reel/api/import answers counts and accepts a phone export well over 
     assert.equal(other.status, 413);
   } finally { await eng.stop(); }
 });
+
+test('import answers CORS for the github.io copy of the old app (preflight + POST), nobody else', async () => {
+  const eng = await startTestEngine();
+  try {
+    const gh = 'https://perryindustries.github.io';
+    const pre = await fetch(`${eng.base}/reel/api/import`, { method: 'OPTIONS', headers: { Origin: gh, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type' } });
+    assert.equal(pre.status, 204);
+    assert.equal(pre.headers.get('access-control-allow-origin'), gh);
+    assert.match(pre.headers.get('access-control-allow-headers') || '', /content-type/i);
+    const r = await fetch(`${eng.base}/reel/api/import`, { method: 'POST', headers: { Origin: gh, 'Content-Type': 'application/json' }, body: JSON.stringify(phoneBody()) });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('access-control-allow-origin'), gh);
+    const other = await fetch(`${eng.base}/reel/api/import`, { method: 'POST', headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' }, body: JSON.stringify(phoneBody()) });
+    assert.equal(other.headers.get('access-control-allow-origin'), null);
+  } finally { await eng.stop(); }
+});
