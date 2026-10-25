@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempEnv, removeTempDir, startTestEngine, getJson, postJson } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
-import { openDb } from '../lib/db.js';
+import { openDb, getSetting } from '../lib/db.js';
 import * as dms from '../lib/dms.js';
 
 const H = 3600_000;
@@ -162,4 +162,55 @@ test('dm reads and due skip conversations of a deleted account', (t) => {
   ctx.db.prepare('DELETE FROM writer_jobs').run();
   dms.due(ctx, T + D);
   assert.equal(ctx.db.prepare('SELECT COUNT(*) n FROM writer_jobs').get().n, 0);
+});
+
+test('due() replaces a failed dm job with a fresh one 10 min out and keeps the pending turn', (t) => {
+  const ctx = makeCtx(t);
+  addOwn(ctx, 'a1');
+  const ref = 'a1|f8';
+  ctx.db.prepare('INSERT INTO convos(id, acct, fan, fan_handle, fan_pfp, state, next_at, unread) VALUES (?,?,?,?,?,?,?,0)')
+    .run(ref, 'a1', 'f8', 'x', '', JSON.stringify({ next: { who: 'fan', at: T - 1000, seenAt: T - 1000, kind: 'back' } }), T - 1000);
+  ctx.db.prepare("INSERT INTO writer_jobs(kind, ref, prio, due_at, status, tries, payload, created_at) VALUES ('dm', ?, 3, ?, 'failed', 5, ?, ?)")
+    .run(ref, T - 5000, JSON.stringify({ who: 'fan', at: T - 1000, kind: 'back' }), T - 9000);
+  dms.due(ctx, T);
+  assert.equal(ctx.db.prepare("SELECT COUNT(*) n FROM writer_jobs WHERE kind = 'dm' AND ref = ? AND status = 'failed'").get(ref).n, 0);
+  const j = dmJobs(ctx, ref);
+  assert.equal(j.length, 1);
+  assert.deepEqual([j[0].payload.who, j[0].payload.kind, j[0].payload.at], ['fan', 'back', T + 10 * 60_000]);
+  const st = JSON.parse(ctx.db.prepare('SELECT state FROM convos WHERE id = ?').get(ref).state);
+  assert.equal(st.next.who, 'fan');
+  assert.equal(ctx.db.prepare('SELECT next_at FROM convos WHERE id = ?').get(ref).next_at, T + 10 * 60_000);
+});
+
+test('Perry sending turns a pending opener into a back reply within the fast window', (t) => {
+  const ctx = makeCtx(t);
+  addOwn(ctx, 'a1');
+  const ref = 'a1|f11';
+  ctx.db.prepare('INSERT INTO convos(id, acct, fan, fan_handle, fan_pfp, state, next_at, unread) VALUES (?,?,?,?,?,?,?,0)')
+    .run(ref, 'a1', 'f11', 'x', '', JSON.stringify({ next: { who: 'fan', at: T + 6 * H, seenAt: T + 6 * H, kind: 'open' } }), T + 6 * H);
+  dms.meSend(ctx, 'a1', 'f11', 'hello', T);
+  const j = dmJobs(ctx, ref);
+  assert.equal(j.length, 1);
+  assert.equal(j[0].payload.kind, 'back');
+  assert.ok(j[0].payload.at >= T + 15_000 && j[0].payload.at < T + 5 * H + 1, `at +${(j[0].payload.at - T) / 1000}s`);
+  // an earlier pending turn is never pushed later
+  const ref2 = 'a1|f12';
+  ctx.db.prepare('INSERT INTO convos(id, acct, fan, fan_handle, fan_pfp, state, next_at, unread) VALUES (?,?,?,?,?,?,?,0)')
+    .run(ref2, 'a1', 'f12', 'x', '', JSON.stringify({ next: { who: 'fan', at: T + 1000, seenAt: T + 1000, kind: 'open' } }), T + 1000);
+  dms.meSend(ctx, 'a1', 'f12', 'hello', T);
+  assert.ok(dmJobs(ctx, ref2)[0].payload.at <= T + 1000);
+});
+
+test('a fan id containing % is read back as sent, and the opener cursor never moves backwards', async (t) => {
+  const eng = await startTestEngine();
+  t.after(() => eng.stop());
+  const own = (await getJson(`${eng.base}/reel/api/accounts`)).body.find((a) => a.own);
+  await postJson(`${eng.base}/reel/api/dm`, { acct: own.id, fan: '100%25', text: 'pct' });
+  const th = (await getJson(`${eng.base}/reel/api/dm/${own.id}/${encodeURIComponent('100%25')}`)).body;
+  assert.deepEqual(th.messages.map((m) => m.text), ['pct']);
+  const ctx = makeCtx(t);
+  addOwn(ctx, 'a1');
+  dms.fanOpeners(ctx, T + D);
+  dms.fanOpeners(ctx, T);
+  assert.equal(getSetting(ctx.db, 'dmOpenAt:a1', null), T + D);
 });

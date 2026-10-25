@@ -79,9 +79,12 @@ export function meSend(ctx, acct, fan, text, now = Date.now()) {
     const state = parseState(c);
     ctx.db.prepare('INSERT INTO dms(convo, from_me, text, at, seen) VALUES (?, 1, ?, ?, 0)').run(c.id, text, now);
     state.byMe = true;
-    // A reply already written did not see this message: keep its timing (the writer writes it again).
-    if (state.next && state.next.who === 'fan') setNext(ctx, c.id, state, { ...state.next });
-    else scheduleFan(ctx, c.id, state, now, true);
+    // Perry's message turns the fan's pending turn (an opener, say) into a reply, no later than the fast draw.
+    if (state.next && state.next.who === 'fan') {
+      const d = replyDelay(ctx, true);
+      const at = Math.min(state.next.at, Math.round(now + d));
+      setNext(ctx, c.id, state, { who: 'fan', at, seenAt: Math.min(at, Math.round(now + Math.min(d * 0.5, 10e3 + rnd(ctx)() * 80e3))), kind: 'back' });
+    } else scheduleFan(ctx, c.id, state, now, true);
   });
 }
 
@@ -95,7 +98,7 @@ export function fanOpeners(ctx, now = Date.now()) {
   for (const a of own) {
     const key = `dmOpenAt:${a.id}`;
     const cursor = getSetting(ctx.db, key, null);
-    setSetting(ctx.db, key, now);
+    setSetting(ctx.db, key, cursor == null ? now : Math.max(cursor, now));   // never backwards
     if (cursor == null || now <= cursor) continue;       // first look sets the cursor: nothing backfilled
     const from = Math.max(cursor, now - D);
     const n = Math.floor(perDayFor(a) * ((now - from) / D) * (0.6 + r() * 0.8) + r());
@@ -129,9 +132,14 @@ export function due(ctx, now = Date.now()) {
   for (const c of rows) {
     if (ctx.db.prepare("SELECT 1 FROM writer_jobs WHERE kind = 'dm' AND ref = ? AND status IN ('todo','running')").get(c.id)) continue;
     const state = parseState(c);
-    if (!state.next || ctx.db.prepare("SELECT 1 FROM writer_jobs WHERE kind = 'dm' AND ref = ? AND status = 'failed'").get(c.id)) {
-      state.next = null;                                  // nothing planned, or the writer gave up on it
-      saveState(ctx, c.id, state, null);
+    if (!state.next) {
+      saveState(ctx, c.id, state, null);                  // nothing planned
+      continue;
+    }
+    const failed = ctx.db.prepare("DELETE FROM writer_jobs WHERE kind = 'dm' AND ref = ? AND status = 'failed'").run(c.id).changes;
+    if (failed) {                                         // the writer gave up (Ollama down): same turn, ten minutes on
+      const at = now + 10 * MIN;
+      setNext(ctx, c.id, state, { ...state.next, at, seenAt: Math.min(state.next.seenAt ?? at, at) });
       continue;
     }
     setNext(ctx, c.id, state, state.next);
@@ -220,7 +228,7 @@ export function routes(router, ctx) {
 
   router.add('GET', '/reel/api/dm/:acct/:fan', (req, res, params) => {
     const now = Date.now();
-    const id = `${decodeURIComponent(params.acct)}|${decodeURIComponent(params.fan)}`;
+    const id = `${params.acct}|${params.fan}`;
     const c = db.prepare('SELECT c.* FROM convos c JOIN accounts a ON a.id = c.acct WHERE c.id = ?').get(id);
     if (!c) return { messages: [], typing: false };
     const state = parseState(c);
