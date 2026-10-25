@@ -508,7 +508,10 @@ function oneSound(v){
 }
 for (const ev of ["play", "volumechange"]) document.addEventListener(ev, e => { const v = e.target; if (v instanceof HTMLVideoElement){ playedVids.add(v); oneSound(v); } }, true);
 let feedMuted = LS.get("muted", true), reelsMuted = LS.get("muted", true);
-function setMuted(m){ feedMuted = reelsMuted = m; LS.set("muted", m); }
+// Only a tap on the sound button is saved. When iPhone refuses sound outside a tap the app goes quiet for now (fbMuted) but the saved choice stays.
+let fbMuted = false;
+function setMuted(m, save){ feedMuted = reelsMuted = m; if (save !== false){ fbMuted = false; LS.set("muted", m); } }
+function showMuted(){ document.querySelectorAll("[data-rmute],[data-mute]").forEach(b => b.innerHTML = feedMuted ? I.muted : I.sound); }
 // iPhone only starts a video with sound when a tap started it. One it refuses plays muted instead of sitting frozen.
 function playVid(v){
   playedVids.add(v);
@@ -517,8 +520,7 @@ function playVid(v){
   p.catch(err => {
     if (!err || err.name !== "NotAllowedError" || v.muted) return;
     v.muted = true; v.play().catch(() => {});
-    setMuted(true);
-    document.querySelectorAll("[data-rmute],[data-mute]").forEach(b => b.innerHTML = I.muted);
+    fbMuted = true; setMuted(true, false); showMuted();
   });
 }
 // Called from the tap that turns sound on: every loaded video that isn't the one playing is started and stopped once
@@ -531,6 +533,18 @@ function unlockVids(root){
     p.then(() => { if (x.dataset.want !== "1") x.pause(); x.muted = was; }).catch(() => { x.muted = was; });
   }
 }
+// The next tap anywhere is a real gesture: if sound is what was chosen (saved), give it back to the app inside that tap, and unlock
+// whatever videos got a src since the last one. The sound button itself is left to its own handler.
+document.addEventListener("click", e => {
+  if (e.target.closest && e.target.closest("[data-mute],[data-rmute]")) return;
+  if (LS.get("muted", true) !== false) return;
+  if (fbMuted){
+    fbMuted = false; feedMuted = reelsMuted = false;
+    document.querySelectorAll("video").forEach(x => { if (x.dataset.want === "1") x.muted = false; });
+    showMuted();
+  }
+  unlockVids(document);
+}, true);
 // iPhone pauses videos by itself now and then; a feed video that should be playing and isn't gets started again.
 setInterval(() => {
   for (const o of playedVids) if (!o.isConnected){ o.pause(); playedVids.delete(o); }
@@ -1058,11 +1072,19 @@ function tileFor(c, reel){
   const m = c.media[0], vid = m.kind === "video";
   return `<a class="tile ${reel ? "tall" : ""}" href="${reel ? "#/reels/" + esc(c.id) : "#/p/" + esc(c.id) + "/more"}">${tileImg(m)}${!reel && c.pinned ? `<span class="ic">${I.pin}</span>` : !reel && c.media.length > 1 ? `<span class="ic">${I.multi}</span>` : !reel && vid ? `<span class="ic">${I.play}</span>` : ""}${reel ? `<span class="views">${I.playLine}${fmt(c.likes)}</span>` : ""}</a>`;
 }
+// kept stories under the profile numbers, newest first; a tap opens the story viewer on that one
+const HL = {};
+function highlightsRow(aid){
+  const list = HL[aid] || [];
+  if (!list.length) return "";
+  return `<div class="hls pad">${list.map((h, k) => `<button type="button" class="hlb" data-hl="${esc(aid)}|${k}"><span class="hlc"><img src="${esc(h.media.thumb)}" alt="" loading="lazy" decoding="async"></span><span class="n">${esc(h.text || ago(h.at))}</span></button>`).join("")}</div>`;
+}
 const storyRing = (a, size) => { const g = storyOf(a.id); return g ? `<button type="button" class="ring ${storyIsNew(g) ? "" : "seen"}" data-story="${esc(a.id)}">${av(size, a)}</button>` : `<span class="ring none">${av(size, a)}</span>`; };
 async function profileBody(v, aid, tab, stale, opts){
-  const j = await get("acct/" + encodeURIComponent(aid));
+  const [j, hl] = await Promise.all([get("acct/" + encodeURIComponent(aid)), get("highlights" + q({ acct: aid })).catch(() => [])]);
   if (stale()) return null;
   drawn = true;
+  HL[aid] = Array.isArray(hl) ? hl : [];
   if (S.stories === null) await loadStories().catch(() => {});
   if (stale()) return null;
   const a = j.acct, reel = tab === "reels";
@@ -1070,7 +1092,7 @@ async function profileBody(v, aid, tab, stale, opts){
     av: storyRing(a, 86), posts: a.posts, followers: a.followers, following: a.following, name: a.name, bio: a.bio, buttons: opts.buttons(a),
   });
   const tabs = opts.tabs(tab);
-  v.innerHTML = (opts.top || "") + head + tabs + `<div id="pgrid" class="grid"></div><div id="pmore" class="hint" style="height:40px;text-align:center"></div>`;
+  v.innerHTML = (opts.top || "") + head + highlightsRow(aid) + tabs + `<div id="pgrid" class="grid"></div><div id="pmore" class="hint" style="height:40px;text-align:center"></div>`;
   const st = { cards: [], stream: j.page.stream, cursor: j.page.cursor === null ? null : j.page.cursor };
   // the first page came with the profile; pinned posts sit first
   const first = [...(reel ? [] : j.pinned.map(c => ({ ...c, pinned: true }))), ...j.page.cards.filter(c => !reel || c.kind === "reel")];
@@ -1297,10 +1319,18 @@ function storyTextTag(text, id){
   const tilt = (r() < .5 ? 0 : (r() * 8 - 4)).toFixed(1);
   return `<div class="txt${cls}" style="top:${top}%;transform:rotate(${tilt}deg)"><span>${esc(text)}</span></div>`;
 }
-function openStories(aid){
-  const gs = S.stories || []; const gi0 = gs.findIndex(g => g.acct.id === aid); if (gi0 < 0) return;
-  const order = [gs[gi0], ...gs.filter((g, i) => i !== gi0 && storyIsNew(g)), ...gs.filter((g, i) => i !== gi0 && !storyIsNew(g))];
-  let gi = 0, i = Math.max(0, order[0].items.findIndex(x => !storySeenSet().has(x.id)));
+function openStories(aid, hl){
+  const gs = S.stories || []; const gi0 = gs.findIndex(g => g.acct.id === aid);
+  let order, gi = 0, i;
+  if (hl){
+    // a highlight: that account's kept stories, opened on the tapped one, nothing else queued behind
+    const a = accountById(aid) || (gs[gi0] && gs[gi0].acct); if (!a) return;
+    order = [{ acct: a, items: hl.list }]; i = hl.k;
+  } else {
+    if (gi0 < 0) return;
+    order = [gs[gi0], ...gs.filter((g, i) => i !== gi0 && storyIsNew(g)), ...gs.filter((g, i) => i !== gi0 && !storyIsNew(g))];
+    i = Math.max(0, order[0].items.findIndex(x => !storySeenSet().has(x.id)));
+  }
   VM.claim();
   const show = () => {
     clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
@@ -1557,6 +1587,7 @@ document.addEventListener("click", async e => {
   const t = e.target.closest("button,[data-href]"); if (!t || t.closest("#scrim") || t.closest("#full") || t.closest("#pcdown")) return;
   const d = t.dataset;
   if (d.story){ openStories(d.story); return; }
+  if (d.hl){ const [aid, k] = d.hl.split("|"); const list = HL[aid] || []; if (list[+k]) openStories(aid, { list, k: +k }); return; }
   if (d.reelopen){ go("#/reels/" + d.reelopen); return; }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }

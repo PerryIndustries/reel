@@ -112,11 +112,12 @@ export function seedFixtures(dataDir, { now = Date.now(), posts: nPosts = 300 } 
   const insPost = db.prepare(`INSERT INTO posts(id, acct, items, kind, caption, status, due_at, up_at, down_at, targets, liked, saved, pinned, cycled, seed, story_text, highlight, created_at)
     VALUES (?,?,?,?,?,'live',?,?,NULL,?,0,0,?,0,?,'',0,?)`);
   const insCom = db.prepare('INSERT INTO comments(post, author, author_pfp, text, at, owner_reply, mine) VALUES (?,?,?,?,?,0,0)');
+  const reelsAcct = accts[7]; // ember.ix posts only reels
   const pinnedLeft = { a_seed0: 2 };
   const postRows = [];
   for (let k = 0; k < nPosts; k++) {
     const acct = accts[k % accts.length];
-    const reel = k % 5 === 4; // 60 reels of 300
+    const reel = k % 5 === 4 || acct === reelsAcct; // 60 reels of 300, plus every post of the all-reels account (its feed is a run of reels)
     const carousel = !reel && k % 37 === 11; // 8 carousels
     const keys = reel ? [makeItem(acct, 'video')] : carousel ? [makeItem(acct, 'photo'), makeItem(acct, 'photo'), makeItem(acct, 'photo')] : [makeItem(acct, 'photo')];
     const id = `p_seed${String(k).padStart(4, '0')}`;
@@ -132,8 +133,10 @@ export function seedFixtures(dataDir, { now = Date.now(), posts: nPosts = 300 } 
       const fan = FANS[(k + c) % FANS.length];
       insCom.run(id, fan, c % 3 === 0 ? '' : PFPS[(c + k) % PFPS.length], COMS[(k * 3 + c) % COMS.length], times[c]);
     }
-    postRows.push({ id, acct: acct.id, keys });
+    postRows.push({ id, acct: acct.id, keys, reel });
   }
+
+  const reelsPost = postRows.find((x) => x.acct === reelsAcct.id).id;
 
   // stories: live within the last 24 h
   const insStory = db.prepare(`INSERT INTO posts(id, acct, items, kind, caption, status, due_at, up_at, down_at, targets, liked, saved, pinned, cycled, seed, story_text, highlight, created_at)
@@ -156,11 +159,18 @@ export function seedFixtures(dataDir, { now = Date.now(), posts: nPosts = 300 } 
   const insAct = db.prepare('INSERT INTO activity(type, acct, who, who_pfp, post, text, at) VALUES (?,?,?,?,?,?,?)');
   insAct.run('comment', own0, 'kai.0x', 'pfp/r004.jpg', postRows[0].id, 'the lighting', now - 12 * MIN);
   insAct.run('like', own0, 'sorabyte', '', postRows[3].id, 'and 41 others', now - 2 * H);
+  // two highlights (stories that expired and were kept) on the first own account
+  const insHl = db.prepare(`INSERT INTO posts(id, acct, items, kind, caption, status, due_at, up_at, down_at, targets, liked, saved, pinned, cycled, seed, story_text, highlight, created_at)
+    VALUES (?,?,?,'story','','live',?,?,NULL,NULL,0,0,0,0,?,?,1,?)`);
+  for (let h = 0; h < 2; h++) {
+    const at = now - (30 + h * 20) * H;
+    insHl.run(`p_hl${h}`, own0, JSON.stringify([postRows[10 + h * 5].keys[0]]), at, at, 700 + h, h ? '' : 'kept from the trip', at);
+  }
   insAct.run('follow', own0, 'lunar.rin', 'pfp/r005.jpg', postRows[6].id, 'and 9 others', now - 5 * H);
 
   db.close();
   fs.rmSync(path.join(dataDir, 'seed-bases'), { recursive: true, force: true });
-  return { accounts: accts.length, posts: nPosts, items: itemN, ownAccount: own0 };
+  return { accounts: accts.length, posts: nPosts, items: itemN, ownAccount: own0, reelsAccount: reelsAcct.id, reelsPost };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === fileURLToPath(import.meta.url).toLowerCase()) {

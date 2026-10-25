@@ -138,6 +138,34 @@ try {
     if (maxVideos < 1) throw new Error('no video ever got a src');
   });
 
+  // ---- a feed that is only reels: three videos loaded at once, never a fourth -----------------------------------
+  await check('A run of reels loads exactly 3 videos at the most (reaches 3, never 4)', async () => {
+    await page.goto(base + `#/p/${seeded.reelsPost}/more`);
+    await page.waitForSelector('article.post', { timeout: 10000 });
+    let max = 0; let maxCards = 0; let steps = 0; let still = 0; let lastY = -1; let over = null;
+    for (;;) {
+      await page.evaluate(() => window.scrollBy(0, 300));
+      await sleep(60);
+      const s = await page.evaluate(() => ({
+        v: document.querySelectorAll('video[src]').length,
+        all: document.querySelectorAll('article.post video').length,
+        cards: document.querySelectorAll('article.post').length,
+        y: Math.round(window.scrollY),
+      }));
+      if (s.v > max) max = s.v;
+      if (s.v > 3 && !over) over = s.v;
+      maxCards = Math.max(maxCards, s.cards);
+      steps++;
+      still = s.y === lastY ? still + 1 : 0; lastY = s.y;
+      if (still > 12 || steps > 400) break;
+    }
+    if (over) throw new Error(`${over} videos had a src at once`);
+    if (max !== 3) throw new Error(`the most videos with a src was ${max}, expected it to reach exactly 3`);
+    await page.goto(base + '#/');
+    await page.waitForSelector('article.post', { timeout: 10000 });
+    return `${steps} scroll steps, ${maxCards} cards at most, max ${max} videos`;
+  });
+
   await check('No blob: addresses anywhere in the page', async () => {
     const r = await page.evaluate(() => ({
       calls: window.__objUrls,
@@ -191,6 +219,34 @@ try {
     return `${r.els} pooled videos`;
   });
 
+  // iPhone refuses sound outside a tap: the app must play muted for now but keep "sound on" saved
+  await check('A blocked autoplay with sound on leaves the saved choice alone (muted stays false)', async () => {
+    const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    try {
+      await c2.addInitScript(() => {
+        try { localStorage.setItem('reel2-muted', 'false'); } catch { /* storage */ }
+        window.__blocked = 0;
+        const orig = HTMLMediaElement.prototype.play;
+        HTMLMediaElement.prototype.play = function (...a) {
+          if (!this.muted) { window.__blocked++; return Promise.reject(new DOMException('blocked', 'NotAllowedError')); }
+          return orig.apply(this, a);
+        };
+      });
+      const p2 = await c2.newPage();
+      await p2.goto(base + `#/p/${seeded.reelsPost}/more`, { waitUntil: 'domcontentloaded' });
+      await p2.waitForSelector('article.post', { timeout: 10000 });
+      for (let i = 0; i < 40; i++) {
+        if (await p2.evaluate(() => window.__blocked > 0)) break;
+        await p2.evaluate(() => window.scrollBy(0, 250)); await sleep(150);
+      }
+      await sleep(300);
+      const r = await p2.evaluate(() => ({ blocked: window.__blocked, saved: localStorage.getItem('reel2-muted'), playing: [...document.querySelectorAll('video')].some((v) => !v.paused) }));
+      if (!r.blocked) throw new Error('no autoplay was ever blocked, so the check proved nothing');
+      if (r.saved !== 'false') throw new Error(`saved muted is ${r.saved} after a blocked autoplay`);
+      return `${r.blocked} blocked plays, saved muted ${r.saved}, a video playing muted: ${r.playing}`;
+    } finally { await c2.close(); }
+  });
+
   await check('Stories open from the tray', async () => {
     await page.goto(base + '#/');
     await page.waitForSelector('.tray .st', { timeout: 8000 });
@@ -215,7 +271,21 @@ try {
     if (t.stats !== 3) throw new Error('profile numbers missing');
   });
 
+  await check('Profile shows the highlights row and a tap opens the stories viewer on it', async () => {
+    await page.goto(base + '#/me');
+    await page.waitForSelector('.hls .hlb', { timeout: 8000 });
+    const n = await page.evaluate(() => document.querySelectorAll('.hls .hlb').length);
+    if (n !== 2) throw new Error(`${n} highlights shown, expected 2`);
+    await page.locator('.hls .hlb').first().click();
+    await page.waitForSelector('#sv .fg', { timeout: 5000 });
+    const r = await page.evaluate(() => ({ bars: document.querySelectorAll('#sv .bar').length, reply: !!document.querySelector('#sv [data-sreply], #sv .reply') }));
+    if (r.reply) throw new Error('the stories viewer has a reply control');
+    await page.evaluate(() => document.querySelector('#sv [data-sclose]').click());
+    return `${n} highlights, viewer opened`;
+  });
+
   await check('Comments page lists comments and posting one sends POST comment', async () => {
+    await page.waitForSelector('#pgrid .tile', { timeout: 8000 });
     const id = await page.evaluate(() => document.querySelector('#pgrid .tile').getAttribute('href').split('/')[2]);
     await page.goto(base + '#/c/' + id);
     await page.waitForSelector('.cmt', { timeout: 8000 });
