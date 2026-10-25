@@ -558,12 +558,13 @@ export async function runJob(ctx, job, now) {
   } catch (e) {
     const ollama = e instanceof OllamaError;
     if (ollama) ctx.state.ollamaUp = false;
-    if (ollama && job.kind === 'comments') {
+    if (ollama && (job.kind === 'comments' || job.kind === 'rewrite')) {
       // Ollama off: the post still gets list comments now, and a rewrite job swaps in real ones later.
+      // (A post whose caption fell back at publish only gets a rewrite job, never a comments job.)
       try {
         const p = ctx.db.prepare('SELECT * FROM posts WHERE id = ?').get(job.ref);
         const has = p && ctx.db.prepare('SELECT 1 FROM comments WHERE post = ? LIMIT 1').get(p.id);
-        if (p && !has && await fallbackComments(ctx, p, now)) {
+        if (p && p.kind !== 'story' && !has && await fallbackComments(ctx, p, now)) {
           ctx.log('warn', `writer: comments ${job.ref}: ${e.message}; wrote list comments, rewrite queued`);
           setStatus(ctx.db, job, 'done');
           return true;

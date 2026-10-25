@@ -393,6 +393,19 @@ test('a comments job with Ollama down leaves perPost pool comments and a todo re
   assert.equal(ctx.db.prepare("SELECT count(*) AS n FROM comments WHERE post = 'p1'").get().n, STYLE.comments.perPost);
 });
 
+test('a rewrite job with Ollama down on a post without comments also leaves pool comments and a later rewrite', async (t) => {
+  const ctx = makeCtx(t, await deadUrl());
+  addAcct(ctx, 'a1');
+  addItem(ctx, 'i1', { desc: '' });
+  addPost(ctx, 'p1', 'a1', ['i1'], { upAt: T - H });
+  const id = writer.enqueue(ctx, 'rewrite', 'p1', 4, T, null);
+  await writer.runJob(ctx, job(ctx, id), T);
+  assert.equal(job(ctx, id).status, 'done');
+  assert.equal(ctx.db.prepare("SELECT count(*) AS n FROM comments WHERE post = 'p1'").get().n, STYLE.comments.perPost);
+  const rw = ctx.db.prepare("SELECT * FROM writer_jobs WHERE kind = 'rewrite' AND ref = 'p1' AND status = 'todo'").all();
+  assert.equal(rw.length, 1);
+});
+
 test('fallback comments use the account own comment lines instead of the pool', async (t) => {
   const ctx = makeCtx(t, await deadUrl());
   const mine = ['own comment one', 'own comment two', 'own comment three'];
