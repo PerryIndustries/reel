@@ -54,7 +54,12 @@ function rates(ctx) {
   return out;
 }
 
-const stepOf = (ctx, acct, rate) => D / Math.max(rate ?? rates(ctx).get(acct.id) ?? 0, 0.05);
+// Average gap for `rate` posts a day. Own accounts can only post in 15 waking hours, and the skipped night is
+// not made up, so their gap shrinks by 15/24 (v1 did the same); the others halve their rate 01:00-07:00
+// (a quarter of the day), which costs 1/8 of their posts, so their gap shrinks by 7/8.
+// the gap mixture below averages 1.056 steps
+const MEAN_FIX = 1 / 1.056;
+const stepOf = (ctx, acct, rate) => D / Math.max(rate ?? rates(ctx).get(acct.id) ?? 0, 0.05) * MEAN_FIX * (acct.own ? 15 / 24 : 7 / 8);
 
 // v50 bursty gap mixture: a quarter of the gaps are tiny (two or three posts close together), half are
 // ordinary and the rest are long, with the same average. Others post at half rate 01:00-07:00. Own accounts
@@ -82,24 +87,21 @@ const INSERT_POST = `INSERT INTO posts(id, acct, items, kind, caption, status, d
   VALUES (?,?,?,?,?, 'queued', ?, NULL, NULL, NULL, 0, 0, 0, ?, ?, '', 0, ?)`;
 
 // ---- planning ----------------------------------------------------------------------------------------
-// Which items are in a live or queued post, and which have ever been posted.
+// Which items are in a live or queued post.
 function usage(ctx) {
-  const inUse = new Set(ctx.db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued') AND p.kind <> 'story'`).all().map((r) => r.v));
-  const posted = new Set(ctx.db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.status = 'down' AND p.kind <> 'story'`).all().map((r) => r.v));
-  return { inUse, posted };
+  return new Set(ctx.db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued') AND p.kind <> 'story'`).all().map((r) => r.v));
 }
+
+// Items this account has posted before (its taken-down posts, via the posts_acct index).
+const postedBy = (db, acctId) => new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.acct = ? AND p.status = 'down' AND p.kind <> 'story'`).all(acctId).map((r) => r.v));
 
 const storiesFolder = (it) => String(it.folder || '').split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() === 'stories';
 
-// Random among the unposted items; when two draws tie, a never-posted item goes before a repost.
+// Random among the never-posted items when there are any (new photos before reposts), otherwise among all.
 function pickItem(ctx, pool, posted) {
-  let best = null;
-  let bestKey = Infinity;
-  for (const it of pool) {
-    const k = Math.floor(nextRand(ctx) * 1e6);
-    if (k < bestKey || (k === bestKey && best && posted.has(best.key) && !posted.has(it.key))) { best = it; bestKey = k; }
-  }
-  return best;
+  const fresh = pool.filter((i) => !posted.has(i.key));
+  const from = fresh.length ? fresh : pool;
+  return from[Math.floor(nextRand(ctx) * from.length)];
 }
 
 // 35% (scaled by the account's multi setting) of photo posts hold 2-6 photos from the same folder.
@@ -128,12 +130,13 @@ export function planPosts(ctx, now) {
   const { db } = ctx;
   const rate = rates(ctx);
   const accts = db.prepare('SELECT * FROM accounts WHERE quiet = 0').all();
-  const { inUse, posted } = usage(ctx);
+  const inUse = usage(ctx);
   let made = 0;
   for (const acct of accts) {
     const pool = db.prepare(`SELECT key, folder, kind FROM items WHERE acct = ? AND ${POSTABLE}`).all(acct.id)
       .filter((i) => !inUse.has(i.key) && !storiesFolder(i));
     if (!pool.length) continue;
+    const posted = postedBy(db, acct.id);
     const prob = MULTI[settingsOf(acct).multi] ?? 0;
     const step = stepOf(ctx, acct, rate.get(acct.id));
     const take = (items) => { for (const i of items) { inUse.add(i.key); pool.splice(pool.findIndex((p) => p.key === i.key), 1); } };
@@ -168,7 +171,9 @@ export function planPosts(ctx, now) {
     }
   }
   // posts due within 2 h get their caption written ahead of time
-  for (const p of db.prepare("SELECT id FROM posts WHERE status = 'queued' AND kind <> 'story' AND caption = '' AND due_at <= ?").all(now + 2 * H)) {
+  // (not when a caption job is already todo, running or failed for it: publish's fallback covers the rest)
+  for (const p of db.prepare(`SELECT id FROM posts WHERE status = 'queued' AND kind <> 'story' AND caption = '' AND due_at <= ?
+    AND NOT EXISTS (SELECT 1 FROM writer_jobs w WHERE w.kind = 'caption' AND w.ref = posts.id AND w.status IN ('todo','running','failed'))`).all(now + 2 * H)) {
     enqueue(ctx, 'caption', p.id, 1, now, null);
   }
   return made;
@@ -274,6 +279,8 @@ export function takedown(ctx, now, minLive = KEEP_MIN) {
           const to = others[Math.floor(nextRand(ctx) * others.length)].id;
           const upd = db.prepare('UPDATE items SET acct = ? WHERE key = ?');
           for (const k of parseItems(p.items)) upd.run(to, k);
+          // the history moves with the photos, so the new account knows they were posted before
+          db.prepare('UPDATE posts SET acct = ? WHERE id = ?').run(to, p.id);
         }
       }
     }
@@ -325,7 +332,7 @@ export function onGone(ctx, keys, now) {
 export function tick(ctx, now) {
   const steps = [
     ['publish', publishDue], ['expireStories', expireStories], ['takedown', takedown],
-    ['planPosts', planPosts], ['planStories', planStories], ['publishStories', publishDue], ['activity', activityTick],
+    ['planPosts', planPosts], ['planStories', planStories], ['activity', activityTick],
   ];
   const out = {};
   for (const [name, fn] of steps) {

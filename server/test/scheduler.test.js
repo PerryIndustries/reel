@@ -59,7 +59,7 @@ test('own accounts never get a due_at between 00:00 and 09:00 local over a simul
   for (let i = 0; i < 400; i++) addItem(ctx, `o${i}`, 'a1');
   for (let i = 0; i < 100; i++) addItem(ctx, `x${i}`, 'n1');
   for (let now = T; now < T + 7 * D; now += H) sched.tick(ctx, now);
-  const own = ctx.db.prepare("SELECT due_at FROM posts WHERE acct = 'a1'").all();
+  const own = ctx.db.prepare("SELECT due_at FROM posts WHERE acct = 'a1' AND status <> 'down'").all(); // down posts moved in with a repost keep their old account's times
   assert.ok(own.length > 100, `expected a week of own posts, got ${own.length}`);
   const night = own.filter((p) => new Date(p.due_at).getHours() < 9);
   assert.deepEqual(night.map((p) => new Date(p.due_at).toString()), []);
@@ -203,6 +203,65 @@ test('publishDue publishes what is due, skips the future and posts of deleted ac
   addPost(ctx, { id: 'orphan', acct: 'gone-acct', items: ['k3'], status: 'queued', dueAt: T - H });
   assert.equal(sched.publishDue(ctx, T), 1);
   assert.deepEqual(['due', 'later', 'orphan'].map((id) => statusOf(ctx, id)), ['live', 'queued', 'queued']);
+});
+
+function weekSim(t, seed, accts, perDay) {
+  const ctx = makeCtx(t, seed);
+  setSetting(ctx.db, 'postsPerDay', perDay);
+  for (const [id, own, n] of accts) {
+    addAcct(ctx, id, own);
+    for (let i = 0; i < n; i++) addItem(ctx, `${id}_${i}`, id);
+  }
+  // reposts move photos between accounts, so an account's share is its average postable item count over the week
+  const counts = new Map(accts.map(([id]) => [id, 0]));
+  let samples = 0;
+  for (let now = T; now < T + 9 * D; now += 15 * 60_000) {
+    sched.tick(ctx, now);
+    if (now >= T + D && now < T + 8 * D && (now - T) % H === 0) {
+      samples++;
+      for (const r of ctx.db.prepare('SELECT acct, COUNT(*) n FROM items GROUP BY acct').all()) counts.set(r.acct, counts.get(r.acct) + r.n);
+    }
+  }
+  const share = (id) => perDay * counts.get(id) / [...counts.values()].reduce((a, b) => a + b, 0);
+  // days 2-8 only, so the first day's catch-up and the last day's queue edge do not count
+  const from = T + D;
+  const to = T + 8 * D;
+  const per = (id) => ctx.db.prepare("SELECT COUNT(*) n FROM posts WHERE acct = ? AND kind <> 'story' AND status <> 'queued' AND due_at >= ? AND due_at < ?").get(id, from, to).n / 7;
+  return { per, share, ctx };
+}
+
+test('a simulated week posts about postsPerDay in total and each own account about its share', (t) => {
+  const { per, share } = weekSim(t, 5, [['a1', true, 600], ['a2', true, 300], ['n1', false, 600], ['n2', false, 300]], 90);
+  const total = ['a1', 'a2', 'n1', 'n2'].reduce((s, id) => s + per(id), 0);
+  assert.ok(Math.abs(total - 90) <= 9, `total ${total.toFixed(1)}/day vs 90`);
+  for (const id of ['a1', 'a2']) assert.ok(Math.abs(per(id) - share(id)) <= share(id) * 0.15, `${id} ${per(id).toFixed(1)}/day vs share ${share(id).toFixed(1)}`);
+});
+
+test('an account with never-posted and already-posted photos picks a never-posted one', (t) => {
+  const ctx = makeCtx(t, 4);
+  setSetting(ctx.db, 'postsPerDay', 2);
+  addAcct(ctx, 'n1', false);
+  for (let i = 0; i < 20; i++) addItem(ctx, `old${i}`, 'n1');
+  addItem(ctx, 'fresh', 'n1');
+  for (let i = 0; i < 20; i++) addPost(ctx, { id: `d${i}`, acct: 'n1', items: [`old${i}`], status: 'down', upAt: T - 20 * D });
+  for (let i = 0; i < 9; i++) { addItem(ctx, `live${i}`, 'n1'); addPost(ctx, { id: `l${i}`, acct: 'n1', items: [`live${i}`] }); }
+  sched.planPosts(ctx, T);
+  const first = ctx.db.prepare("SELECT items, cycled FROM posts WHERE status = 'queued' ORDER BY due_at LIMIT 1").get();
+  assert.deepEqual(JSON.parse(first.items), ['fresh']);
+  assert.equal(first.cycled, 0);
+});
+
+test('a failed caption job is not queued again every tick', (t) => {
+  const ctx = makeCtx(t, 2);
+  setSetting(ctx.db, 'postsPerDay', 100);
+  addAcct(ctx, 'n1', false);
+  for (let i = 0; i < 40; i++) addItem(ctx, `x${i}`, 'n1');
+  sched.planPosts(ctx, T);
+  ctx.db.prepare("UPDATE writer_jobs SET status = 'failed' WHERE kind = 'caption'").run();
+  const failed = ctx.db.prepare("SELECT COUNT(*) n FROM writer_jobs WHERE kind = 'caption' AND status = 'failed'").get().n;
+  assert.ok(failed > 0);
+  sched.planPosts(ctx, T + 60_000);
+  assert.deepEqual(jobs(ctx, 'caption'), []);
 });
 
 test('planPosts queues a caption job for posts due within 2 hours only', (t) => {
