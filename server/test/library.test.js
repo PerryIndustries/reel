@@ -223,7 +223,7 @@ test('copyid runs only for dup items missing on disk, with remote, id and file p
     const calls = copyidCalls(log);
     assert.equal(calls.length, 2);
     assert.ok(calls.every((c) => c.startsWith('backend copyid fake: drv')));
-    assert.ok(calls[0].endsWith(path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic')));
+    assert.ok(calls.some((c) => c.endsWith(path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic'))), 'order of parallel fetches is not fixed');
     fs.writeFileSync(log, '');
     await syncOnce(ctx, 2000);
     assert.equal(copyidCalls(log).length, 0, 'files already on disk: no fetch');
@@ -275,4 +275,74 @@ test('a gone dup item loses its dup file only after 7 days', async () => {
     assert.ok(!fs.existsSync(f));
     assert.ok(!fs.existsSync(path.join(ctx.cfg.sourceDir, 'dup', 'md52.heic')));
   } finally { await t.stop(); }
+});
+
+test('a failed copyid sets mirror.ok=false with the count, the tick does not throw, and the next sync fetches it', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    setList(dupSetup(ctx, t.dataDir, 3));
+    process.env.FAKE_RCLONE_FAIL_IDS = 'drv2';
+    const r = await syncOnce(ctx, 1000);
+    assert.equal(r.mirrored, true);
+    assert.equal(ctx.state.mirror.ok, false);
+    assert.match(ctx.state.mirror.msg, /^1 same-named file\(s\) not fetched: fake rclone: cannot copy drv2$/);
+    const f2 = path.join(ctx.cfg.sourceDir, 'dup', 'md52.heic');
+    assert.ok(!fs.existsSync(f2));
+    assert.ok(fs.existsSync(path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic')), 'the others are still fetched');
+    delete process.env.FAKE_RCLONE_FAIL_IDS;
+    await syncOnce(ctx, 2000);
+    assert.equal(ctx.state.mirror.ok, true);
+    assert.equal(fs.readFileSync(f2, 'utf8'), 'content-2');
+  } finally { delete process.env.FAKE_RCLONE_FAIL_IDS; await t.stop(); }
+});
+
+test('when a same-named twin is deleted, the survivor moves back to its normal path and its dup file is removed', async () => {
+  const { t, setList, ctx, src } = await boot();
+  try {
+    const entries = dupSetup(ctx, t.dataDir);
+    setList(entries);
+    await syncOnce(ctx, 1000);
+    const dupFile = path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic');
+    assert.ok(fs.existsSync(dupFile));
+    fs.mkdirSync(path.join(src, 'Newss'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'Newss', 'lp_image.heic'), 'content-1');
+    setList([entries[0]]);
+    await syncOnce(ctx, 2000);
+    assert.equal(ctx.db.prepare("SELECT path FROM items WHERE key='md51'").get().path, '0/Newss/lp_image.heic');
+    assert.ok(!fs.existsSync(dupFile), 'stale dup file removed');
+    assert.ok(fs.existsSync(path.join(ctx.cfg.sourceDir, '0', 'Newss', 'lp_image.heic')));
+  } finally { await t.stop(); }
+});
+
+test('dup fetches run at most 4 at a time', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    const conc = path.join(t.dataDir, 'conc');
+    fs.mkdirSync(conc, { recursive: true });
+    process.env.FAKE_RCLONE_CONC_DIR = conc;
+    setList(dupSetup(ctx, t.dataDir, 9));
+    await syncOnce(ctx, 1000);
+    const seen = fs.readFileSync(path.join(conc, 'max.log'), 'utf8').split('\n').filter(Boolean).map(Number);
+    assert.equal(seen.length, 9, 'all 9 fetched');
+    assert.ok(Math.max(...seen) <= 4, `max concurrent copyid was ${Math.max(...seen)}`);
+    assert.ok(Math.max(...seen) >= 2, 'fetches do overlap');
+  } finally { delete process.env.FAKE_RCLONE_CONC_DIR; await t.stop(); }
+});
+
+test('remote is the root up to the first colon (curly apostrophe root), passed to rclone as one argument', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    const log = path.join(t.dataDir, 'argv.log');
+    process.env.FAKE_RCLONE_ARGV_LOG = log;
+    const root = 'fake:Perry’s private:2026'; // a second colon tells first-colon from last-colon
+    setSetting(ctx.db, 'drivePath', root);
+    setList(dupSetup(ctx, t.dataDir));
+    await syncOnce(ctx, 1000);
+    const calls = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const copyids = calls.filter((c) => c[0] === 'backend');
+    assert.equal(copyids.length, 2);
+    assert.ok(copyids.every((c) => c[2] === 'fake:'), JSON.stringify(copyids));
+    assert.ok(calls.filter((c) => c[0] === 'lsjson').every((c) => c.at(-1) === root));
+    assert.ok(calls.filter((c) => c[0] === 'sync').every((c) => c[1] === root));
+  } finally { delete process.env.FAKE_RCLONE_ARGV_LOG; await t.stop(); }
 });
