@@ -422,6 +422,11 @@ async function writeComments(ctx, { post, a, acct, style, desc, item }) {
   const taken = new Set(written.map(normT));
   const pool = shuffled(linesFor(ctx, 'comment', acct), r).filter((x) => { const k = normT(x); if (taken.has(k) || k === cap) return false; taken.add(k); return true; });
   const all = shuffled([...written, ...pool.slice(0, want - written.length)], r);
+  await storeComments(ctx, { post, acct, all, r });
+}
+
+// Gives each text a fan author and a time, and replaces the post's generated comments (never `mine` or owner replies).
+async function storeComments(ctx, { post, acct, all, r }) {
   const times = await commentTimes(post, all.length);
   const rr = rng(hashStr('reg' + (acct?.seed ?? post.acct)));
   const reg = Array.from({ length: 15 }, () => Math.floor(rr() * FAN_POOL)); // ~15 regulars per account
@@ -438,6 +443,24 @@ async function writeComments(ctx, { post, a, acct, style, desc, item }) {
     const ins = ctx.db.prepare('INSERT INTO comments(post, author, author_pfp, text, at, owner_reply, mine) VALUES (?, ?, ?, ?, ?, 0, 0)');
     for (const c of rows) ins.run(post.id, c.author, c.pfp, c.text, c.at);
   });
+}
+
+// Ollama is off: perPost comments from the account's own lines or the style pool (distinct while the list allows),
+// then a rewrite job so real ones can replace them later.
+async function fallbackComments(ctx, post, now) {
+  const acct = acctRow(ctx, post.acct);
+  const style = loadStyle(ctx, now);
+  const want = Math.max(6, Math.min(20, (style && style.comments && style.comments.perPost) || 12));
+  const r = rng(((post.seed >>> 0) ^ 0x9e3779b9) >>> 0);
+  const cap = normT(post.caption);
+  const seen = new Set();
+  const uniq = linesFor(ctx, 'comment', acct).filter((x) => { const k = normT(x); if (!k || k === cap || seen.has(k)) return false; seen.add(k); return true; });
+  if (!uniq.length) return false;
+  const base = shuffled(uniq, r);
+  const all = Array.from({ length: want }, (_, k) => base[k % base.length]);
+  await storeComments(ctx, { post, acct, all, r });
+  enqueue(ctx, 'rewrite', post.id, 5, now + RETRY_MS, null);
+  return true;
 }
 
 // Who this fan is. Fixed per fan, so the same person always texts the same way.
@@ -535,6 +558,18 @@ export async function runJob(ctx, job, now) {
   } catch (e) {
     const ollama = e instanceof OllamaError;
     if (ollama) ctx.state.ollamaUp = false;
+    if (ollama && job.kind === 'comments') {
+      // Ollama off: the post still gets list comments now, and a rewrite job swaps in real ones later.
+      try {
+        const p = ctx.db.prepare('SELECT * FROM posts WHERE id = ?').get(job.ref);
+        const has = p && ctx.db.prepare('SELECT 1 FROM comments WHERE post = ? LIMIT 1').get(p.id);
+        if (p && !has && await fallbackComments(ctx, p, now)) {
+          ctx.log('warn', `writer: comments ${job.ref}: ${e.message}; wrote list comments, rewrite queued`);
+          setStatus(ctx.db, job, 'done');
+          return true;
+        }
+      } catch (e2) { ctx.log('error', `writer: fallback comments ${job.ref} failed: ${e2.message}`); }
+    }
     const tries = (job.tries || 0) + 1;
     ctx.log(ollama ? 'warn' : 'error', `writer: ${job.kind} ${job.ref} try ${tries} failed: ${e.message}`, ollama ? undefined : { stack: e.stack });
     setStatus(ctx.db, job, tries >= MAX_TRIES ? 'failed' : 'todo', { tries, due_at: now + RETRY_MS });

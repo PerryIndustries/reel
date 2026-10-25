@@ -369,3 +369,58 @@ test('pingOllama sets ollamaUp from /api/tags', async (t) => {
   assert.equal(await writer.pingOllama(ctx), false);
   assert.equal(ctx.state.ollamaUp, false);
 });
+
+test('a comments job with Ollama down leaves perPost pool comments and a todo rewrite job', async (t) => {
+  const ctx = makeCtx(t, await deadUrl());
+  addAcct(ctx, 'a1');
+  addItem(ctx, 'i1', { desc: '' });
+  const up = T - 2 * H;
+  addPost(ctx, 'p1', 'a1', ['i1'], { upAt: up });
+  const id = writer.enqueue(ctx, 'comments', 'p1', 2, T, null);
+  await writer.runJob(ctx, job(ctx, id), T);
+  assert.notEqual(job(ctx, id).status, 'failed');
+  assert.equal(job(ctx, id).status, 'done');
+  const rows = ctx.db.prepare("SELECT * FROM comments WHERE post = 'p1'").all();
+  assert.equal(rows.length, STYLE.comments.perPost);
+  assert.ok(rows.every((r) => STYLE.pool.comments.includes(r.text) && r.mine === 0 && r.author && r.at >= up && r.at <= up + 48 * H));
+  assert.equal(new Set(rows.map((r) => r.text)).size, Math.min(rows.length, new Set(STYLE.pool.comments).size));
+  const rw = ctx.db.prepare("SELECT * FROM writer_jobs WHERE kind = 'rewrite' AND ref = 'p1'").all();
+  assert.equal(rw.length, 1);
+  assert.equal(rw[0].status, 'todo');
+  assert.equal(rw[0].prio, 5);
+  // a second run does not pile on more comments
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'comments', 'p1', 2, T, null)), T + 1);
+  assert.equal(ctx.db.prepare("SELECT count(*) AS n FROM comments WHERE post = 'p1'").get().n, STYLE.comments.perPost);
+});
+
+test('fallback comments use the account own comment lines instead of the pool', async (t) => {
+  const ctx = makeCtx(t, await deadUrl());
+  const mine = ['own comment one', 'own comment two', 'own comment three'];
+  addAcct(ctx, 'a1', { own: { captions: [], comments: mine, stories: [] } });
+  addItem(ctx, 'i1', { desc: '' });
+  addPost(ctx, 'p1', 'a1', ['i1']);
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'comments', 'p1', 2, T, null)), T);
+  const texts = ctx.db.prepare("SELECT text FROM comments WHERE post = 'p1'").all().map((r) => r.text);
+  assert.equal(texts.length, STYLE.comments.perPost);
+  assert.ok(texts.every((x) => mine.includes(x)), texts.join('|'));
+  assert.deepEqual([...new Set(texts)].sort(), [...mine].sort());
+});
+
+test('the rewrite with Ollama up replaces fallback comments but keeps a mine=1 comment', async (t) => {
+  const s = await stubOllama(t, { reply: () => 'so pretty 😍\nmarry me\nstop it rn\nhow is this real' });
+  const ctx = makeCtx(t, s.url);
+  addAcct(ctx, 'a1');
+  addItem(ctx, 'i1', { desc: 'a selfie' });
+  addPost(ctx, 'p1', 'a1', ['i1']);
+  const fb = ['fallback list comment A', 'fallback list comment B'];
+  const ins = ctx.db.prepare('INSERT INTO comments(post, author, author_pfp, text, at, owner_reply, mine) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  for (const x of fb) ins.run('p1', 'fan', '', x, T, 0, 0);
+  ins.run('p1', 'me', '', 'my own comment', T, 0, 1);
+  ins.run('p1', 'h_a1', '', 'thanks guys', T, 1, 0);
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'rewrite', 'p1', 5, T, null)), T);
+  const texts = ctx.db.prepare("SELECT text FROM comments WHERE post = 'p1'").all().map((r) => r.text);
+  assert.ok(texts.includes('my own comment'));
+  assert.ok(texts.includes('thanks guys'));
+  assert.ok(!texts.some((x) => fb.includes(x)));
+  assert.ok(texts.includes('marry me'));
+});
