@@ -503,6 +503,14 @@ async function sendToPC(progress){
   if (!r.ok) throw new Error(`the PC said ${r.status} to the last piece`);
   return { files: media.length, sent };
 }
+// v101: hands the accounts, settings, ratings, seen marks and chats to the PC engine. Never media, never S.secret.
+async function moveToEngine(){
+  const kept = S.posts.filter(p => p.liked || S.saved[p.id] || p.pinned).map(p => ({ id: p.id, keys: p.files.map(f => f.key), liked: !!p.liked, saved: !!S.saved[p.id], pinned: !!p.pinned }));
+  const r = await fetch("api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accounts: S.accounts, settings: S.settings, misc: { taste: S.taste, postSeen: S.postSeen, convos: S.convos, kept } }) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok || !j) throw new Error("the PC said " + r.status);
+  return j;
+}
 // Replaces everything at this address with what's on the PC, after checking every photo and video made it there.
 async function importFromPC(progress){
   const man = await pcJSON("manifest"), have = await pcJSON("have");
@@ -558,7 +566,7 @@ async function importAll(src, progress){
 /* ================= state ================= */
 const CLIENT_ID = "807684262582-7k43lagft277ucdqnr1tc0kl8olof5g8.apps.googleusercontent.com";
 // Bump with the CACHE name in sw.js; Settings shows it so you can tell which version the phone is running.
-const APP_VERSION = 100;
+const APP_VERSION = 101;
 const DEFAULT_SETTINGS = { clientId:CLIENT_ID, folderName:"", folderId:"", starter:9, captionStyle:"thirst", myCaptions:"", storyStyle:"thirst", myStoryTexts:"", storiesPerDay:3, capDirection:"", comDirection:"", storyDirection:"", order:"name", seed:0, ignored:[] };
 // The other accounts: made-up creators who post from one Drive folder of yours (every photo and video in it and its subfolders).
 const OTHERS_DEFAULT = { folderName:"", folderId:"", folderLink:false, on:true, count:10, gen:0, unfollowed:{} };
@@ -3490,6 +3498,10 @@ function vSettings(v){
     <div class="card"><h3>New accounts</h3>
       <div class="field"><label for="sstart">Already up when an account starts</label><input type="number" id="sstart" min="0" inputmode="numeric" value="${esc(st.starter ?? 9)}"></div>
       <div class="hint">This many go up as older posts so a new profile isn't empty. The rest are posted one at a time.</div></div>
+    <div class="card"><h3>Move to the PC engine</h3>
+      <div class="hint">Sends your accounts, settings, ratings and chats to the Reel engine on your PC. No photos or videos go, and nothing here is erased.</div>
+      <button class="btn primary" type="button" data-moveengine>Move to the PC engine</button>
+      <div class="hint" id="moveengine-out" hidden></div></div>
     <div class="card"><h3>Move to another address</h3>
       <div class="hint">Export packs everything on this phone (accounts, posts, chats, settings and every photo and video) into one file. Send it to your PC, then in Reel at the new address tap Load from my PC, and everything carries on where you left off.</div>
       <button class="btn primary" type="button" data-sendpc>Send everything to my PC</button>
@@ -4000,6 +4012,16 @@ document.addEventListener("click", async e => {
       const pc = $("#exportpc"); if (pc){ pc.hidden = false; pc.textContent = `Send to my PC (${mb} MB)`; }
       const sv = $("#exportsave"); if (sv){ sv.hidden = false; sv.textContent = `Save the file instead (${mb} MB)`; }
     } catch(err){ t.disabled = false; t.textContent = "Export everything"; toast("Couldn't pack it: " + err.message); }
+    return;
+  }
+  if ("moveengine" in d){
+    if (t.disabled) return; t.disabled = true; t.textContent = "Moving…";
+    const out = $("#moveengine-out");
+    try {
+      const c = await moveToEngine();
+      t.textContent = "Moved to the PC engine ✓"; t.disabled = false;
+      if (out){ out.hidden = false; out.innerHTML = `${c.accounts} accounts, ${c.directions} directions, ${c.taste} ratings, ${c.seen} seen marks, ${c.kept} kept posts, ${c.convos} chats moved (${c.dropped} not matched, left behind).<br><a class="btn primary" href="./">Done, open the new Reel</a>`; }
+    } catch(err){ t.disabled = false; t.textContent = "Move to the PC engine"; if (out){ out.hidden = false; out.textContent = "Your PC engine isn't reachable, try again when the PC is on"; } }
     return;
   }
   if ("exportsave" in d){ await saveExport(); return; }
