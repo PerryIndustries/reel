@@ -53,8 +53,9 @@ node server/main.js    # the engine alone
 - Runtime facts for `status` go through `ctx.state` (`mirror`, `ollamaUp`, ...).
 - New columns: `ensureColumn(db, table, col, type)` from the owning module's `start`; never edit
   the schema in `lib/db.js`.
-- Router handlers are `(req, res, params, query, body)`; return a value to send it as 200 JSON, or
-  write the response with `sendJson` / `sendError`; throw `HttpError(code, msg)` for 4xx. Anything
+- Router handlers are `(req, res, params, query, body)`; return a value (or a promise of one) to
+  send it as 200 JSON, or return `undefined` to own the response yourself (`sendJson` /
+  `sendError`, streaming, ending later): the router never writes an automatic 200; throw `HttpError(code, msg)` for 4xx. Anything
   else thrown answers 500 `{error}` and is logged.
 
 ## Tests

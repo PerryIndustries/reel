@@ -120,17 +120,23 @@ function isMain() {
 if (isMain()) {
   let engine = null;
   const fallbackLog = (() => { try { return makeLog(loadConfig(process.env).logDir); } catch { return () => {}; } })();
-  const fatal = (kind) => (e) => {
-    const log = engine?.ctx.log ?? fallbackLog;
-    log('fatal', `${kind}: ${e?.message ?? e}`, { stack: e?.stack });
-    console.error(`reel-engine ${kind}:`, e);
+  const logOf = () => engine?.ctx.log ?? fallbackLog;
+  process.on('uncaughtException', (e) => {
+    logOf()('fatal', `uncaught exception: ${e?.message ?? e}`, { stack: e?.stack });
+    console.error('reel-engine uncaught exception:', e);
     process.exit(1); // the supervisor restarts us
-  };
-  process.on('uncaughtException', fatal('uncaught exception'));
-  process.on('unhandledRejection', fatal('unhandled rejection'));
+  });
+  // A stray rejection (a failed fetch nobody awaited) must not take the engine down: log and run on.
+  process.on('unhandledRejection', (e) => {
+    logOf()('error', `unhandled rejection: ${e?.message ?? e}`, { stack: e?.stack });
+  });
   const shutdown = () => { (engine ? engine.stop() : Promise.resolve()).finally(() => process.exit(0)); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
   engine = await startEngine(process.env);
+  if (process.env.REEL_TEST_HOOKS === '1') {
+    // Test-only (inert unless the env var is set): lets a child-process test inject faults.
+    engine.ctx.router.add('POST', '/reel/api/__test/reject', () => { Promise.reject(new Error('injected rejection')); return { ok: true }; });
+  }
   console.log(`reel-engine listening on http://127.0.0.1:${engine.server.address().port}/reel/api/status`);
 }

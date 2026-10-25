@@ -2,7 +2,9 @@
 // final `*` that captures the rest of the path as params['*'].
 //   handler(req, res, params, query, body)
 // `body` is the parsed JSON for POST/PUT/DELETE ({} when empty). A handler either writes the
-// response itself (sendJson / sendError) or returns a value, which is sent as 200 JSON.
+// response itself (sendJson / sendError / stream / end later) and returns undefined, or returns a
+// value (awaited if a promise), which is sent as 200 JSON. undefined means the handler owns the
+// response: the router writes nothing.
 // A handler that throws answers 500 {error} and is logged; the engine keeps serving.
 
 const BODY_LIMIT = 10 * 1024 * 1024;
@@ -51,9 +53,11 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    let over = false;
     req.on('data', (c) => {
       size += c.length;
-      if (size > BODY_LIMIT) { reject(new HttpError(413, 'body too large')); req.destroy(); return; }
+      if (over) return; // already answered 413; drain and discard the rest
+      if (size > BODY_LIMIT) { over = true; chunks.length = 0; reject(new HttpError(413, 'body too large')); return; }
       chunks.push(c);
     });
     req.on('end', () => {
@@ -89,14 +93,14 @@ export function makeRouter(log = () => {}) {
     try {
       const body = BODY_METHODS.has(req.method) ? await readBody(req) : undefined;
       const out = await route.handler(req, res, params, query, body);
-      if (!res.headersSent && !res.writableEnded) {
-        if (out === undefined) sendJson(res, 200, { ok: true });
-        else sendJson(res, 200, out);
-      }
+      if (out !== undefined && !res.headersSent && !res.writableEnded) sendJson(res, 200, out);
     } catch (e) {
       const code = e instanceof HttpError ? e.code : 500;
       if (code === 500) log('error', `${req.method} ${url.pathname} failed: ${e.message}`, { stack: e.stack });
-      if (!res.headersSent) sendError(res, code, e.message || 'internal error');
+      if (!res.headersSent) {
+        if (code === 413) res.setHeader('connection', 'close');
+        sendError(res, code, e.message || 'internal error');
+      }
       else res.destroy();
     }
     return true;
