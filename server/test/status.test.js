@@ -29,7 +29,7 @@ test('GET /reel/api/status on a fresh engine returns ok and zero counts', async 
   );
   assert.deepEqual(body.mirror, { at: null, ok: null, msg: 'never' });
   assert.deepEqual(body.writer, { queue: 0, ollama: null });
-  assert.deepEqual(body.accounts, { own: 0, other: 0 });
+  assert.deepEqual(body.accounts, { own: 1, other: 6 });
   assert.equal(typeof body.disk.freeGB, 'number');
   assert.ok(body.disk.freeGB > 0);
 });
@@ -66,7 +66,7 @@ test('status reports writer queue, ollama, mirror state and account counts', asy
   e.ctx.state.mirror = { at: 5, ok: false, msg: 'rclone missing' };
   const { body } = await getJson(`${e.base}/reel/api/status`);
   assert.deepEqual(body.writer, { queue: 2, ollama: true });
-  assert.deepEqual(body.accounts, { own: 1, other: 2 });
+  assert.deepEqual(body.accounts, { own: 2, other: 8 });
   assert.deepEqual(body.mirror, { at: 5, ok: false, msg: 'rclone missing' });
 });
 
@@ -92,8 +92,8 @@ test('a throwing handler answers 500 JSON and the engine keeps serving', async (
 
 test('router passes path params, query and parsed JSON body', async (t) => {
   const e = await engine(t);
-  e.ctx.router.add('PUT', '/reel/api/acct/:id', (req, res, params, query, body) => ({ params, query, body }));
-  const res = await fetch(`${e.base}/reel/api/acct/a%201?stream=home`, {
+  e.ctx.router.add('PUT', '/reel/api/probe/:id', (req, res, params, query, body) => ({ params, query, body }));
+  const res = await fetch(`${e.base}/reel/api/probe/a%201?stream=home`, {
     method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'x' }),
   });
   assert.equal(res.status, 200);
