@@ -87,14 +87,30 @@ test('a home stream never repeats a card and never shows the same account within
   const ctx = makeCtx(t, 7);
   seedGrid(ctx, 6, 20);
   const cards = drain(ctx, 'home');
-  assert.ok(cards.length >= 60, `got ${cards.length} cards`);
+  assert.equal(cards.length, 120, 'every post is delivered, the stream does not end early');
   assert.equal(new Set(cards.map((c) => c.id)).size, cards.length, 'a card repeated');
   assert.equal(new Set(cards.map((c) => c.media[0].item)).size, cards.length, 'a first item repeated');
   cards.forEach((c, i) => {
+    if (i >= 100) return; // the tail may be one account's leftovers, where spacing is impossible
     for (let j = Math.max(0, i - 3); j < i; j++) {
       assert.notEqual(cards[j].acct.id, c.acct.id, `account ${c.acct.id} at ${j} and ${i}`);
     }
   });
+});
+
+test('with two accounts every post is delivered and accounts alternate while both have posts', (t) => {
+  const ctx = makeCtx(t, 13);
+  addAcct(ctx, 'a0');
+  addAcct(ctx, 'a1');
+  for (let i = 0; i < 6; i++) { addItem(ctx, `x${i}`, 'a0'); addPost(ctx, { id: `x${i}`, acct: 'a0', key: `x${i}` }); }
+  for (let i = 0; i < 4; i++) { addItem(ctx, `y${i}`, 'a1'); addPost(ctx, { id: `y${i}`, acct: 'a1', key: `y${i}` }); }
+  const cards = drain(ctx, 'home');
+  assert.equal(cards.length, 10);
+  const ids = cards.map((c) => c.acct.id);
+  for (let i = 1; i < 8; i++) assert.notEqual(ids[i], ids[i - 1], `repeat at ${i}: ${ids.join()}`);
+  const one = makeCtx(t, 14);
+  seedGrid(one, 1, 5);
+  assert.equal(drain(one, 'explore').length, 5);
 });
 
 test('taste up raises an item\'s pick frequency in the first page and down lowers it', (t) => {
@@ -175,6 +191,23 @@ test('a profile stream is that account newest first, pinned posts left to the pi
   addPost(ctx, { id: 'other', acct: 'a1', key: 'o' });
   const cards = drain(ctx, 'acct:a0');
   assert.deepEqual(cards.map((c) => c.id), ['p0', 'p1', 'p2', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'p11']);
+});
+
+test('a profile stream shows only live posts and never publishes the queue', (t) => {
+  const ctx = makeCtx(t, 8);
+  addAcct(ctx, 'a0');
+  for (let i = 0; i < 3; i++) { addItem(ctx, `l${i}`, 'a0'); addPost(ctx, { id: `l${i}`, acct: 'a0', key: `l${i}`, upAt: T - (i + 1) * H }); }
+  for (let i = 0; i < 2; i++) { addItem(ctx, `q${i}`, 'a0'); addPost(ctx, { id: `q${i}`, acct: 'a0', key: `q${i}`, status: 'queued', dueAt: T - H }); }
+  assert.deepEqual(drain(ctx, 'acct:a0').map((c) => c.id), ['l0', 'l1', 'l2']);
+  assert.equal(ctx.db.prepare("SELECT COUNT(*) n FROM posts WHERE status = 'queued'").get().n, 2);
+});
+
+test('a stream id only continues in its own scope', (t) => {
+  const ctx = makeCtx(t, 10);
+  seedGrid(ctx, 4, 3);
+  const home = newStream(ctx, 'home', T);
+  assert.ok(page(ctx, home, null, T, 'home'));
+  assert.equal(page(ctx, home, null, T, 'reels'), null);
 });
 
 test('paging: a cursor re-read returns the same cards, an unknown stream is null, the end is null', (t) => {

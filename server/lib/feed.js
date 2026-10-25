@@ -2,7 +2,7 @@
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
 // a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix.
 import { publish } from './scheduler.js';
-import { card } from './api.js';
+import { card } from './cards.js';
 
 const DAY = 24 * 3600_000;
 const STREAM_TTL = 6 * 3600_000;
@@ -48,7 +48,9 @@ function prune(ctx, now) {
 function candidates(ctx, scope) {
   const { db } = ctx;
   const m = /^acct:(.+)$/.exec(scope);
-  const where = [`p.kind <> 'story'`, `p.status IN ('live','queued')`];
+  // home / reels / explore take live and queued posts (a queued pick is published); a profile only live ones,
+  // so scrolling it can never drain the queue past the scheduler's pacing.
+  const where = [`p.kind <> 'story'`, m ? `p.status = 'live'` : `p.status IN ('live','queued')`];
   const args = [];
   if (scope === 'reels') where.push(`p.kind = 'reel'`);
   if (m) { where.push('p.acct = ?'); args.push(m[1]); }
@@ -85,17 +87,20 @@ export function newStream(ctx, scope, now) {
 function pickOne(ctx, s, now) {
   const spaced = !s.profile && s.scope !== 'reels';
   const recent = new Set(s.recent.slice(-SPACING));
-  if (s.profile) return s.pool.length ? 0 : -1;
+  if (!s.pool.length) return -1;
+  if (s.profile) return 0;
   const uniform = s.scope === 'explore';
-  let total = 0;
-  const w = new Array(s.pool.length);
-  for (let i = 0; i < s.pool.length; i++) {
-    const c = s.pool[i];
-    if (spaced && recent.has(c.acct)) { w[i] = 0; continue; }
-    w[i] = uniform ? 1 : Math.max(weight(c.item, now), 1e-9);
-    total += w[i];
+  const weights = (allowed) => s.pool.map((c) => (allowed(c) ? (uniform ? 1 : Math.max(weight(c.item, now), 1e-9)) : 0));
+  let w = weights((c) => !(spaced && recent.has(c.acct)));
+  let total = w.reduce((x, y) => x + y, 0);
+  if (total <= 0) {
+    // Nobody is eligible (few accounts post): never end early, pick among the accounts shown least recently.
+    const lastSeen = (acct) => s.recent.lastIndexOf(acct);
+    const oldest = Math.min(...s.pool.map((c) => lastSeen(c.acct)));
+    w = weights((c) => lastSeen(c.acct) === oldest);
+    total = w.reduce((x, y) => x + y, 0);
+    if (total <= 0) return -1;
   }
-  if (total <= 0) return -1;
   let x = (ctx.rand ?? Math.random)() * total;
   let last = -1;
   for (let i = 0; i < w.length; i++) {
@@ -108,9 +113,9 @@ function pickOne(ctx, s, now) {
 
 // -> {stream, cursor, cards}. An unknown/expired stream id is not an error for the caller: the API
 // starts a new one. `cursor` is the number of cards already delivered ("" / null = from the start).
-export function page(ctx, streamId, cursor, now) {
+export function page(ctx, streamId, cursor, now, scope) {
   const s = streamsOf(ctx).get(streamId);
-  if (!s) return null;
+  if (!s || (scope != null && s.scope !== scope)) return null; // unknown, expired or another scope's stream
   s.at = now;
   const start = Math.max(0, Number.parseInt(cursor ?? '0', 10) || 0);
   const cards = [];
@@ -132,7 +137,7 @@ export function page(ctx, streamId, cursor, now) {
     s.emitted.push(row.id);
     s.recent.push(row.acct);
   }
-  if (pos >= s.emitted.length && !s.done && pickOne(ctx, s, now) < 0) s.done = true; // nothing eligible is left
+  if (pos >= s.emitted.length && s.pool.length === 0) s.done = true;
   const more = pos < s.emitted.length || !s.done;
   return { stream: s.id, cursor: more ? String(pos) : null, cards };
 }

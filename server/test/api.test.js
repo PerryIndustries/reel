@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestEngine, getJson, postJson } from './helpers.js';
 import { makeTargets, countsAt } from '../lib/engagement.js';
-import { card } from '../lib/api.js';
+import { card } from '../lib/cards.js';
 
 const H = 3600_000;
 const D = 24 * H;
