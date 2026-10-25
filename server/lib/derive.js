@@ -14,7 +14,7 @@ const BUDGET_MS = 15_000;
 const PHOTO_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif']);
 
 export function slug(key) {
-  return String(key).replace('#', '_');
+  return String(key).replace(/[#:]/g, '_');
 }
 
 export function derivedPaths(ctx, key) {
@@ -224,6 +224,7 @@ export async function deriveOne(ctx, item, now) {
     if (!src || !fs.existsSync(src)) throw new Error('source file missing');
     if (kindOf(item) === 'photo') {
       await derivePhoto(ctx, item, src, dir);
+      markOk(ctx, now);
       return 'ok';
     }
     if (!item.parent) {
@@ -237,14 +238,19 @@ export async function deriveOne(ctx, item, now) {
       }
     }
     await deriveVideo(ctx, item, src, dir);
+    markOk(ctx, now);
     return 'ok';
   } catch (e) {
     const msg = String(e.message || e).slice(0, 500);
     ctx.db.prepare('UPDATE items SET err = ?, err_at = ? WHERE key = ?').run(msg, now, item.key);
     ctx.log('error', `derive ${item.key} failed: ${msg}`);
-    ctx.state.derive = { lastErr: { key: item.key, msg, at: now } };
+    ctx.state.derive = { ...ctx.state.derive, lastErr: { key: item.key, msg, at: now }, lastErrAt: now };
     return 'err';
   }
+}
+
+function markOk(ctx, now) {
+  ctx.state.derive = { lastErr: null, lastErrAt: ctx.state.derive?.lastErrAt ?? null, lastOkAt: now };
 }
 
 async function tick(ctx) {

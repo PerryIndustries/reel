@@ -37,6 +37,10 @@ before(() => {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', path.join(fixDir, 'short.mp4')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=1:duration=200', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
     '-preset', 'ultrafast', '-g', '10', path.join(fixDir, 'long.mp4')]);
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=1921x1081:rate=5:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv444p', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', path.join(fixDir, 'odd.mp4')]);
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=1081x1921:rate=5:duration=1',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv444p', '-preset', 'ultrafast', path.join(fixDir, 'portrait.mp4')]);
   fs.writeFileSync(path.join(fixDir, 'corrupt.jpg'), Buffer.from('this is not an image at all'));
 });
 
@@ -169,4 +173,54 @@ test('picker takes the oldest ready item and skips ones whose source is not on d
   assert.equal(pickNext(ctx, NOW + 20).key, 'newer');
   ctx.db.prepare("UPDATE items SET gone = 1 WHERE key = 'newer'").run();
   assert.equal(pickNext(ctx, NOW + 20), null);
+});
+
+function videoFacts(file) {
+  const v = probe(file, 'stream=codec_type,codec_name,profile,pix_fmt,width,height').streams;
+  return { video: v.find((s) => s.codec_type === 'video'), audio: v.find((s) => s.codec_type === 'audio') };
+}
+
+test('odd-sized high-res yuv444p sources come out iPhone-safe (h264 High, yuv420p, even dims, <= 720p)', opts, async (t) => {
+  const ctx = makeCtx(t);
+  const land = addItem(ctx, 'odd', 'odd.mp4', 'video');
+  const port = addItem(ctx, 'port', 'portrait.mp4', 'video');
+  assert.equal(await deriveOne(ctx, land, NOW), 'ok');
+  assert.equal(await deriveOne(ctx, port, NOW), 'ok');
+  const a = videoFacts(derivedPaths(ctx, 'odd').video);
+  assert.equal(a.video.codec_name, 'h264');
+  assert.equal(a.video.profile, 'High');
+  assert.equal(a.video.pix_fmt, 'yuv420p');
+  assert.equal(a.video.width % 2, 0);
+  assert.equal(a.video.height % 2, 0);
+  assert.ok(a.video.height <= 720 && a.video.width <= 1280, `${a.video.width}x${a.video.height}`);
+  assert.equal(a.audio.codec_name, 'aac');
+  const b = videoFacts(derivedPaths(ctx, 'port').video);
+  assert.equal(b.video.profile, 'High');
+  assert.equal(b.video.pix_fmt, 'yuv420p');
+  assert.equal(b.video.width % 2, 0);
+  assert.equal(b.video.height % 2, 0);
+  assert.ok(b.video.height <= 720 && b.video.width <= 1280, `${b.video.width}x${b.video.height}`);
+  assert.equal(b.audio, undefined);
+});
+
+test('slug has no colon or hash, so p: keys derive into a legal Windows dir', opts, async (t) => {
+  assert.equal(slug('p:abc#c1'), 'p_abc_c1');
+  const ctx = makeCtx(t);
+  const item = addItem(ctx, 'p:photo1', 'photo.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, item, NOW), 'ok');
+  const { dir } = derivedPaths(ctx, 'p:photo1');
+  assert.ok(!path.basename(dir).includes(':'), dir);
+  assert.ok(fs.existsSync(path.join(dir, 'full.jpg')));
+});
+
+test('lastErr clears after a later success and keeps lastErrAt/lastOkAt', opts, async (t) => {
+  const ctx = makeCtx(t);
+  const bad = addItem(ctx, 'bad', 'corrupt.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, bad, NOW), 'err');
+  assert.equal(ctx.state.derive.lastErr.key, 'bad');
+  const good = addItem(ctx, 'good', 'photo.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, good, NOW + 5), 'ok');
+  assert.equal(ctx.state.derive.lastErr, null);
+  assert.equal(ctx.state.derive.lastErrAt, NOW);
+  assert.equal(ctx.state.derive.lastOkAt, NOW + 5);
 });
