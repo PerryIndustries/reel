@@ -178,3 +178,101 @@ test('POST library/sync starts a sync; while one runs it answers running:true', 
     assert.ok(await waitFor(() => !ctx.state.syncing, 4000, 20));
   } finally { await t.stop(); }
 });
+
+// ---- same-named Drive files (Drive allows many files with one name in a folder) ----
+function dupSetup(ctx, dataDir, n = 2) {
+  const files = path.join(dataDir, 'dupfiles');
+  fs.mkdirSync(files, { recursive: true });
+  const entries = [];
+  for (let i = 1; i <= n; i++) {
+    fs.writeFileSync(path.join(files, `c${i}.heic`), `content-${i}`);
+    entries.push(e('Newss/lp_image.heic', `md5${i}`, { ID: `drv${i}`, _Src: path.join(files, `c${i}.heic`) }));
+  }
+  return entries;
+}
+const copyidCalls = (log) => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('backend copyid')) : []);
+
+test('same Path with different ids becomes separate dup items, fetched by id with the right contents', async () => {
+  const { t, setList, ctx, src } = await boot();
+  try {
+    fs.mkdirSync(path.join(src, 'Newss'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'Newss', 'lp_image.heic'), 'shared-winner');
+    setList(dupSetup(ctx, t.dataDir));
+    const r = await syncOnce(ctx, 1000);
+    assert.equal(r.listed, 2);
+    const items = rows(ctx);
+    assert.deepEqual(items.map((i) => i.path), ['dup/md51.heic', 'dup/md52.heic']);
+    assert.equal(items[0].folder, 'Newss');
+    for (const [i, it] of items.entries()) {
+      assert.equal(fs.readFileSync(path.join(ctx.cfg.sourceDir, it.path), 'utf8'), `content-${i + 1}`);
+    }
+    assert.equal(r.mirrored, true);
+    assert.equal(ctx.state.mirror.ok, true);
+  } finally { await t.stop(); }
+});
+
+test('copyid runs only for dup items missing on disk, with remote, id and file path; skips items without id', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    const log = path.join(t.dataDir, 'rclone.log');
+    process.env.FAKE_RCLONE_LOG = log;
+    const entries = dupSetup(ctx, t.dataDir, 3);
+    entries[2].ID = undefined;
+    setList(entries);
+    await syncOnce(ctx, 1000);
+    const calls = copyidCalls(log);
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((c) => c.startsWith('backend copyid fake: drv')));
+    assert.ok(calls[0].endsWith(path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic')));
+    fs.writeFileSync(log, '');
+    await syncOnce(ctx, 2000);
+    assert.equal(copyidCalls(log).length, 0, 'files already on disk: no fetch');
+    fs.rmSync(path.join(ctx.cfg.sourceDir, 'dup', 'md52.heic'));
+    await syncOnce(ctx, 3000);
+    assert.equal(copyidCalls(log).length, 1);
+  } finally { delete process.env.FAKE_RCLONE_LOG; await t.stop(); }
+});
+
+test('a dup file survives later syncs (sync only empties its own root folder)', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    setList(dupSetup(ctx, t.dataDir));
+    await syncOnce(ctx, 1000);
+    const f = path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic');
+    assert.ok(fs.existsSync(f));
+    await syncOnce(ctx, 2000);
+    assert.ok(fs.existsSync(f), 'second sync must not delete it');
+  } finally { await t.stop(); }
+});
+
+test('an item derived from the shared path that becomes a dup is reset to derived=0 and moved', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    setList([e('Newss/lp_image.heic', 'md51', { ID: 'drv1' })]);
+    await syncOnce(ctx, 1000);
+    ctx.db.prepare("UPDATE items SET derived = 1 WHERE key = 'md51'").run();
+    assert.equal(ctx.db.prepare("SELECT path FROM items WHERE key='md51'").get().path, '0/Newss/lp_image.heic');
+    setList(dupSetup(ctx, t.dataDir));
+    await syncOnce(ctx, 2000);
+    const row = ctx.db.prepare("SELECT path, derived FROM items WHERE key='md51'").get();
+    assert.deepEqual({ ...row }, { path: 'dup/md51.heic', derived: 0 });
+    ctx.db.prepare("UPDATE items SET derived = 1 WHERE key = 'md51'").run();
+    await syncOnce(ctx, 3000);
+    assert.equal(ctx.db.prepare("SELECT derived FROM items WHERE key='md51'").get().derived, 1, 'already a dup: no reset');
+  } finally { await t.stop(); }
+});
+
+test('a gone dup item loses its dup file only after 7 days', async () => {
+  const { t, setList, ctx } = await boot();
+  try {
+    setList(dupSetup(ctx, t.dataDir));
+    await syncOnce(ctx, 0);
+    const f = path.join(ctx.cfg.sourceDir, 'dup', 'md51.heic');
+    setList([]);
+    await syncOnce(ctx, DAY);
+    assert.ok(fs.existsSync(f));
+    await syncOnce(ctx, DAY + 7 * DAY + 1);
+    assert.ok(!fs.existsSync(f));
+    assert.ok(!fs.existsSync(path.join(ctx.cfg.sourceDir, 'dup', 'md52.heic')));
+  } finally { await t.stop(); }
+});

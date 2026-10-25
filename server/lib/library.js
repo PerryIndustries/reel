@@ -109,6 +109,45 @@ function setMirror(ctx, at, ok, msg) {
   ctx.state.mirror = { at, ok, msg };
 }
 
+function rmDupFile(ctx, rel) {
+  try { fs.rmSync(path.join(ctx.cfg.sourceDir, rel), { force: true }); } catch (e) {
+    ctx.log('warn', `could not remove ${rel}: ${e.message}`);
+  }
+}
+
+// dup/<slug>.* of one item key (extension unknown once the item is gone)
+function rmDup(ctx, key) {
+  const dir = path.join(ctx.cfg.sourceDir, 'dup');
+  const base = slug(key) + '.';
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) if (n.startsWith(base)) rmDupFile(ctx, `dup/${n}`);
+}
+
+// Fetches each dup item whose file is missing, by Drive id, 4 at a time. Returns '' or the first failure.
+async function fetchDups(ctx, argv, dups) {
+  const todo = dups.filter((f) => f.id && !fs.existsSync(path.join(ctx.cfg.sourceDir, f.rel)));
+  let firstErr = '';
+  let failures = 0;
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length) {
+      const f = todo[next++];
+      const dest = path.join(ctx.cfg.sourceDir, f.rel);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      const r = await run(argv, ['backend', 'copyid', f.remote, f.id, dest], SYNC_TIMEOUT);
+      if (r.code !== 0) {
+        failures++;
+        const msg = firstLine(r.err, `rclone copyid exited ${r.code}`);
+        firstErr ||= msg;
+        ctx.log('warn', `copyid failed for ${f.key}: ${msg}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
+  return failures ? `${failures} same-named file(s) not fetched: ${firstErr}` : '';
+}
+
 // One full pass: list every root, upsert, mark gone, clean old derivatives, mirror.
 export async function syncOnce(ctx, now) {
   const result = { listed: 0, added: 0, gone: 0, mirrored: false, msg: '' };
@@ -123,6 +162,7 @@ export async function syncOnce(ctx, now) {
 
     // 1. list every root first; one bad listing aborts before anything is marked gone
     const found = new Map(); // key -> entry
+    const pathUse = new Map(); // `${root}/${Path}` -> distinct keys listed there (Drive allows same-named files)
     for (let i = 0; i < rs.length; i++) {
       const r = await run(argv, ['lsjson', '-R', '--hash', '--files-only', rs[i]], LS_TIMEOUT);
       if (r.code !== 0) throw new Error(firstLine(r.err, `rclone lsjson exited ${r.code}`));
@@ -133,22 +173,32 @@ export async function syncOnce(ctx, now) {
         if (!x || typeof x.Path !== 'string' || !isMedia(x.Path)) continue;
         const key = itemKey(x);
         if (found.has(key)) continue; // same file twice: first path wins
-        found.set(key, { key, root: i, path: x.Path, size: x.Size ?? null, id: x.ID ?? null });
+        found.set(key, { key, root: i, path: x.Path, size: x.Size ?? null, id: x.ID ?? null, remote: rs[i].split(':')[0] + ':' });
+        const pk = `${i}/${x.Path}`;
+        pathUse.set(pk, (pathUse.get(pk) ?? 0) + 1);
       }
+    }
+    // Same-named files cannot share a mirror path (rclone sync keeps one): each gets dup/<slug>.<ext>,
+    // outside every `<sourceDir>/<rootIndex>` sync destination, fetched by Drive id after the sync.
+    for (const f of found.values()) {
+      f.dup = pathUse.get(`${f.root}/${f.path}`) > 1;
+      f.rel = f.dup ? `dup/${slug(f.key)}.${path.posix.extname(f.path).slice(1).toLowerCase()}` : `${f.root}/${f.path}`;
     }
     result.listed = found.size;
 
     // 2. upsert, un-gone, mark the missing
     const goneKeys = [];
+    const staleDup = [];
     tx(ctx.db, () => {
-      const sel = ctx.db.prepare('SELECT key, gone FROM items WHERE key = ?');
+      const sel = ctx.db.prepare('SELECT key, gone, path FROM items WHERE key = ?');
+      const reset = ctx.db.prepare('UPDATE items SET derived = 0 WHERE key = ?');
       const ins = ctx.db.prepare(`INSERT INTO items(key, path, folder, drive_id, kind, size, md5, added_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
       const upd = ctx.db.prepare(`UPDATE items SET path = ?, folder = ?, drive_id = ?, size = ?,
         gone = 0, gone_at = NULL WHERE key = ?`);
       const kids = ctx.db.prepare('UPDATE items SET gone = 0, gone_at = NULL WHERE parent = ?');
       for (const f of found.values()) {
-        const rel = `${f.root}/${f.path}`;
+        const rel = f.rel;
         const dir = path.posix.dirname(f.path);
         const folder = dir === '.' ? '' : dir;
         const row = sel.get(f.key);
@@ -158,6 +208,9 @@ export async function syncOnce(ctx, now) {
         } else {
           upd.run(rel, folder, f.id, f.size, f.key);
           if (row.gone) kids.run(f.key);
+          // was listed at the shared path (derived from the wrong file, or none): derive again from its own
+          if (f.dup && row.path && !row.path.startsWith('dup/')) reset.run(f.key);
+          if (row.path && row.path.startsWith('dup/') && row.path !== rel) staleDup.push(row.path);
         }
       }
       const live = ctx.db.prepare('SELECT key FROM items WHERE parent IS NULL AND gone = 0 AND path IS NOT NULL').all();
@@ -178,10 +231,13 @@ export async function syncOnce(ctx, now) {
     // 3. derivatives of items gone for more than 7 days
     const old = ctx.db.prepare('SELECT key FROM items WHERE gone = 1 AND gone_at < ?').all(now - 7 * DAY);
     for (const { key } of old) {
+      rmDup(ctx, key);
       try { fs.rmSync(path.join(ctx.cfg.derivedDir, slug(key)), { recursive: true, force: true }); } catch (e) {
         ctx.log('warn', `could not remove derivatives of ${key}: ${e.message}`);
       }
     }
+
+    for (const p of staleDup) rmDupFile(ctx, p);
 
     // 4. mirror, unless the disk is short
     const minFree = ctx.cfg.minFreeGB ?? 30;
@@ -197,8 +253,14 @@ export async function syncOnce(ctx, now) {
       if (r.code !== 0) throw new Error(firstLine(r.err, `rclone sync exited ${r.code}`));
     }
     result.mirrored = true;
-    result.msg = 'ok';
-    setMirror(ctx, now, true, 'ok');
+    const failed = await fetchDups(ctx, argv, [...found.values()].filter((f) => f.dup));
+    if (failed) {
+      result.msg = failed;
+      setMirror(ctx, now, false, failed);
+    } else {
+      result.msg = 'ok';
+      setMirror(ctx, now, true, 'ok');
+    }
   } catch (e) {
     result.msg = e.message;
     ctx.log('error', `library sync failed: ${e.message}`);
