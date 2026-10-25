@@ -262,7 +262,7 @@ export function fallbackText(ctx, part, acct) {
 }
 
 /* ================= fans (comment authors) ================= */
-const SYL = ['yo', 'ru', 'ka', 'ze', 'mi', 'ra', 'ko', 'ri', 'sa', 'ne', 'ku', 'ro', 'lu', 'na', 'vi', 'ki', 'ta', 'no', 'shi', 'ma', 'ya', 'ha', 'ly', 've', 'to', 'zu', 'ai', 'ren', 'kai', 'sol', 'rin', 'jin', 'sei', 'kyo', 'mio', 'rei', 'sora', 'yume', 'hika', 'aki', 'nao', 'ryu', 'tsu', 'ex', 'ix', 'vy'];
+const SYL = ['yo', 'ru', 'ka', 'ze', 'mi', 'ra', 'ko', 'ri', 'sa', 'ne', 'ku', 'ro', 'lu', 'na', 'vi', 'ki', 'ta', 'no', 'shi', 'ma', 'ya', 'ha', 'ly', 've', 'to', 'zu', 'ao', 'ren', 'kai', 'sol', 'rin', 'jin', 'sei', 'kyo', 'mio', 'rei', 'sora', 'yume', 'hika', 'aki', 'nao', 'ryu', 'tsu', 'ex', 'ix', 'vy'];
 const EDGE = ['night', 'ghost', 'lunar', 'echo', 'vapor', 'static', 'neon', 'orbit', 'haze', 'frost', 'ember', 'glitch', 'drift', 'sable', 'onyx', 'cyan', 'nova', 'void', 'halo', 'rift', 'venom', 'lotus', 'kitsune', 'shade', 'pixel', 'yuki', 'zero', 'vanta'];
 const leet = (w, r) => w.replace(/[oeia]/g, (c) => (r() < 0.35 ? ({ o: '0', e: '3', i: '1', a: '4' })[c] : c));
 function gamerHandle(r) {
