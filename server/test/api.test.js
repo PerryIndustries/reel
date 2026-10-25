@@ -224,6 +224,28 @@ test('stories: live ones of the last 24 h, grouped by account, highlights and ol
   assert.equal(typeof r.body[1].items[0].at, 'number');
 });
 
+test('highlights: only highlight stories of the asked account, newest first, none from a deleted account', async (t) => {
+  const e = await engine(t);
+  const { ctx, base } = e;
+  addAcct(ctx, 'a1', { own: true });
+  addAcct(ctx, 'a2');
+  for (const k of ['h1', 'h2', 'h3', 'h4', 'h5']) addItem(ctx, k);
+  addPost(ctx, { id: 'hl1', acct: 'a1', keys: ['h1'], kind: 'story', ageH: 50, highlight: 1, storyText: 'old one' });
+  addPost(ctx, { id: 'hl2', acct: 'a1', keys: ['h2'], kind: 'story', ageH: 30, highlight: 1 });
+  addPost(ctx, { id: 'exp', acct: 'a1', keys: ['h3'], kind: 'story', ageH: 40 });
+  addPost(ctx, { id: 'hl3', acct: 'a2', keys: ['h4'], kind: 'story', ageH: 30, highlight: 1 });
+  addPost(ctx, { id: 'normal', acct: 'a1', keys: ['h5'] });
+  const r = await getJson(`${base}/reel/api/highlights?acct=a1`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.map((h) => h.id), ['hl2', 'hl1'], 'newest first, the plain expired story and the post are left out');
+  assert.equal(r.body[1].text, 'old one');
+  assert.equal(r.body[0].media.thumb, 'media/h2/thumb.jpg');
+  assert.equal(typeof r.body[0].at, 'number');
+  assert.deepEqual((await getJson(`${base}/reel/api/highlights?acct=a2`)).body.map((h) => h.id), ['hl3']);
+  ctx.db.prepare('DELETE FROM accounts WHERE id = ?').run('a2');
+  assert.deepEqual((await getJson(`${base}/reel/api/highlights?acct=a2`)).body, []);
+});
+
 test('activity is newest first, capped at 100, and a deleted account vanishes from every read', async (t) => {
   const e = await engine(t);
   const { ctx, base } = e;

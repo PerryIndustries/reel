@@ -99,6 +99,20 @@ export function routes(router, ctx) {
       .map(({ acct, items }) => ({ acct, items }));
   });
 
+  router.add('GET', '/reel/api/highlights', (req, res, params, query) => {
+    const acct = typeof query.acct === 'string' && query.acct ? query.acct : null;
+    const rows = db.prepare(`SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct
+      WHERE p.kind = 'story' AND p.status = 'live' AND p.highlight = 1 AND p.up_at IS NOT NULL
+        AND (? IS NULL OR p.acct = ?) ORDER BY p.up_at DESC, p.id DESC`).all(acct, acct);
+    const getItem = db.prepare('SELECT * FROM items WHERE key = ?');
+    const out = [];
+    for (const p of rows) {
+      const it = getItem.get(parseKeys(p)[0]);
+      if (it) out.push({ id: p.id, media: mediaEntry(it), text: p.story_text || '', at: p.up_at });
+    }
+    return out;
+  });
+
   router.add('GET', '/reel/api/activity', () => {
     const now = Date.now();
     const rows = db.prepare(`SELECT t.* FROM activity t JOIN accounts a ON a.id = t.acct
