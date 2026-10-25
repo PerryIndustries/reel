@@ -36,7 +36,7 @@ export function itemKey(entry) {
 }
 
 // derived folder name for an item key; ':' (p: keys) is not a legal Windows path character
-const slug = (key) => key.replace(/[#:]/g, '_');
+import { slug } from './derive.js';
 
 function winGetRclone() {
   const base = path.join(process.env.LOCALAPPDATA || '', 'Microsoft', 'WinGet', 'Packages');
