@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openDb, getSetting } from '../lib/db.js';
-import { rng } from '../lib/accounts.js';
+import { openDb, getSetting, setSetting } from '../lib/db.js';
+import { rng, start as startAccounts } from '../lib/accounts.js';
 import { importPhone } from '../lib/importer.js';
 import { startTestEngine, postJson, getJson } from './helpers.js';
 
@@ -114,15 +114,64 @@ test('importing twice keeps the same accounts, chats and counts', () => {
   } finally { u.done(); }
 });
 
-test('the auto-made default own account is replaced when it has no live posts', () => {
+function makeDefault(u) {
+  u.db.prepare("INSERT INTO accounts(id, own, handle, name, bio, pfp, settings, created_at, followers, quiet, seed) VALUES ('a_auto',1,'auto','','','','{}',1,0,0,1)").run();
+  setSetting(u.db, 'defaultOwnId', 'a_auto');
+}
+
+function starterPosts(u) {
+  for (let i = 0; i < 9; i++) {
+    u.db.prepare("INSERT INTO posts(id, acct, items, kind, caption, status, due_at, created_at) VALUES (?, 'a_auto', '[]', 'post', 'c', ?, 1, 1)")
+      .run(`p_s${i}`, i < 7 ? 'live' : 'down');
+    u.db.prepare("INSERT INTO comments(post, author, text, at) VALUES (?, 'fan', 'hi', 1)").run(`p_s${i}`);
+  }
+  u.db.prepare("INSERT INTO convos(id, acct, fan, fan_handle, fan_pfp, state, next_at, unread) VALUES ('a_auto|f','a_auto','f','f','','{}',NULL,1)").run();
+  u.db.prepare("INSERT INTO dms(convo, from_me, text, at, seen) VALUES ('a_auto|f',0,'opener',1,0)").run();
+  u.db.prepare("UPDATE items SET acct = 'a_auto'").run();
+}
+
+test('the auto-made default account is adopted even with live starter posts: no extra own account, no starters', () => {
   const u = unit();
   try {
     seed(u.db);
-    const auto = u.db.prepare("INSERT INTO accounts(id, own, handle, name, bio, pfp, settings, created_at, followers, quiet, seed) VALUES ('a_auto',1,'auto','','','','{}',1,0,0,1)");
-    auto.run();
+    makeDefault(u);
+    starterPosts(u);
+    importPhone(u.ctx, phoneBody(), NOW);
+    assert.equal(u.db.prepare('SELECT COUNT(*) n FROM accounts WHERE own = 1').get().n, 2, 'exactly the imported accounts');
+    assert.equal(u.db.prepare("SELECT handle FROM accounts WHERE id = 'a_auto'").get().handle, 'mia.fit');
+    assert.equal(u.db.prepare("SELECT COUNT(*) n FROM posts WHERE id LIKE 'p_s%'").get().n, 0);
+    assert.equal(u.db.prepare("SELECT COUNT(*) n FROM comments WHERE post LIKE 'p_s%'").get().n, 0);
+    assert.equal(u.db.prepare("SELECT COUNT(*) n FROM dms WHERE text = 'opener'").get().n, 0);
+    assert.equal(u.db.prepare("SELECT COUNT(*) n FROM convos WHERE id = 'a_auto|f'").get().n, 0);
+    assert.equal(getSetting(u.db, 'defaultOwnId', 'x'), null);
+    assert.ok(getSetting(u.db, 'importedAt', null));
+  } finally { u.done(); }
+});
+
+test('a re-import after adopting the default account stays idempotent', () => {
+  const u = unit();
+  try {
+    seed(u.db);
+    makeDefault(u);
+    starterPosts(u);
+    importPhone(u.ctx, phoneBody(), NOW);
+    const ids = u.db.prepare('SELECT id FROM accounts ORDER BY id').all().map((r) => r.id);
+    importPhone(u.ctx, phoneBody(), NOW + 1000);
+    assert.deepEqual(u.db.prepare('SELECT id FROM accounts ORDER BY id').all().map((r) => r.id), ids);
+    assert.equal(u.db.prepare('SELECT COUNT(*) n FROM accounts WHERE own = 1').get().n, 2);
+  } finally { u.done(); }
+});
+
+test('a database from an older build (one own account, no settings) is backfilled on start and then adopted', () => {
+  const u = unit();
+  try {
+    seed(u.db);
+    u.db.prepare("INSERT INTO accounts(id, own, handle, name, bio, pfp, settings, created_at, followers, quiet, seed) VALUES ('a_old',1,'old','','','','{}',1,0,0,1)").run();
+    startAccounts(u.ctx);
+    assert.equal(getSetting(u.db, 'defaultOwnId', null), 'a_old');
     importPhone(u.ctx, phoneBody(), NOW);
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM accounts WHERE own = 1').get().n, 2);
-    assert.equal(u.db.prepare("SELECT handle FROM accounts WHERE id = 'a_auto'").get().handle, 'mia.fit');
+    assert.equal(u.db.prepare("SELECT handle FROM accounts WHERE id = 'a_old'").get().handle, 'mia.fit');
   } finally { u.done(); }
 });
 

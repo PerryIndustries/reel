@@ -260,7 +260,16 @@ export function quietCheck(ctx, now = Date.now()) {
 // ---- wiring ---------------------------------------------------------------------------------------
 export function start(ctx) {
   const now = Date.now();
-  if (!ctx.db.prepare('SELECT 1 FROM accounts WHERE own = 1 LIMIT 1').get()) makeOwn(ctx, {}, now);
+  const { db } = ctx;
+  if (!db.prepare('SELECT 1 FROM accounts WHERE own = 1 LIMIT 1').get()) {
+    // remembered so a later phone import can adopt it even after it has been given starter posts
+    setSetting(db, 'defaultOwnId', makeOwn(ctx, {}, now).id);
+  } else if (getSetting(db, 'defaultOwnId', null) == null
+    && getSetting(db, 'importedAt', null) == null && getSetting(db, 'phoneImport', null) == null) {
+    // a database made by an older build: its single own account is the auto-made one
+    const own = db.prepare('SELECT id FROM accounts WHERE own = 1').all();
+    if (own.length === 1) setSetting(db, 'defaultOwnId', own[0].id);
+  }
   grow(ctx, now);
   dealNew(ctx, now);
   ctx.ticks.push({

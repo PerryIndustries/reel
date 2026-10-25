@@ -3,7 +3,7 @@
 // rest of the body (S.secret, media, anything else) is never kept. Importing twice updates, never duplicates.
 import { getSetting, setSetting, tx } from './db.js';
 import { HttpError } from './router.js';
-import { makeOwn, gamerHandle, rng, hashStr } from './accounts.js';
+import { makeOwn, gamerHandle, rng, hashStr, dealNew } from './accounts.js';
 
 const MAX_OWN = 5;
 const POOL = 240; // the old app's fan pool size: fan indexes past it are the other accounts
@@ -79,6 +79,7 @@ export function importPhone(ctx, body, now = Date.now()) {
   return tx(db, () => {
     const map = getSetting(db, 'phoneImport', { accounts: {} }).accounts ?? {};
     const claimed = new Set(Object.values(map));
+    let adopted = false;
     const idMap = {}; // phone account id -> engine account id, for this import
 
     // ---- own accounts ----
@@ -89,10 +90,19 @@ export function importPhone(ctx, body, now = Date.now()) {
       if (!row && f.handle) row = db.prepare('SELECT * FROM accounts WHERE own = 1 AND handle = ?').get(f.handle) ?? null;
       if (row && claimed.has(row.id) && map[phoneId] !== row.id) row = null;
       if (!row) {
-        // the auto-made default own account (nothing live on it, not yet claimed) is replaced by this one
-        row = db.prepare('SELECT * FROM accounts WHERE own = 1 ORDER BY created_at, id').all()
-          .find((a) => !claimed.has(a.id)
-            && db.prepare("SELECT COUNT(*) n FROM posts WHERE acct = ? AND status = 'live'").get(a.id).n === 0) ?? null;
+        // the engine's auto-made default own account is adopted by the first imported account, starter posts and all
+        const defId = getSetting(db, 'defaultOwnId', null);
+        const def = defId && !claimed.has(defId) ? db.prepare('SELECT * FROM accounts WHERE id = ? AND own = 1').get(defId) : null;
+        if (def) {
+          row = def;
+          adopted = true;
+          db.prepare('DELETE FROM comments WHERE post IN (SELECT id FROM posts WHERE acct = ?)').run(def.id);
+          db.prepare('DELETE FROM posts WHERE acct = ?').run(def.id);
+          db.prepare('DELETE FROM dms WHERE convo IN (SELECT id FROM convos WHERE acct = ?)').run(def.id);
+          db.prepare('DELETE FROM convos WHERE acct = ?').run(def.id);
+          db.prepare('UPDATE items SET acct = NULL WHERE acct = ?').run(def.id);
+          db.prepare("UPDATE accounts SET settings = '{}' WHERE id = ?").run(def.id);
+        }
       }
       const settings = { directions: f.directions, own: f.own, pronouns: f.pronouns, heat: f.heat, multi: f.multi };
       if (row) {
@@ -200,7 +210,9 @@ export function importPhone(ctx, body, now = Date.now()) {
       }
     }
 
+    if (adopted) { setSetting(db, 'defaultOwnId', null); dealNew(ctx, now); }
     setSetting(db, 'phoneImport', { accounts: map, at: now });
+    setSetting(db, 'importedAt', now);
     return counts;
   });
 }

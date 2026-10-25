@@ -6,7 +6,7 @@
 //   node server/run.js
 import net from 'node:net';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './lib/config.js';
 import { makeLog } from './lib/log.js';
@@ -20,6 +20,22 @@ const HEAD_EVERY = 2 * 60_000;
 export function computeBackoff(prevMs, upMs) {
   if (!prevMs || upMs >= RESET_AFTER) return MIN_BACKOFF;
   return Math.min(prevMs * 2, MAX_BACKOFF);
+}
+
+// Stops the engine and everything it started (ffmpeg, rclone). On Windows child.kill() is TerminateProcess on
+// the engine alone, so its children would survive; taskkill /T takes the whole tree.
+export function stopChild(child, platform = process.platform, spawn_ = spawnSync) {
+  if (!child) return;
+  if (platform === 'win32' && child.pid) {
+    spawn_('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 15_000 });
+    return;
+  }
+  child.kill();
+}
+
+// Whether a HEAD change touched the supervisor itself (it never reloads its own code, so it must replace itself).
+export function needsSelfRestart(changedFiles) {
+  return (changedFiles ?? []).some((f) => /(^|\/)server\/run\.js$/.test(String(f).split(String.fromCharCode(92)).join("/")));
 }
 
 export function portListening(port, host = '127.0.0.1', timeoutMs = 1500) {
@@ -42,6 +58,17 @@ function gitHead(repoDir) {
   }
 }
 
+function changedBetween(repoDir, a, b) {
+  if (!a || !b) return [];
+  try {
+    return execFileSync('git', ['-C', repoDir, 'diff', '--name-only', a, b], {
+      encoding: 'utf8', timeout: 10_000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
+    }).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 async function supervise() {
   const cfg = loadConfig(process.env);
   if (cfg.port && await portListening(cfg.port)) {
@@ -55,6 +82,7 @@ async function supervise() {
   let backoff = 0;
   let restartNow = false;
   let stopping = false;
+  let selfRestart = false;
   let head = gitHead(cfg.repoDir);
 
   const pipeLines = (stream, level) => {
@@ -67,6 +95,19 @@ async function supervise() {
       for (const l of lines) if (l) log(level, `[engine] ${l}`);
     });
   };
+
+  function handOver() {
+    // the engine is gone and its port is free: hand over to a fresh copy of this supervisor
+    log('info', 'run.js changed; starting a fresh supervisor');
+    try {
+      spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+        cwd: process.cwd(), env: process.env, detached: true, stdio: 'ignore', windowsHide: true,
+      }).unref();
+    } catch (e) {
+      log('error', `could not start a fresh supervisor: ${e.message}`);
+    }
+    process.exit(0);
+  }
 
   function launch() {
     if (stopping) return;
@@ -82,6 +123,7 @@ async function supervise() {
       child = null;
       if (stopping) return;
       const up = Date.now() - startedAt;
+      if (selfRestart) { handOver(); return; }
       if (restartNow) {
         restartNow = false;
         backoff = 0;
@@ -99,14 +141,17 @@ async function supervise() {
     const h = gitHead(cfg.repoDir);
     if (!h || h === head) return;
     log('info', `HEAD moved ${head ?? 'unknown'} -> ${h}; restarting engine`);
+    const changed = changedBetween(cfg.repoDir, head, h);
     head = h;
-    if (child) { restartNow = true; child.kill(); }
+    if (needsSelfRestart(changed)) selfRestart = true;
+    if (child) { restartNow = true; stopChild(child); }
+    else if (selfRestart) handOver();
   }, HEAD_EVERY);
 
   const shutdown = () => {
     stopping = true;
     log('info', 'supervisor stopping');
-    if (child) child.kill();
+    if (child) stopChild(child);
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
