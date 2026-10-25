@@ -505,8 +505,8 @@ async function sendToPC(progress){
 }
 // v101: hands the accounts, settings, ratings, seen marks and chats to the PC engine. Never media, never S.secret.
 async function moveToEngine(){
-  const kept = S.posts.filter(p => p.liked || S.saved[p.id] || p.pinned).map(p => ({ id: p.id, keys: p.files.map(f => f.key), liked: !!p.liked, saved: !!S.saved[p.id], pinned: !!p.pinned }));
-  const r = await fetch("api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accounts: S.accounts, settings: S.settings, misc: { taste: S.taste, postSeen: S.postSeen, convos: S.convos, kept } }) });
+  const kept = S.posts.filter(keeps).map(p => ({ id: p.id, keys: p.files.map(f => f.key), liked: !!p.liked, saved: !!S.saved[p.id], pinned: !!(p.pinned && acctOf(p).pinTouched) }));
+  const r = await fetch("api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accounts: S.accounts, settings: ["capDirection","comDirection","storyDirection","myCaptions","myStoryTexts","dailyFresh","nameSeed","seed","nameBump"].reduce((o, k) => (S.settings[k] === undefined ? o : (o[k] = S.settings[k], o)), {}), misc: { taste: S.taste, postSeen: S.postSeen, convos: S.convos, kept } }) });
   const j = await r.json().catch(() => null);
   if (!r.ok || !j) throw new Error("the PC said " + r.status);
   return j;
