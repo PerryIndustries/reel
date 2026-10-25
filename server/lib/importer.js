@@ -122,7 +122,7 @@ export function importPhone(ctx, body, now = Date.now()) {
     for (const it of db.prepare('SELECT key, drive_id FROM items WHERE drive_id IS NOT NULL').all()) byDrive.set(it.drive_id, it);
     const want = new Map(); // item key -> {up, down, seen, kept}
     const touch = (it) => {
-      if (!want.has(it.key)) want.set(it.key, { up: 0, down: 0, seen: 0, kept: 0 });
+      if (!want.has(it.key)) want.set(it.key, { up: 0, down: 0, seen: 0, kept: 0, rated: false });
       return want.get(it.key);
     };
     const unmatched = new Set();
@@ -136,6 +136,7 @@ export function importPhone(ctx, body, now = Date.now()) {
         const w = touch(it);
         w.up = Math.max(w.up, whole(v?.up));
         w.down = Math.max(w.down, whole(v?.down));
+        w.rated = true;
         counts.taste++;
       }
     }
@@ -151,15 +152,20 @@ export function importPhone(ctx, body, now = Date.now()) {
       }
     }
     if (Array.isArray(misc.kept)) {
-      const keptKeys = new Set();
+      // A liked post already counts in taste (the phone's like bumps it), so only saved or pinned posts add +1 up.
+      const keptKeys = new Map(); // file key -> adds an up
       for (const p of misc.kept) {
         if (!isObj(p) || !(p.liked || p.saved || p.pinned)) continue;
-        for (const k of Array.isArray(p.keys) ? p.keys : []) keptKeys.add(String(k));
+        for (const k of Array.isArray(p.keys) ? p.keys : []) {
+          const key = String(k);
+          keptKeys.set(key, keptKeys.get(key) || !!(p.saved || p.pinned));
+        }
       }
-      for (const k of keptKeys) {
+      for (const [k, adds] of keptKeys) {
         const it = find(k);
         if (!it) { unmatched.add(k); continue; }
-        touch(it).kept = 1;
+        const w = touch(it);
+        if (adds) w.kept = 1;
         counts.kept++;
       }
     }
@@ -169,7 +175,7 @@ export function importPhone(ctx, body, now = Date.now()) {
     const upd = db.prepare('UPDATE items SET up = ?, down = ?, seen_at = ? WHERE key = ?');
     for (const [key, w] of want) {
       const c = cur.get(key);
-      upd.run(Math.max(c.up ?? 0, w.up + w.kept), Math.max(c.down ?? 0, w.down), Math.max(c.seen_at ?? 0, w.seen) || null, key);
+      upd.run(Math.max(c.up ?? 0, w.up + (w.rated ? 0 : w.kept)), Math.max(c.down ?? 0, w.down), Math.max(c.seen_at ?? 0, w.seen) || null, key);
     }
 
     // ---- chats (only for the accounts imported above) ----

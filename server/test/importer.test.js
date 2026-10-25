@@ -34,14 +34,14 @@ function phoneBody() {
       { id: 'a_2', handle: 'zed', name: 'Zed', bio: '', avatar: 'd_somephoto', followers: 860, pronouns: 'he', heat: 'suggestive', multi: 'off' },
       { id: 'n_x', npc: true, handle: 'otherone', name: 'Other', followers: 9000, capDirection: 'npc direction' },
     ],
-    settings: { seed: 7, dailyFresh: 25, clientId: 'abc', ignored: [] },
+    settings: { seed: 7, dailyFresh: 25, clientId: 'abc', folderId: 'fld', ignored: [] },
     secret: { key: 'SECRET-KEY-123', url: 'https://x.ts.net' },
     media: { d_abc: 'BLOBBYTES' },
     misc: {
       taste: { d_f1: { up: 2, down: 0 }, d_f2: { up: 0, down: 1 }, 'pc:/x/y.jpg': { up: 1, down: 0 }, d_missing: { up: 1, down: 0 }, 'url:pfp/q.jpg': { up: 1, down: 0 } },
       postSeen: { 'f:d_f1': NOW - 1000, p_post1: NOW - 5, 'f:pcs:foo/bar.jpg': NOW, 'f:d_nope': NOW },
       convos: { a_1: { 3: { msgs: [{ text: 'hey you', at: NOW - 60000 }, { me: true, text: 'hi', at: NOW - 30000 }], note: 'likes lifting' } } },
-      kept: [{ id: 'p_1', keys: ['d_f1', 'd_f3'], liked: true }, { id: 'p_2', keys: ['d_f2'], saved: false }, { id: 'p_3', keys: ['d_gone'], pinned: true }],
+      kept: [{ id: 'p_1', keys: ['d_f1'], liked: true }, { id: 'p_4', keys: ['d_f3'], saved: true }, { id: 'p_2', keys: ['d_f2'], saved: true }, { id: 'p_3', keys: ['d_gone'], pinned: true }],
     },
   };
 }
@@ -72,12 +72,13 @@ test('import maps own accounts, directions and taste', () => {
     assert.equal(own.find((a) => a.handle === 'zed').pfp, '', 'a non-pfp/ avatar is not carried');
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM accounts WHERE own = 0').get().n, 0, 'npc accounts are not imported');
     const it = (k) => u.db.prepare('SELECT up, down, seen_at FROM items WHERE key = ?').get(k);
-    assert.equal(it('a/f1.jpg').up, 3, 'taste 2 + kept 1');
+    assert.equal(it('a/f1.jpg').up, 2, 'liked and rated: the taste count only, kept adds nothing');
     assert.equal(it('a/f2.jpg').down, 1);
-    assert.equal(it('a/f3.jpg').up, 1, 'kept alone gives up+1');
+    assert.equal(it('a/f2.jpg').up, 0, 'saved but already rated: kept adds nothing');
+    assert.equal(it('a/f3.jpg').up, 1, 'saved with no taste entry gives up+1');
     assert.equal(it('a/f1.jpg').seen_at, NOW - 1000);
     assert.equal(getSetting(u.db, 'postsPerDay'), 25);
-    assert.deepEqual(out, { accounts: 2, directions: 5, taste: 2, convos: 1, seen: 1, kept: 2, dropped: 6 });
+    assert.deepEqual(out, { accounts: 2, directions: 5, taste: 2, convos: 1, seen: 1, kept: 3, dropped: 6 });
     const dm = u.db.prepare('SELECT * FROM convos').get();
     assert.equal(dm.acct, own.find((a) => a.handle === 'mia.fit').id);
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM dms WHERE convo = ?').get(dm.id).n, 2);
@@ -108,7 +109,7 @@ test('importing twice keeps the same accounts, chats and counts', () => {
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM accounts WHERE own = 1').get().n, 2);
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM convos').get().n, 1);
     assert.equal(u.db.prepare('SELECT COUNT(*) n FROM dms').get().n, 2);
-    assert.equal(u.db.prepare("SELECT up FROM items WHERE key = 'a/f1.jpg'").get().up, 3, 'not added a second time');
+    assert.equal(u.db.prepare("SELECT up FROM items WHERE key = 'a/f1.jpg'").get().up, 2, 'not added a second time');
     assert.deepEqual(b, a);
   } finally { u.done(); }
 });
@@ -145,7 +146,10 @@ test('POST /reel/api/import answers counts; a body over 10 MB is 413', async () 
     assert.equal(r.status, 200);
     assert.equal(r.body.accounts, 2);
     const list = await getJson(`${eng.base}/reel/api/accounts`);
-    assert.equal(list.body.filter((a) => a.own !== false && a.settings).length >= 2, true);
+    const own = list.body.filter((a) => a.own === true);
+    assert.deepEqual(own.map((a) => a.handle).sort(), ['mia.fit', 'zed']);
+    assert.equal(list.body.filter((a) => a.own === false).length, 6, 'the seeded npcs are untouched');
+    assert.deepEqual(own.find((a) => a.handle === 'mia.fit').settings.directions.caption, 'short and teasing');
     const big = await postJson(`${eng.base}/reel/api/import`, { accounts: [], pad: 'x'.repeat(10.5 * 1024 * 1024) });
     assert.equal(big.status, 413);
   } finally { await eng.stop(); }
