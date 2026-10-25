@@ -137,3 +137,13 @@ test('a slow async tick never overlaps itself', async (t) => {
   assert.ok(runs >= 3);
   assert.equal(maxRunning, 1);
 });
+
+test('status surfaces derivative failures (split parents are not failures)', async (t) => {
+  const e = await engine(t);
+  const ins = e.ctx.db.prepare("INSERT INTO items (key, kind, derived, err, gone) VALUES (?, 'video', 1, ?, 0)");
+  ins.run('bad1', 'ffmpeg: invalid data');
+  ins.run('long1', 'split');
+  e.ctx.state.derive = { lastErr: 'ffmpeg: invalid data', lastErrAt: 5, lastOkAt: 3 };
+  const { body } = await getJson(`${e.base}/reel/api/status`);
+  assert.deepEqual(body.derive, { failed: 1, lastErr: 'ffmpeg: invalid data', lastErrAt: 5, lastOkAt: 3 });
+});

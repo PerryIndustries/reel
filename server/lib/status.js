@@ -32,8 +32,10 @@ export function getStatus(ctx) {
       COALESCE(SUM(gone = 0), 0) AS items,
       COALESCE(SUM(derived = 1 AND err IS NULL AND gone = 0), 0) AS postable,
       COALESCE(SUM(derived = 0 AND err IS NULL AND gone = 0), 0) AS pending,
-      COALESCE(SUM(gone = 1), 0) AS gone
+      COALESCE(SUM(gone = 1), 0) AS gone,
+      COALESCE(SUM(err IS NOT NULL AND err <> 'split' AND gone = 0), 0) AS failed
     FROM items`).get();
+  const d = ctx.state.derive ?? {};
   const queue = db.prepare("SELECT count(*) AS n FROM writer_jobs WHERE status = 'todo'").get().n;
   const a = db.prepare(`SELECT COALESCE(SUM(own = 1), 0) AS own, COALESCE(SUM(own IS NOT 1), 0) AS other
     FROM accounts`).get();
@@ -46,6 +48,7 @@ export function getStatus(ctx) {
     gone: c.gone,
     disk: { freeGB: freeGB(ctx.cfg.dataDir) },
     mirror: ctx.state.mirror ?? { at: null, ok: null, msg: 'never' },
+    derive: { failed: c.failed, lastErr: d.lastErr ?? null, lastErrAt: d.lastErrAt ?? null, lastOkAt: d.lastOkAt ?? null },
     writer: { queue, ollama: ctx.state.ollamaUp ?? null },
     accounts: { own: a.own, other: a.other },
   };
