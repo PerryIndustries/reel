@@ -1,6 +1,8 @@
-// Offline support for the app shell. Your photos live in the app's own storage, not here.
-const CACHE = "reel-v101";
+// Offline support for the app shell only. Photos, videos and everything else come from your PC, so nothing under
+// api/ or media/ is ever cached here.
+const CACHE = "reel-v102";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
+const SHELL = new Set(FILES.map((f) => new URL(f, self.registration.scope).pathname));
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(FILES.map((f) => c.add(f).catch(() => {})))).then(() => self.skipWaiting()));
@@ -17,16 +19,10 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
-  // Pinned library versions from the CDN never change, so keep a copy for offline use.
-  if (["https://cdn.jsdelivr.net", "https://s4.anilist.co"].includes(new URL(req.url).origin)){
-    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return res; })));
-    return;
-  }
-  // Otherwise only the app's own files. Google sign-in, Drive and Anthropic go straight to the network.
-  if (new URL(req.url).origin !== location.origin) return;
-  // Files from the PC folders stream straight from the PC (big videos need Range requests, which a cached copy breaks).
-  if (/\/pc\//.test(new URL(req.url).pathname)) return;
-  // no-cache: always ask GitHub whether the file changed, instead of reusing the browser's 10-minute copy.
+  const url = new URL(req.url);
+  // only this app's own shell files; /api/, /media/ and anything else go straight to the network
+  if (url.origin !== location.origin || !SHELL.has(url.pathname)) return;
+  // no-cache: always ask the PC whether the file changed, instead of reusing the browser's copy.
   e.respondWith(
     fetch(req, { cache: "no-cache" })
       .then((res) => {
