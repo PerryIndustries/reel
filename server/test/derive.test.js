@@ -8,7 +8,7 @@ import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { makeLog } from '../lib/log.js';
 import { openDb } from '../lib/db.js';
-import { deriveOne, pickNext, derivedPaths, slug, CLIP } from '../lib/derive.js';
+import { deriveOne, pickNext, derivedPaths, slug, CLIP, photoArgs } from '../lib/derive.js';
 
 const haveFfmpeg = spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0
   && spawnSync('ffprobe', ['-version'], { windowsHide: true }).status === 0;
@@ -223,4 +223,15 @@ test('lastErr clears after a later success and keeps lastErrAt/lastOkAt', opts, 
   assert.equal(ctx.state.derive.lastErr, null);
   assert.equal(ctx.state.derive.lastErrAt, NOW);
   assert.equal(ctx.state.derive.lastOkAt, NOW + 5);
+});
+
+test('photoArgs: tile grids use -filter_complex on group 0, plain photos keep -vf', () => {
+  const grid = photoArgs('in.heic', true, 'scale=10:10', 3, 'o.jpg');
+  assert.ok(grid.includes('-filter_complex'));
+  assert.equal(grid[grid.indexOf('-filter_complex') + 1], '[0:g:0]scale=10:10[o]');
+  assert.equal(grid[grid.indexOf('-map') + 1], '[o]');
+  assert.ok(!grid.includes('-vf'));
+  const plain = photoArgs('in.jpg', false, 'scale=10:10', 3, 'o.jpg');
+  assert.equal(plain[plain.indexOf('-vf') + 1], 'scale=10:10');
+  assert.ok(!plain.includes('-filter_complex'));
 });

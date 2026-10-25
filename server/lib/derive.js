@@ -132,14 +132,34 @@ function publish(tmp, dir) {
 
 const PHOTO_FIT = (n) => `scale='min(${n},iw)':'min(${n},ih)':force_original_aspect_ratio=decrease`;
 
+// ffmpeg argv tail (after the ffmpeg base flags) for one photo output. iPhone HEICs open in
+// ffmpeg 8 as a "Tile Grid" stream group, which ffmpeg wires into its own complex graph, so -vf
+// conflicts with it: grids go through -filter_complex on group 0 instead.
+export function photoArgs(src, grid, fit, q, out) {
+  const head = ['-i', src, '-frames:v', '1'];
+  const tail = ['-q:v', String(q), '-threads', '2', out];
+  return grid
+    ? [...head, '-filter_complex', `[0:g:0]${fit}[o]`, '-map', '[o]', ...tail]
+    : [...head, '-vf', fit, ...tail];
+}
+
+async function isTileGrid(ctx, src) {
+  const r = await ffprobe(ctx, ['-show_entries', 'stream_group=type', '-of', 'json', src]);
+  if (r.code !== 0) return false;
+  try {
+    return (JSON.parse(r.stdout).stream_groups || []).some((g) => g.type === 'Tile Grid');
+  } catch { return false; }
+}
+
 async function derivePhoto(ctx, item, src, dir) {
   const tmp = freshTmp(dir);
   try {
     const full = path.join(tmp, 'full.jpg');
     const thumb = path.join(tmp, 'thumb.jpg');
-    let r = await ffmpeg(ctx, ['-i', src, '-frames:v', '1', '-vf', PHOTO_FIT(1080), '-q:v', '3', '-threads', '2', full]);
+    const grid = await isTileGrid(ctx, src);
+    let r = await ffmpeg(ctx, photoArgs(src, grid, PHOTO_FIT(1080), 3, full));
     if (r.code !== 0) throw new Error(firstLine(r));
-    r = await ffmpeg(ctx, ['-i', full, '-frames:v', '1', '-vf', PHOTO_FIT(480), '-q:v', '5', '-threads', '2', thumb]);
+    r = await ffmpeg(ctx, grid ? photoArgs(src, true, PHOTO_FIT(480), 5, thumb) : photoArgs(full, false, PHOTO_FIT(480), 5, thumb));
     if (r.code !== 0) throw new Error(firstLine(r));
     const d = await probeDims(ctx, full);
     publish(tmp, dir);
