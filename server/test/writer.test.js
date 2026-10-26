@@ -260,6 +260,26 @@ test('a caption in a man\'s voice is dropped', async (t) => {
   assert.equal(post(ctx, 'p1').caption, null);
 });
 
+test('a refused comments reply leaves none of its lines, only pool comments', async (t) => {
+  const s = await stubOllama(t, { reply: () => "I can't write explicit sexual content. I can help with:\n- Other creative writing projects that don't involve explicit sexual content\n- Flirty but tasteful compliments" });
+  const ctx = makeCtx(t, s.url);
+  addAcct(ctx, 'a1');
+  addItem(ctx, 'i1', { desc: 'a mirror selfie' });
+  addPost(ctx, 'p1', 'a1', ['i1'], { upAt: T - H });
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'comments', 'p1', 2, T, null)), T);
+  const texts = ctx.db.prepare("SELECT text FROM comments WHERE post = 'p1'").all().map((r) => r.text);
+  assert.ok(texts.length > 0);
+  for (const x of texts) assert.ok(STYLE.pool.comments.includes(x), `not a pool line: ${x}`);
+});
+
+test('refused: model refusals yes, real comments no', () => {
+  assert.equal(writer.refused("I can't write explicit sexual content."), true);
+  assert.equal(writer.refused('- Other creative writing projects'), true);
+  assert.equal(writer.refused("I'm not able to help with that request"), true);
+  assert.equal(writer.refused("Bro, I can't even form words right now"), false);
+  assert.equal(writer.refused('sorry but you are unreal'), false);
+});
+
 test('wrongVoice: her lines in a comment and a man\'s lines in a caption', () => {
   assert.equal(writer.wrongVoice('my pussy is soaked', 'comments'), true);
   assert.equal(writer.wrongVoice('so pretty 😍', 'comments'), false);

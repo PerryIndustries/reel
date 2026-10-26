@@ -101,6 +101,10 @@ export function copiesDirection(t, a) {
 /* ================= filters ================= */
 // Never output text that says AI.
 export const saysAI = (t) => /\bai\b|\ba\.i\.|as an ai|language model/i.test(String(t || ''));
+// A whole reply that is the model declining ("I can't write explicit content. I can help with: - Other creative
+// writing projects..."): every line of it is dropped, since only the first line reads like a refusal on its own.
+// Narrower than REFUSAL so a real "I can't even" comment still gets through.
+export const refused = (t) => /\bi(?:'?m| am)? (?:can'?t|cannot|won'?t|will not|not able to|unable to) (?:help (?:with|you)|assist|write|create|generate|produce|provide|fulfil+|continue|engage|comply|do that)\b|\b(?:explicit|sexual(?:ly explicit)?) content\b|\bcreative writing\b|\bcontent (?:policy|guidelines)\b/i.test(String(t || ''));
 
 // Lines in the wrong voice: a comment (or fan DM) that sounds like her, or a caption/story that sounds like a guy
 // talking about her. `part`: caption | story | comments | comment | dmFan | dmMe | dmOwner. `acct` (row or
@@ -365,9 +369,10 @@ async function writeLine(ctx, { post, a, style, part, desc, item, jobId }) {
   }
   const exN = new Set(ex.map(normT));
   const ok = (c) => c && !exN.has(normT(c)) && !wrongVoice(c, part, a) && !saysAI(c) && !copiesDirection(c, a) && words(c) <= 12;
-  let c = listLines(await chat(ctx, { model: writeModel(style), system, user, max }))[0];
+  const first = (out) => (refused(out) ? '' : listLines(out)[0]);
+  let c = first(await chat(ctx, { model: writeModel(style), system, user, max }));
   if (c && copiesDirection(c, a)) {
-    c = listLines(await chat(ctx, { model: writeModel(style), system, user: user + "\n\nYour last answer just repeated the owner's direction. The direction describes what to write; it is not the text. Write something new that follows it.", max }))[0];
+    c = first(await chat(ctx, { model: writeModel(style), system, user: user + "\n\nYour last answer just repeated the owner's direction. The direction describes what to write; it is not the text. Write something new that follows it.", max }));
   }
   return ok(c) ? c : null;
 }
@@ -413,6 +418,7 @@ async function writeComments(ctx, { post, a, acct, style, desc, item }) {
       model: writeModel(style), system, max: 700,
       user: `Her caption: ${post.caption || '(none)'}\n${descLine(desc, item)}${got.length ? `\n\nAlready under the post (write different ones):\n${got.map((c) => '- ' + c).join('\n')}` : ''}\n\nWrite ${toWrite - got.length} comments from different guys${hot && !got.length ? `, about ${hot} of them fully explicit` : ''}.${remind(a, [['Comments', a.dir.comments]])}`,
     });
+    if (refused(out)) continue;
     const fresh = listLines(out).filter((x) => { const k = normT(x); return k && x.length <= 200 && !/:$/.test(x) && k !== cap && !ex.has(k) && !wrongVoice(x, 'comments', a) && !saysAI(x) && !copiesDirection(x, a) && !got.some((g) => normT(g) === k); });
     if (!fresh.length) break;
     got.push(...fresh);
@@ -504,6 +510,7 @@ async function writeDm(ctx, job, now) {
   const out = await chat(ctx, { model: writeModel(style), system, user, format: DM_SCHEMA, max: 400 });
   let msgs = [];
   try { const j = JSON.parse(out); msgs = Array.isArray(j.messages) ? j.messages : []; } catch { msgs = listLines(out); }
+  if (refused(msgs.join('\n'))) msgs = [];
   const part = who === 'fan' ? 'dmFan' : 'dmMe';
   // the model sometimes copies the transcript's "@name:" prefix
   let lines = msgs.map((t) => cleanLine(String(t).replace(/^\s*@[\w.]+\s*(\[[^\]]*\])?\s*:\s*/, '')))
