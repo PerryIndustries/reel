@@ -349,6 +349,28 @@ test('a dm job from the fan writes fan messages into the convo', async (t) => {
   assert.ok(sys.format);
 });
 
+test('a dm turn gets an adult fan persona, a stage and a creative move', async (t) => {
+  const s = await stubOllama(t, { reply: () => JSON.stringify({ messages: ['ok so hear me out'] }) });
+  const ctx = makeCtx(t, s.url);
+  addAcct(ctx, 'a1', { heat: 'explicit' });
+  ctx.db.prepare("INSERT INTO convos(id, acct, fan, fan_handle, fan_pfp, state, unread) VALUES ('a1|f7', 'a1', 'f7', 'kuro44', '', '{}', 0)").run();
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'dm', 'a1|f7', 4, T, { who: 'fan', at: T })), T);
+  const first = chatCalls(s).at(-1).body.messages[0].content;
+  const age = +/@kuro44, (\d+), from /.exec(first)[1];
+  assert.ok(age >= 21, 'every fan is an adult');
+  assert.match(first, /WHERE THE CHAT IS\nStill getting a feel/);
+  assert.match(first, /THIS TURN\n@kuro44 \S/);
+  for (let k = 0; k < 14; k++) ctx.db.prepare('INSERT INTO dms(convo, from_me, text, at, seen) VALUES (?, ?, ?, ?, 1)').run('a1|f7', k % 2, `line ${k}`, T + k);
+  await writer.runJob(ctx, job(ctx, writer.enqueue(ctx, 'dm', 'a1|f7', 4, T, { who: 'fan', at: T + 100 })), T + 100);
+  assert.match(chatCalls(s).at(-1).body.messages[0].content, /properly heated/);
+});
+
+test('a suggestive account never reaches the heated stage', () => {
+  assert.equal(writer.dmStage(50, { heat: 'suggestive' }).name, 'flirting');
+  assert.equal(writer.dmStage(50, { heat: 'explicit' }).name, 'heated');
+  assert.equal(writer.dmStage(2, { heat: 'explicit' }).name, 'opening');
+});
+
 test('the style is reloaded only when its ver changes', async (t) => {
   const ctx = makeCtx(t, await deadUrl());
   const s1 = writer.loadStyle(ctx);

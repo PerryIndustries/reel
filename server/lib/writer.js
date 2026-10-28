@@ -469,14 +469,43 @@ async function fallbackComments(ctx, post, now) {
   return true;
 }
 
-// Who this fan is. Fixed per fan, so the same person always texts the same way.
-function fanPersona(handle, key) {
+// Who this fan is. Fixed per fan, so the same person always texts the same way, has the same life and wants
+// the same things across every chat.
+function fanPersona(handle, key, a) {
   const r = rng(hashStr('persona' + key));
-  const nerve = pick(['shy and a little nervous, gets bolder the more the owner replies', 'confident and forward, says what they want', 'playful and teasing, loves banter', 'sweet and a bit clingy, double-texts when ignored', 'smooth and cocky, acts unbothered', 'chaotic, all caps sometimes, lots of keysmash'], r);
+  const nerve = pick(['shy and a little nervous, gets bolder the more the owner replies', 'confident and forward, says what they want', 'playful and teasing, loves banter', 'sweet and a bit clingy, double-texts when ignored', 'smooth and cocky, acts unbothered', 'chaotic, all caps sometimes, lots of keysmash', 'a slow-burn romantic who writes like a love letter', 'a devoted simp who worships every post'], r);
   const typing = pick(['all lowercase, barely any punctuation', 'lowercase with lots of emoji', 'normal capitalisation, a few emoji', 'short bursts, often splits one thought into two texts', 'abbreviations like u, ur, rn, fr, ngl', 'longer messages, asks lots of questions'], r);
-  const into = pick(["the owner's photos", "the owner's gym progress", "the owner's style and fits", "the owner's stories", 'getting to know the owner', 'making the owner laugh'], r);
-  return `@${handle}. Personality: ${nerve}. Texting style: ${typing}. Mostly into ${into}.`;
+  const age = 21 + Math.floor(r() * 18);
+  const life = pick(['works night shifts as a nurse', 'is a line cook who texts on breaks', 'is a grad student pretending to study', 'drives a truck cross-country', 'is a personal trainer', 'works in finance and is bored at his desk', 'is a bartender who gets off at 3am', 'is an electrician', 'is a musician in a small band', 'is in the army, posted far from home', 'works from home in sweatpants', 'is a firefighter with long days off'], r);
+  const city = pick(['Austin', 'Manchester', 'Toronto', 'Miami', 'Melbourne', 'Chicago', 'Berlin', 'Denver', 'Dublin', 'Phoenix', 'Seattle', 'Atlanta'], r);
+  const quirk = pick(['remembers every little thing the owner says and brings it back later', 'always names the exact post or story he is thinking about', 'loves sending "voice note" style texts written out like he is talking', 'turns everything into a game or a bet', 'tells little stories about his day that drift into the owner', 'gets competitive about being her favourite', 'writes vivid what-if scenarios', 'asks for permission before saying the bold stuff'], r);
+  const into = a && a.heat === 'explicit'
+    ? pick(['her body in tight clothes', 'the idea of a slow tease that goes on for days', 'being told what to do by her', 'worshipping her, head to toe', 'roleplaying a first date that goes too far', 'her getting off while he watches', 'a hotel-room fantasy he keeps coming back to', 'praise, he melts when she calls him good', 'teasing and denial, she makes him wait', 'her ass in every photo', 'confessing what he does looking at her posts'], r)
+    : pick(["the owner's photos", "the owner's gym progress", "the owner's style and fits", "the owner's stories", 'getting to know the owner', 'making the owner laugh', 'flirty banter that never quite crosses the line'], r);
+  return `@${handle}, ${age}, from ${city}, ${life}. Personality: ${nerve}. Texting style: ${typing}. What gets him: ${into}. Habit: ${quirk}. He is an adult and stays this same person every time.`;
 }
+
+// How far along a chat is, from how many texts it has. Explicit accounts heat up as it goes; others stay teasing.
+export function dmStage(count, a) {
+  if (count < 4) return { name: 'opening', how: 'Still getting a feel for each other: curious, flirty, a bit of tension. Build interest, ask about them.' };
+  if (count < 12 || a.heat !== 'explicit') return { name: 'flirting', how: a.heat === 'explicit' ? 'The flirting is getting bolder: compliments get specific, hints get dirtier, both are testing how far the other will go.' : 'Bold flirting and innuendo, playful tension, nothing graphic.' };
+  return { name: 'heated', how: 'This chat is properly heated: openly sexual, detailed and vivid, building on what has already been said. Keep escalating, never reset to small talk.' };
+}
+
+// One creative move per turn, so a chat never settles into the same back-and-forth.
+const DM_MOVES = {
+  fan: {
+    opening: ['opens with something specific about one of the posts instead of a generic hey', 'asks a question that is easy and fun to answer', 'admits he has been working up the nerve to message', 'makes a cheeky bet or challenge', 'tells a tiny story about where he is right now and why she popped into his head'],
+    flirting: ['asks a would-you-rather with a flirty edge', 'describes the exact moment in a post that got him', 'confesses a thought he has had about her', 'starts a little game: truth or dare, rate it, guess what', 'calls back something she said earlier and spins it flirtier', 'paints a short what-if date that goes somewhere', 'begs, sweetly or desperately, for something she teased', 'writes a "voice note" text like he is talking out loud to her'],
+    heated: ['describes in vivid detail a fantasy scene with her, step by step', 'confesses exactly what he did last night thinking about her post', 'starts a roleplay scenario and puts her in it, inviting her to play along', 'tells her exactly what he would do if she were there right now, slow and detailed', 'asks her to tell him what to do and promises to obey', 'reacts with raw desperation to what she just said, building on it', 'describes what he is doing right now as he reads her texts', 'proposes a dare that raises the stakes'],
+  },
+  me: {
+    opening: ['plays it cool and makes him work for it', 'teases him about his first message', 'asks something that tests him'],
+    flirting: ['sets him a challenge before he gets more', 'teases with a hint of what she is wearing right now', 'makes him beg a little', 'rewards him with a bold compliment then pulls back', 'turns his game around on him'],
+    heated: ['tells him exactly what she wants, in detail', 'gives him instructions and makes him wait', 'describes what she is doing right now as she texts', 'plays along with his fantasy and makes it filthier', 'praises him when he obeys', 'dares him to describe something in more detail'],
+  },
+};
+
 const DM_KIND = { open: 'dmOpen', follow: 'dmFollow', story: 'dmStory', post: 'dmPost', back: 'dmBack', owner: 'dmOwner' };
 
 // The next 1 to 3 DMs in convo job.ref, from the fan or the owner (payload.who), stored in dms from payload.at.
@@ -499,22 +528,28 @@ async function writeDm(ctx, job, now) {
   const list = style && style.dmLists && style.dmLists[DM_KIND[payload.kind] || ''];
   const listFeel = list && list.modes?.length ? (() => { const m = pickMode(modesFor(list.modes, a), r); return `\n${list.voice}\nThis one: ${m.how}.${feel(m.ex)}`; })() : '';
   const styleTxt = who === 'fan'
-    ? `WHO @${fan} IS\n${fanPersona(fan, c.fan)}\n\nHOW FANS TEXT\n${pd && pd.fan && !hasText(a.dir.dmFan) ? pd.fan + feel(pd.fanEx) + listFeel : styleFor(a.dir.dmFan, [], DM_FAN_RULES, 'dmFan', a)}`
+    ? `WHO @${fan} IS\n${fanPersona(fan, c.fan, a)}\n\nHOW FANS TEXT\n${pd && pd.fan && !hasText(a.dir.dmFan) ? pd.fan + feel(pd.fanEx) + listFeel : styleFor(a.dir.dmFan, [], DM_FAN_RULES, 'dmFan', a)}`
     : `HOW @${me} TEXTS\n${pd && pd.me && !hasText(a.dir.dmMe) ? pd.me + feel(pd.meEx) : styleFor(a.dir.dmMe, [], DM_ME_RULES, 'dmMe', a)}`;
   const note = hasText(state.note) ? `\n\nTHE OWNER'S NOTE ABOUT THIS CHAT (follow it)\n${state.note.trim()}` : '';
   const writer = who === 'fan' ? fan : me;
-  const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${fan}, a follower. Write the next message or messages from @${writer}: 1 to 3 short texts sent one after another, the way people really text. Answer what was just said, keep it going (ask things, flirt back, change the subject now and then), and never repeat an earlier line.\n\n${styleTxt}${note}`;
-  const recent = ctx.db.prepare('SELECT from_me, text FROM dms WHERE convo = ? ORDER BY at DESC, id DESC LIMIT 24').all(c.id).reverse();
+  const count = ctx.db.prepare('SELECT COUNT(*) n FROM dms WHERE convo = ?').get(c.id).n;
+  const stage = dmStage(count, a);
+  const moves = DM_MOVES[who][stage.name];
+  const move = moves[Math.floor(r() * moves.length)];
+  const postItem = state.post ? (() => { const p = ctx.db.prepare('SELECT items FROM posts WHERE id = ?').get(state.post); let k; try { k = p && JSON.parse(p.items || '[]')[0]; } catch { k = null; } return k ? ctx.db.prepare('SELECT key, kind, desc FROM items WHERE key = ?').get(k) : null; })() : null;
+  const photo = postItem && postItem.desc ? `\n\nTHE POST THIS CHAT STARTED FROM\n${descLine(postItem.desc, postItem)}. Bring its details up when it fits.` : '';
+  const system = `${contextFor(a)}\n\nThis is a DM chat on the app between @${me}, the owner's account, and @${fan}, a follower. Write the next message or messages from @${writer}: 1 to 3 texts sent one after another, the way people really text. Most texts are short, but when the move calls for it one of them can be a longer, detailed message of a few sentences. Answer what was just said, remember and build on everything earlier in the chat, and never repeat an earlier line or idea.\n\nWHERE THE CHAT IS\n${stage.how}\n\nTHIS TURN\n@${writer} ${move}. Be specific and creative, not generic.\n\n${styleTxt}${photo}${note}`;
+  const recent = ctx.db.prepare('SELECT from_me, text FROM dms WHERE convo = ? ORDER BY at DESC, id DESC LIMIT 40').all(c.id).reverse();
   const dir = who === 'fan' ? ['How fans text', a.dir.dmFan] : [`How @${me} texts`, a.dir.dmMe];
   const user = `${recent.length ? `The chat so far, oldest first:\n${recent.map((m) => `@${m.from_me ? me : fan}: ${m.text}`).join('\n')}` : `@${fan} is sending the first message.`}\n\nWrite @${writer}'s next message(s).${remind(a, [dir, ['This chat', state.note]])}`;
-  const out = await chat(ctx, { model: writeModel(style), system, user, format: DM_SCHEMA, max: 400 });
+  const out = await chat(ctx, { model: writeModel(style), system, user, format: DM_SCHEMA, max: 700 });
   let msgs = [];
   try { const j = JSON.parse(out); msgs = Array.isArray(j.messages) ? j.messages : []; } catch { msgs = listLines(out); }
   if (refused(msgs.join('\n'))) msgs = [];
   const part = who === 'fan' ? 'dmFan' : 'dmMe';
   // the model sometimes copies the transcript's "@name:" prefix
   let lines = msgs.map((t) => cleanLine(String(t).replace(/^\s*@[\w.]+\s*(\[[^\]]*\])?\s*:\s*/, '')))
-    .filter((t) => t && t.length <= 400 && !saysAI(t) && !wrongVoice(t, part, a) && !copiesDirection(t, a)).slice(0, 3);
+    .filter((t) => t && t.length <= 900 && !saysAI(t) && !wrongVoice(t, part, a) && !copiesDirection(t, a)).slice(0, 3);
   if (!lines.length) { const f = fallbackText(ctx, who === 'fan' ? 'dmFan' : 'dmOwner', acct); lines = f ? [f] : []; }
   let t = Number.isFinite(payload.at) ? payload.at : now;
   const ats = [];
