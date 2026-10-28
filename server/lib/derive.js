@@ -181,11 +181,13 @@ async function deriveVideo(ctx, item, src, dir) {
     const thumb = path.join(tmp, 'thumb.jpg');
     const cut = item.parent && item.clip_dur
       ? ['-ss', String(item.clip_start ?? 0), '-t', String(item.clip_dur)] : [];
-    let r = await ffmpeg(ctx, [
-      ...cut, '-i', src, '-map', '0:v:0', '-map', '0:a:0?',
-      '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-crf', '24', '-vf', VIDEO_VF,
-      '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', '-threads', '2', video,
+    // The graphics card encodes first (much faster); the CPU is the fallback when NVENC is missing or fails.
+    const enc = (v) => ffmpeg(ctx, [
+      ...cut, '-i', src, '-map', '0:v:0', '-map', '0:a:0?', ...v, '-pix_fmt', 'yuv420p', '-vf', VIDEO_VF,
+      '-c:a', 'aac', '-b:a', '128k', '-ac', '2', '-movflags', '+faststart', '-threads', '2', '-y', video,
     ]);
+    let r = await enc(['-c:v', 'h264_nvenc', '-preset', 'p5', '-profile:v', 'high', '-rc', 'vbr', '-cq', '26', '-b:v', '0']);
+    if (r.code !== 0) r = await enc(['-c:v', 'libx264', '-profile:v', 'high', '-crf', '24']);
     if (r.code !== 0) throw new Error(firstLine(r));
     const d = await probeDims(ctx, video);
     const at = d.dur != null && d.dur > 1.5 ? '1' : '0';
