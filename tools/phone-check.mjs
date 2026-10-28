@@ -219,6 +219,20 @@ try {
     return `${r.els} pooled videos`;
   });
 
+  await check('Tapping a video in a feed or on Explore opens it full screen in the reels viewer', async () => {
+    await page.goto(base + `#/p/${seeded.reelsPost}/more`);
+    await page.waitForSelector('#view article.post .slides video', { timeout: 8000, state: 'attached' });
+    await page.locator('#view article.post .slides').first().tap();
+    await page.waitForSelector('#full .rv .scrub', { timeout: 5000, state: 'attached' });
+    const hash = await page.evaluate(() => location.hash);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    await page.goto(base + '#/explore');
+    await page.waitForSelector('.xt', { timeout: 8000 });
+    const href = await page.evaluate(() => { const a = document.querySelector('.xt.big'); return a && a.getAttribute('href'); });
+    if (!href || !href.startsWith('#/reels/')) throw new Error(`explore video tile goes to ${href}`);
+    return `feed tap -> ${hash}, explore video tile -> ${href}`;
+  });
+
   await check('Dragging the reel scrub bar shows a big preview with the time, then jumps there on release', async () => {
     await page.goto(base + '#/reels');
     await page.waitForSelector('#rgrid .tile', { timeout: 8000 });

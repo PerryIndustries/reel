@@ -655,10 +655,17 @@ function wireCard(el){
     if (cnt) cnt.textContent = (i + 1) + "/" + sl.children.length;
     dots.forEach((d, k) => d.classList.toggle("on", k === i));
   }, { passive: true });
-  let lastTap = 0;
+  let lastTap = 0, openT = 0;
+  // A video post: one tap opens it full screen in the reels viewer (scrub bar and all), two taps like it.
+  const firstVid = sl && sl.firstElementChild && sl.firstElementChild.querySelector("video");
   c.addEventListener("click", e => {
     if (e.target.closest("[data-mute]")) return;
     const t = now();
+    clearTimeout(openT);
+    if (firstVid && t - lastTap >= 320 && e.target.closest(".slide") === sl.firstElementChild){
+      const id = el.dataset.post;
+      openT = setTimeout(() => go("#/reels/" + id), 330);
+    }
     if (t - lastTap < 320){
       const post = c.closest("article.post");
       const up = post.querySelector("[data-up]");
@@ -1038,7 +1045,7 @@ class Grid {
 const tileImg = m => `<img src="${esc(m.thumb)}" alt="" loading="lazy" decoding="async">`;
 function xtile(c, k){
   const m = c.media[0], vid = m.kind === "video";
-  return `<a class="xt ${vid ? "big" : ""}" href="#/p/${esc(c.id)}">${tileImg(m)}${vid ? `<span class="ic">${I.play}</span>` : c.media.length > 1 ? `<span class="ic">${I.multi}</span>` : ""}</a>`;
+  return `<a class="xt ${vid ? "big" : ""}" href="${vid ? "#/reels/" : "#/p/"}${esc(c.id)}">${tileImg(m)}${vid ? `<span class="ic">${I.play}</span>` : c.media.length > 1 ? `<span class="ic">${I.multi}</span>` : ""}</a>`;
 }
 let exploreTerm = "";
 async function vExplore(v, r, stale){
@@ -1080,7 +1087,7 @@ function profileHeader(o){
 }
 function tileFor(c, reel){
   const m = c.media[0], vid = m.kind === "video";
-  return `<a class="tile ${reel ? "tall" : ""}" href="${reel ? "#/reels/" + esc(c.id) : "#/p/" + esc(c.id) + "/more"}">${tileImg(m)}${!reel && c.pinned ? `<span class="ic">${I.pin}</span>` : !reel && c.media.length > 1 ? `<span class="ic">${I.multi}</span>` : !reel && vid ? `<span class="ic">${I.play}</span>` : ""}${reel ? `<span class="views">${I.playLine}${fmt(c.likes)}</span>` : ""}</a>`;
+  return `<a class="tile ${reel ? "tall" : ""}" href="${reel || vid ? "#/reels/" + esc(c.id) : "#/p/" + esc(c.id) + "/more"}">${tileImg(m)}${!reel && c.pinned ? `<span class="ic">${I.pin}</span>` : !reel && c.media.length > 1 ? `<span class="ic">${I.multi}</span>` : !reel && vid ? `<span class="ic">${I.play}</span>` : ""}${reel ? `<span class="views">${I.playLine}${fmt(c.likes)}</span>` : ""}</a>`;
 }
 // kept stories under the profile numbers, newest first; a tap opens the story viewer on that one
 const HL = {};
