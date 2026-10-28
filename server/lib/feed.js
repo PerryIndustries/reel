@@ -1,6 +1,7 @@
 // Feed streams: the endless scroll behind home, reels, explore and a profile grid.
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
 // a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix.
+// A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
 import { publish } from './scheduler.js';
 import { card } from './cards.js';
 
@@ -9,6 +10,7 @@ const STREAM_TTL = 6 * 3600_000;
 export const PAGE_SIZE = 8;
 const SPACING = 3; // no same account within the last 3 cards (home / explore)
 const MAX_STREAMS = 200;
+export const DOWN = 0.02; // odds kept per thumbs-down
 
 // novelty x taste. Never seen: 1. Seen: back toward 1 over 3 days, faster when voted up.
 export function weight(item, now) {
@@ -19,7 +21,7 @@ export function weight(item, now) {
     const age = Math.max(0, now - item.seen_at);
     novelty = 1 - Math.exp(-age / (3 * DAY / (1 + up)));
   }
-  return novelty * (1 + up) ** 0.7 * 0.25 ** down;
+  return novelty * (1 + up) ** 0.7 * DOWN ** down;
 }
 
 const parseKeys = (p) => { try { const k = JSON.parse(p.items || '[]'); return Array.isArray(k) ? k : []; } catch { return []; } };
@@ -90,7 +92,7 @@ function pickOne(ctx, s, now) {
   if (!s.pool.length) return -1;
   if (s.profile) return 0;
   const uniform = s.scope === 'explore';
-  const weights = (allowed) => s.pool.map((c) => (allowed(c) ? (uniform ? 1 : Math.max(weight(c.item, now), 1e-9)) : 0));
+  const weights = (allowed) => s.pool.map((c) => (allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
   let w = weights((c) => !(spaced && recent.has(c.acct)));
   let total = w.reduce((x, y) => x + y, 0);
   if (total <= 0) {

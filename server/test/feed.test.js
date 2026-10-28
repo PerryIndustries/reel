@@ -80,7 +80,8 @@ test('weight: never seen is 1, recently seen is low, votes scale it', () => {
   assert.ok(Math.abs(day - (1 - Math.exp(-1 / 3))) < 1e-9);
   assert.ok(weight({ seen_at: T - D, up: 2, down: 0 }, T) > day * 3, 'voted up comes back sooner and counts more');
   assert.ok(Math.abs(weight({ seen_at: null, up: 3, down: 0 }, T) - 4 ** 0.7) < 1e-9);
-  assert.ok(Math.abs(weight({ seen_at: null, up: 0, down: 2 }, T) - 0.0625) < 1e-9);
+  assert.ok(Math.abs(weight({ seen_at: null, up: 0, down: 2 }, T) - 0.0004) < 1e-9);
+  assert.ok(weight({ seen_at: null, up: 0, down: 1 }, T) <= 0.02, 'one thumbs-down is at least 50x less likely than a neutral photo');
 });
 
 test('a home stream never repeats a card and never shows the same account within 3', (t) => {
