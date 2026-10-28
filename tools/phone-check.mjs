@@ -219,6 +219,37 @@ try {
     return `${r.els} pooled videos`;
   });
 
+  await check('Dragging the reel scrub bar shows a big preview with the time, then jumps there on release', async () => {
+    await page.goto(base + '#/reels');
+    await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
+    await page.locator('#rgrid .tile').first().click();
+    await page.waitForSelector('#full .rv video', { timeout: 8000, state: 'attached' });
+    await page.waitForFunction(() => { const s = [...document.querySelectorAll('#rv .r')].find((x) => x.dataset.built && x.querySelector('video')); const v = s && s.querySelector('video'); return v && v.duration > 1; }, null, { timeout: 10000 });
+    const box = await page.evaluate(() => {
+      const s = [...document.querySelectorAll('#rv .r')].find((x) => x.querySelector('video[data-pool]') && x.querySelector('video[data-pool]').dataset.want === '1');
+      s.id = 'cur'; const r = s.querySelector('.scrub .bar').getBoundingClientRect();
+      return { x: r.left, y: r.top + r.height / 2, w: r.width, bottomGap: innerHeight - r.bottom };
+    });
+    if (box.bottomGap < 12) throw new Error(`scrub bar sits ${box.bottomGap}px from the bottom edge`);
+    await page.mouse.move(box.x + box.w * 0.1, box.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.w * 0.6, box.y, { steps: 6 });
+    await sleep(300);
+    const mid = await page.evaluate(() => {
+      const s = document.getElementById('cur'), pv = s.querySelector('.pv');
+      return { shown: getComputedStyle(pv).display !== 'none', t: pv.querySelector('.t').textContent, pvVid: !!pv.querySelector('video'), w: pv.querySelector('.frame').getBoundingClientRect().width };
+    });
+    await page.mouse.up();
+    const after = await page.evaluate(() => { const s = document.getElementById('cur'), v = s.querySelector('video[data-pool]'); return { at: v.currentTime / v.duration, pvGone: !s.querySelector('.pv video'), hidden: getComputedStyle(s.querySelector('.pv')).display === 'none', vids: document.querySelectorAll('#full video').length }; });
+    if (!mid.shown || !mid.pvVid) throw new Error(`preview not shown: ${JSON.stringify(mid)}`);
+    if (!/^\d+:\d\d \/ \d+:\d\d$/.test(mid.t)) throw new Error(`time label "${mid.t}"`);
+    if (mid.w < 120) throw new Error(`preview only ${mid.w}px wide`);
+    if (Math.abs(after.at - 0.6) > 0.12) throw new Error(`reel at ${after.at.toFixed(2)} after release, wanted ~0.6`);
+    if (!after.pvGone || !after.hidden || after.vids > 3) throw new Error(`after release: ${JSON.stringify(after)}`);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    return `preview ${Math.round(mid.w)}px "${mid.t}", reel at ${after.at.toFixed(2)} after release, ${after.vids} videos`;
+  });
+
   // iPhone refuses sound outside a tap: the app must play muted for now but keep "sound on" saved
   await check('A blocked autoplay with sound on leaves the saved choice alone (muted stays false)', async () => {
     const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });

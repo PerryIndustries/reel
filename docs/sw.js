@@ -1,6 +1,6 @@
 // Offline support for the app shell only. Photos, videos and everything else come from your PC, so nothing under
 // api/ or media/ is ever cached here.
-const CACHE = "reel-v102-1";
+const CACHE = "reel-v102-2";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 const SHELL = new Set(FILES.map((f) => new URL(f, self.registration.scope).pathname));
 

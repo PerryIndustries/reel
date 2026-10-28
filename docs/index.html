@@ -253,11 +253,17 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .side button,.rv .side a{display:flex;flex-direction:column;align-items:center;gap:3px;color:#fff}
 .rv .side svg{width:30px;height:30px}
 .rv .side .liked{color:var(--heart)}
-.rv .info{position:absolute;left:14px;right:70px;bottom:calc(env(safe-area-inset-bottom,0px) + 22px);text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.rv .info{position:absolute;left:14px;right:70px;bottom:calc(env(safe-area-inset-bottom,0px) + 52px);text-shadow:0 1px 3px rgba(0,0,0,.7)}
 .rv .info .u{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:6px}
 .rv .shade{position:absolute;inset:0;background:linear-gradient(transparent 60%,rgba(0,0,0,.55));pointer-events:none}
-.rv .scrub{position:absolute;left:0;right:0;bottom:env(safe-area-inset-bottom,0px);height:26px;display:flex;align-items:flex-end;touch-action:none;z-index:1}
-.rv .scrub .bar{position:relative;width:100%;height:2px;background:rgba(255,255,255,.3);transition:height .15s}
+.rv .scrub{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);height:44px;padding:0 14px;display:flex;align-items:center;touch-action:none;z-index:1}
+.rv .scrub .bar{position:relative;width:100%;height:3px;border-radius:3px;background:rgba(255,255,255,.3);transition:height .15s}
+.rv .pv{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 70px);transform:translateX(-50%);display:none;flex-direction:column;align-items:center;gap:8px;z-index:2;pointer-events:none}
+.rv .r.scrubbing .pv{display:flex}
+.rv .r.scrubbing .side,.rv .r.scrubbing .info{opacity:0}
+.rv .pv .frame{width:42vw;max-width:220px;border-radius:12px;overflow:hidden;background:#000 center/cover no-repeat;box-shadow:0 4px 18px rgba(0,0,0,.6);border:1.5px solid rgba(255,255,255,.85)}
+.rv .pv video{width:100%;height:100%;object-fit:cover;display:block}
+.rv .pv .t{color:#fff;font-weight:700;font-size:17px;text-shadow:0 1px 4px rgba(0,0,0,.8);font-variant-numeric:tabular-nums}
 .rv .scrub .fill{height:100%;width:0;background:#fff}
 .rv .scrub .knob{position:absolute;top:50%;left:0;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff;opacity:0;transition:opacity .15s}
 .rv .r.paused .scrub .bar,.rv .r.scrubbing .scrub .bar{height:6px}
@@ -1199,7 +1205,8 @@ async function openReelsFor(id){
   const list = [first, ...st.cards.filter(c => c.id !== id)];
   openReels(list, 0, st);
 }
-const SCRUB = `<div class="scrub"><div class="bar"><div class="fill"></div><div class="knob"></div></div></div>`;
+const SCRUB = `<div class="pv"><div class="frame"></div><div class="t"></div></div><div class="scrub"><div class="bar"><div class="fill"></div><div class="knob"></div></div></div>`;
+const mmss = x => { x = Math.max(0, Math.floor(x || 0)); return `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`; };
 let RV = null;
 // The reels viewer: a tall list of empty slots, and only 3 real <video> elements that are passed from slot to slot.
 function openReels(list, start, st){
@@ -1273,10 +1280,42 @@ function wireScrub(sec){
   const show = f => { const pct = Math.min(100, Math.max(0, f * 100)) + "%"; fillEl.style.width = pct; knob.style.left = pct; };
   const tick = setInterval(() => { if (!sec.dataset.built){ clearInterval(tick); return; } const v = vd(); if (v && v.duration && !sec.classList.contains("scrubbing")) show(v.currentTime / v.duration); }, 250);
   sec._tick = tick;
-  const seek = e => { const r = bar.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); show(f); const v = vd(); if (v && v.duration){ try { v.currentTime = f * v.duration; } catch(_){} } };
-  sc.addEventListener("pointerdown", e => { e.preventDefault(); e.stopPropagation(); try { sc.setPointerCapture(e.pointerId); } catch(_){} sec.classList.add("scrubbing"); const v = vd(); if (v) v.pause(); seek(e); });
+  const pvBox = sec.querySelector(".pv"), frame = pvBox.querySelector(".frame"), tEl = pvBox.querySelector(".t");
+  let pv = null, want = 0, busy = false;
+  // A second, silent copy of the video shows the frame under your finger (the reel itself only jumps on release).
+  const preview = v => {
+    if (pv && pv.dataset.src === v.currentSrc) return pv;
+    if (pv){ pv.removeAttribute("src"); pv.load(); pv.remove(); }
+    pv = document.createElement("video"); pv.muted = true; pv.playsInline = true; pv.setAttribute("playsinline", ""); pv.preload = "auto";
+    pv.dataset.src = v.currentSrc; pv.src = v.currentSrc;
+    pv.onseeked = () => { busy = false; if (Math.abs(pv.currentTime - want) > 0.15) pvSeek(); };
+    frame.appendChild(pv);
+    pv.play().then(() => pv.pause()).catch(() => {}); // iPhone draws frames only once a video has played
+    return pv;
+  };
+  const pvSeek = () => { if (!pv || busy) return; busy = true; try { pv.currentTime = want; } catch(_){ busy = false; } };
+  const sizeFrame = v => { const w = v.videoWidth || 9, h = v.videoHeight || 16; frame.style.aspectRatio = `${w} / ${h}`; frame.style.maxHeight = "46vh"; frame.style.backgroundImage = v.poster ? `url("${v.poster}")` : ""; };
+  let last = 0;
+  const seek = e => {
+    const r = bar.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); show(f); last = f;
+    const v = vd(); if (!v || !v.duration) return;
+    want = f * v.duration; tEl.textContent = `${mmss(want)} / ${mmss(v.duration)}`;
+    if (pv) pvSeek();
+  };
+  sc.addEventListener("pointerdown", e => {
+    e.preventDefault(); e.stopPropagation(); try { sc.setPointerCapture(e.pointerId); } catch(_){}
+    sec.classList.add("scrubbing"); const v = vd();
+    if (v){ v.pause(); sizeFrame(v); if (v.currentSrc) preview(v); }
+    seek(e);
+  });
   sc.addEventListener("pointermove", e => { if (sec.classList.contains("scrubbing")) seek(e); });
-  const end = () => { if (!sec.classList.contains("scrubbing")) return; sec.classList.remove("scrubbing"); const v = vd(); if (v && !sec.classList.contains("paused")) playVid(v); };
+  const end = () => {
+    if (!sec.classList.contains("scrubbing")) return; sec.classList.remove("scrubbing");
+    const v = vd();
+    if (v && v.duration){ try { v.currentTime = last * v.duration; } catch(_){} }
+    if (v && !sec.classList.contains("paused")) playVid(v);
+    if (pv){ pv.removeAttribute("src"); pv.load(); pv.remove(); pv = null; busy = false; } // back to 3 videos at most
+  };
   sc.addEventListener("pointerup", end); sc.addEventListener("pointercancel", end);
   sc.addEventListener("click", e => e.stopPropagation());
 }
