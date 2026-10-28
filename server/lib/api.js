@@ -1,6 +1,7 @@
 // The read/write API the thin phone app uses: feed, reels, explore, profile, posts, comments,
-// stories, activity, taste, seen and the like/save/pin switches. Accounts, settings, DMs, library,
-// status and import live in their own modules.
+// stories, activity, taste, seen and the like/save/pin switches, plus the one-read library that Wire
+// and Thread (docs/x/, docs/r/) post from. Accounts, settings, DMs, Drive sync, status and import live
+// in their own modules.
 import { ensureColumn } from './db.js';
 import { HttpError } from './router.js';
 import { summary, hashStr, rng } from './accounts.js';
@@ -11,6 +12,56 @@ import { newStream, page } from './feed.js';
 const HOUR = 3600_000;
 const COMMENT_PAGE = 30;
 const MAX_COMMENT_LEN = 500;
+const POSTABLE = 'derived = 1 AND err IS NULL AND gone = 0';
+
+const parseSettings = (a) => { try { return JSON.parse(a.settings || '{}') || {}; } catch { return {}; } };
+
+// An account the way Wire and Thread (docs/kit/core.js) read it: the summary plus what their fans, numbers
+// and writer prompts need. `following` matches the profile page when the settings hold none.
+export function libraryAccount(a) {
+  const s = parseSettings(a);
+  return {
+    ...summary(a),
+    npc: !a.own,
+    bio: a.bio ?? '',
+    pronouns: typeof s.pronouns === 'string' && s.pronouns ? s.pronouns : 'she',
+    heat: typeof s.heat === 'string' && s.heat ? s.heat : 'suggestive',
+    followers: a.followers ?? 0,
+    following: Number.isFinite(s.following) ? s.following : 60 + Math.floor(rng(hashStr(`following:${a.id}`))() * 540),
+    verified: !!s.verified,
+    seed: a.seed ?? null,
+    startedAt: a.created_at ?? null,
+  };
+}
+
+// Everything Wire and Thread need in one read: every account, each account's ready files (from its
+// non-story posts of any status, deduped, derivatives present), the votes and seen times of those files.
+export function library(ctx) {
+  const { db } = ctx;
+  const accts = db.prepare('SELECT * FROM accounts ORDER BY own DESC, created_at, id').all();
+  const getItem = db.prepare(`SELECT * FROM items WHERE key = ? AND ${POSTABLE}`);
+  const media = Object.fromEntries(accts.map((a) => [a.id, []]));
+  const have = new Map(accts.map((a) => [a.id, new Set()]));
+  const taste = {};
+  const seen = {};
+  const posts = db.prepare(`SELECT p.acct, p.items FROM posts p JOIN accounts a ON a.id = p.acct
+    WHERE p.kind <> 'story' ORDER BY p.created_at, p.id`).all();
+  for (const p of posts) {
+    const mine = have.get(p.acct);
+    if (!mine) continue;
+    for (const k of parseKeys(p)) {
+      if (mine.has(k)) continue;
+      const it = getItem.get(k);
+      if (!it) continue;
+      mine.add(k);
+      media[p.acct].push(mediaEntry(it));
+      if (it.up > 0 || it.down > 0) taste[k] = { up: it.up || 0, down: it.down || 0 };
+      if (it.seen_at != null) seen[`f:${k}`] = it.seen_at;
+    }
+  }
+  const first = accts.find((a) => a.own);
+  return { accounts: accts.map(libraryAccount), current: first ? first.id : null, media, taste, seen };
+}
 
 // ---- routes -------------------------------------------------------------------------------------------
 
@@ -112,6 +163,8 @@ export function routes(router, ctx) {
     }
     return out;
   });
+
+  router.add('GET', '/reel/api/library', () => library(ctx));
 
   router.add('GET', '/reel/api/activity', () => {
     const now = Date.now();

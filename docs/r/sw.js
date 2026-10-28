@@ -1,5 +1,5 @@
-// Offline support for Thread's shell. Posts and photos live in the app's own storage and in Reel's, not here.
-const CACHE = "thread-v6";
+// Offline support for Thread's shell. Posts live in the app's own storage; photos and the library come from the PC's engine, not from here.
+const CACHE = "thread-v7";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png", "../kit/core.js", "../kit/base.css", "../pfp/index.json"];
 
 self.addEventListener("install", (e) => {
@@ -24,8 +24,9 @@ self.addEventListener("fetch", (e) => {
   }
   // Otherwise only the app's own files; Ollama on the owner's PC goes straight to the network.
   if (new URL(req.url).origin !== location.origin) return;
-  // Videos from the PC folders stream straight from the PC (a cached copy breaks the Range requests they need).
-  if (/\/pc\//.test(new URL(req.url).pathname)) return;
+  // The engine's library and files (and the PC folders) go straight to the PC: the library must be fresh, the files are
+  // too many to keep here (the browser's own cache holds them), and a cached video breaks the Range requests it needs.
+  if (/\/(api|media|pc)\//.test(new URL(req.url).pathname)) return;
   e.respondWith(
     fetch(req, { cache: "no-cache" })
       .then((res) => {

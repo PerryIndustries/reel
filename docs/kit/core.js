@@ -1,7 +1,8 @@
 "use strict";
 /* Shared by Thread (../r/) and Wire (../x/). A plain script: everything here is a global the app's own script uses.
-   Reel's storage ("reel") is only ever read: accounts, the Ollama address and every photo Reel fetched. Each app keeps
-   what it makes (its posts, chats, small copies of photos) in its own storage ("reel-thread" / "reel-wire").
+   The library (accounts and every photo and video, with ready-made copies) is read from Reel's engine on the PC at
+   ../api/library, the same place Reel itself reads from. Each app keeps what it makes (its posts, chats, settings) in
+   its own storage ("reel-thread" / "reel-wire").
    The app sets APP before this file ({ id, name, db, version, defaults }) and adds its views, prompts and lines after. */
 
 /* ================= utils (from Reel) ================= */
@@ -49,8 +50,7 @@ const listLines = out => String(out || "").split("\n").map(x => cleanLine(x.repl
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
 /* ================= storage ================= */
-// The same small wrapper Reel uses. REEL is Reel's database, opened read-only (never created, never written);
-// DB is this app's own.
+// The same small wrapper Reel used to use. DB is this app's own database.
 function makeDB(name){
   const o = { name, db: null,
     tx(store, mode, fn){ return new Promise((res, rej) => {
@@ -66,17 +66,6 @@ function makeDB(name){
   };
   return o;
 }
-const REEL = makeDB("reel");
-// True when Reel has storage on this phone. Opening with no version never upgrades; if the database doesn't exist the
-// upgrade is aborted so nothing is created behind Reel's back.
-REEL.open = () => new Promise(res => {
-  if (REEL.db) return res(true);
-  let r; try { r = indexedDB.open("reel"); } catch(e){ return res(false); }
-  r.onupgradeneeded = () => { try { r.transaction.abort(); } catch(e){} };
-  r.onsuccess = () => { const d = r.result; if (!d.objectStoreNames.contains("posts") || !d.objectStoreNames.contains("media") || !d.objectStoreNames.contains("kv")){ d.close(); return res(false); } REEL.db = d; d.onversionchange = () => { d.close(); REEL.db = null; }; res(true); };
-  r.onerror = () => res(false); r.onblocked = () => res(false);
-});
-const reelGet = async (st, k) => { try { if (!REEL.db && !(await REEL.open())) return undefined; return await REEL.get(st, k); } catch(e){ return undefined; } };
 const DB = makeDB(APP.db);
 DB.open = () => new Promise((res, rej) => {
   const r = indexedDB.open(APP.db, 1);
@@ -88,37 +77,44 @@ DB.put = (st,v,k) => DB.tx(st,"readwrite",s=> k===undefined ? s.put(v) : s.put(v
 DB.del = (st,k) => DB.tx(st,"readwrite",s=>s.delete(k));
 DB.clear = st => DB.tx(st,"readwrite",s=>s.clear());
 
-/* ================= Reel's library ================= */
-// Accounts, the writer's address and every photo and video Reel fetched, per account. Posts in Reel (up or queued) carry the
-// files, and a file counts only while its blob is still there.
-const LIB = { ok:false, accounts:[], current:"", secret:{ url:"", model:"" }, settings:{}, photos:new Map(), mediaKeys:new Set(), loadedAt:0, taste:{}, seen:{} };
+/* ================= Reel's library (the engine on the PC) ================= */
+// Accounts and every photo and video Reel's engine holds, per account, read in one go from ../api/library. The engine
+// lists the files of each account's posts (up, queued or taken down) that have their ready-made copies on the PC, plus
+// how you rated and when you last saw each file in Reel. The engine is at ../ (/reel/) from /reel/x/ and /reel/r/.
+const ENGINE = "../";
+const LIB = { ok:false, err:"", accounts:[], current:"", secret:{ url:"", model:"" }, settings:{}, photos:new Map(), media:new Map(), mediaKeys:new Set(), loadedAt:0, taste:{}, seen:{} };
 async function loadLibrary(){
-  const okOpen = await REEL.open();
-  if (!okOpen){ LIB.ok = false; LIB.accounts = []; LIB.photos = new Map(); return false; }
-  let accounts, posts, keys;
+  let j;
   try {
-    accounts = (await REEL.get("kv","accounts")) || [];
-    LIB.current = (await REEL.get("kv","current")) || "";
-    LIB.secret = { url:"", model:"", ...((await REEL.get("kv","secret")) || {}) };
-    LIB.settings = (await REEL.get("kv","settings")) || {};
-    posts = (await REEL.all("posts")) || [];
-    keys = new Set((await REEL.keys("media")) || []);
-    const misc = (await REEL.get("kv","misc")) || {};
-    LIB.taste = misc.taste || {}; LIB.seen = misc.postSeen || {};
-  } catch(e){ LIB.ok = false; return false; }
-  const photos = new Map();
-  for (const a of accounts){
+    const r = await fetch(ENGINE + "api/library", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    j = await r.json();
+    if (!j || !Array.isArray(j.accounts)) throw new Error("bad library");
+  } catch(e){ LIB.ok = false; LIB.err = "conn"; return false; }
+  LIB.err = "";
+  const photos = new Map(), media = new Map();
+  for (const a of j.accounts){
     const seen = new Set(), list = [];
-    for (const p of posts) if (p.acct === a.id && p.kind !== "story") for (const f of p.files || []){
-      const k = String(f.key || ""), pcs = k.startsWith("pcs:");
-      if (!(isImage(f.mime) || isVideo(f.mime)) || !k || k.startsWith("url:") || !(pcs || keys.has(k)) || seen.has(k)) continue;
-      seen.add(k); if (pcs) keys.add(k); list.push({ key: k, mime: f.mime });
+    for (const m of (j.media && j.media[a.id]) || []){
+      const k = String(m.item || "");
+      if (!k || !m.thumb || seen.has(k)) continue;
+      const video = m.kind === "video";
+      if (video && !m.video) continue;
+      seen.add(k);
+      const mime = video ? "video/mp4" : "image/jpeg";
+      media.set(k, { key: k, mime, thumb: ENGINE + m.thumb, full: m.full ? ENGINE + m.full : "", video: video ? ENGINE + m.video : "", poster: m.poster ? ENGINE + m.poster : "", w: m.w || 0, h: m.h || 0 });
+      list.push({ key: k, mime });
     }
     photos.set(a.id, list);
   }
-  // a.npc marks Reel's "other accounts": made-up creators who post here too, as other people, never as you
-  LIB.accounts = accounts.map(a => ({ pronouns: "she", heat: "explicit", level: "normal", followers: 2400, following: 300, growth: 35, ...a }));
-  LIB.photos = photos; LIB.mediaKeys = keys;
+  // a.npc marks Reel's "other accounts": made-up creators who post here too, as other people, never as you.
+  // The profile picture is an address (a file next to Reel, or a picture on the web), kept as a "url:" key.
+  LIB.accounts = j.accounts.map(a => ({ pronouns: "she", heat: "explicit", level: "normal", followers: 2400, following: 300, growth: 35, ...a, npc: !!a.npc, avatar: a.pfp ? "url:" + (/^https?:\/\//i.test(a.pfp) ? a.pfp : ENGINE + a.pfp) : "" }));
+  LIB.current = j.current || "";
+  LIB.taste = j.taste || {}; LIB.seen = j.seen || {};
+  LIB.photos = photos; LIB.media = media; LIB.mediaKeys = new Set(media.keys());
+  // The engine knows every file's size, so a card keeps its shape before the photo loads even the first time.
+  for (const [k, m] of media) if (!DIMS[k] && m.w && m.h) DIMS[k] = +(m.w / m.h).toFixed(4);
   LIB.ok = ownAccts().length > 0 && [...photos.values()].some(l => l.length > 0);
   LIB.loadedAt = now();
   return LIB.ok;
@@ -154,80 +150,26 @@ async function setAcct(a, patch){ S.settings.acct = { ...(S.settings.acct || {})
 async function switchTo(id){ const a = accountById(id); if (!a || a.npc) return; S.current = id; await saveCurrent(); }
 
 /* ================= media ================= */
-const urls = new Map();
-// A blob from this app's own storage first (small copies), then from Reel's.
-async function blobFor(key){
-  let b; try { b = await DB.get("media", key); } catch(e){}
-  if (b) return b;
-  return reelGet("media", key);
-}
-async function mediaURL(key){
+// Every file is a ready-made copy on the PC, fetched by address: thumb for grids and small copies, full for photos,
+// video + poster for videos. A "url:" key is an address as it is (profile pictures).
+const entryOf = key => LIB.media.get(String(key));
+function mediaURL(key){
   if (!key) return "";
-  if (String(key).startsWith("url:")) return key.slice(4);
-  if (String(key).startsWith("pcs:")) return pcURL(key.slice(4));
-  if (urls.has(key)) return urls.get(key);
-  const blob = await blobFor(key);
-  if (!blob) return "";
-  const u = URL.createObjectURL(blob); urls.set(key, u); return u;
+  key = String(key);
+  if (key.startsWith("url:")) return key.slice(4);
+  const m = entryOf(key); if (!m) return "";
+  return m.full || m.poster || m.thumb;
 }
-// Big videos stay on the PC and stream from Reel's address.
-const pcURL = rel => "../pc/file/" + rel.split("/").map(encodeURIComponent).join("/");
-async function videoURL(key, mime, copy){
-  if (String(key).startsWith("pcs:")) return pcURL(key.slice(4));
-  if (!copy && urls.has(key)) return urls.get(key);
-  const blob = await blobFor(key); if (!blob) return "";
-  const type = blob.type || mime || "video/mp4";
-  const u = URL.createObjectURL(copy ? new Blob([await blob.arrayBuffer()], { type }) : new Blob([blob], { type }));
-  if (!copy) urls.set(key, u);
-  return u;
+// The small copy for a grid or a thumbnail (a video's still).
+function smallURL(key){
+  if (!key) return "";
+  key = String(key);
+  if (key.startsWith("url:")) return key.slice(4);
+  const m = entryOf(key);
+  return m ? m.thumb : "";
 }
-// The still a grid shows for a video: a frame from a third of the way in (or a second, whichever is sooner).
-async function videoFrame(key, mime){
-  const url = await videoURL(key, mime); if (!url) return null;
-  const vd = document.createElement("video"); vd.muted = true; vd.playsInline = true; vd.preload = "auto"; vd.src = url;
-  try {
-    await new Promise((res, rej) => { vd.onloadeddata = res; vd.onerror = rej; setTimeout(rej, 12e3); vd.load(); });
-    await new Promise((res, rej) => { vd.onseeked = res; setTimeout(rej, 8e3); vd.currentTime = Math.min(1, (vd.duration || 3) / 3); });
-    return vd;
-  } catch(e){ vd.removeAttribute("src"); vd.load(); return null; }
-}
-// Grids use a small copy of each photo, made once and kept here (Reel's own copy is used when it already made one).
-// A screen of full-size phone photos is more than iPhone Safari can hold.
-let smallChain = Promise.resolve();
-const smallJobs = new Map();
-function smallPhoto(key){
-  if (smallJobs.has(key)) return smallJobs.get(key);
-  const job = smallChain.then(async () => {
-    const tk = key + "_sm";
-    if (await DB.get("media", tk)) return tk;
-    if (LIB.mediaKeys.has(tk)) return tk;
-    if (VMIME[key]){
-      const vd = await videoFrame(key, VMIME[key]); if (!vd) return "";
-      try {
-        const w = vd.videoWidth, h = vd.videoHeight; if (!w || !h) return "";
-        const k = Math.min(1, 480 / Math.min(w, h));
-        const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
-        c.getContext("2d").drawImage(vd, 0, 0, c.width, c.height);
-        const out = await new Promise(res => c.toBlob(res, "image/jpeg", .8)); c.width = c.height = 0; if (!out) return "";
-        await DB.put("media", out, tk); return tk;
-      } catch(e){ return ""; } finally { vd.removeAttribute("src"); vd.load(); }
-    }
-    const blob = await blobFor(key); if (!blob) return "";
-    const url = URL.createObjectURL(blob);
-    try {
-      const img = new Image(); img.src = url; await img.decode();
-      const w = img.naturalWidth, h = img.naturalHeight; if (!w || !h) return "";
-      const k = Math.min(1, 480 / Math.min(w, h));
-      const c = document.createElement("canvas"); c.width = Math.round(w*k); c.height = Math.round(h*k);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      const out = await new Promise(res => c.toBlob(res, "image/jpeg", .8)); c.width = c.height = 0; if (!out) return "";
-      await DB.put("media", out, tk); return tk;
-    } catch(e){ return ""; } finally { URL.revokeObjectURL(url); }
-  });
-  smallChain = job.catch(() => {});
-  smallJobs.set(key, job); job.then(tk => { if (!tk) smallJobs.delete(key); });
-  return job;
-}
+const videoURL = key => { const m = entryOf(key); return m ? m.video : ""; };
+const posterURL = key => { const m = entryOf(key); return m ? m.poster || m.thumb : ""; };
 // Width/height of every photo seen before, so a card keeps its space before the photo loads and the page doesn't jump.
 const DIMS = (() => { try { return JSON.parse(localStorage.getItem(APP.id + "-dims") || "{}"); } catch(e){ return {}; } })();
 let dimsSave = 0;
@@ -240,47 +182,30 @@ function noteDims(el, w, h){
   dimsSave = setTimeout(() => { try { localStorage.setItem(APP.id + "-dims", JSON.stringify(DIMS)); } catch(e){} }, 1000);
 }
 document.addEventListener("load", e => { const el = e.target; if (el.tagName !== "IMG") return; noteDims(el, el.naturalWidth, el.naturalHeight); el.classList.add("ld"); }, true);
+// Gives every picture and video in root its address. Pictures the browser already has load with no fade.
 async function hydrate(root){
   if (!root) return;
-  // Already-opened files go in straight away with no fade, so a redraw doesn't flicker; the rest load side by side.
-  const later = [];
-  for (const el of root.querySelectorAll("img[data-small]:not([data-sm])")){
-    el.dataset.sm = "1";
-    const k = String(el.dataset.media); if (k.startsWith("url:")) continue;
-    const hit = urls.get(k + "_sm");
-    if (hit){ el.classList.add("ld"); el.src = hit; continue; }
-    later.push(el);
-  }
   for (const el of root.querySelectorAll("img[data-media]")){
-    if (el.getAttribute("src") || el.dataset.sm) continue;
-    const k = String(el.dataset.media), hit = k.startsWith("url:") ? "" : urls.get(k);
-    if (hit){ el.classList.add("ld"); el.src = hit; } else later.push(el);
+    if (el.getAttribute("src")) continue;
+    const k = el.dataset.media;
+    const u = el.dataset.small !== undefined ? smallURL(k) || mediaURL(k) : mediaURL(k);
+    if (u) el.src = u;
   }
   for (const el of root.querySelectorAll("video[data-media]:not([data-hy])")){
     el.dataset.hy = "1";
-    const k = el.dataset.media, m = el.dataset.mime;
     el.addEventListener("loadedmetadata", () => noteDims(el, el.videoWidth, el.videoHeight));
     el.addEventListener("loadeddata", () => el.classList.add("ld"));
-    // A stored video that won't play gets one more try from a copy in memory, then says so.
-    el.addEventListener("error", async () => {
-      if (el.dataset.fb || k.startsWith("pcs:")){ const box = el.parentElement; if (box && !box.querySelector(".verr")) box.insertAdjacentHTML("beforeend", `<div class="verr">This video can't play here${k.startsWith("pcs:") ? " (is the PC on?)" : ""}</div>`); return; }
-      el.dataset.fb = "1"; const u = await videoURL(k, m, true); if (!u) return; el.src = u; el.load(); if (el.dataset.want === "1") el.play().catch(() => {});
-    });
+    el.addEventListener("error", () => { const box = el.parentElement; if (box && !box.querySelector(".verr")) box.insertAdjacentHTML("beforeend", `<div class="verr">This video can't play here (is the PC on?)</div>`); });
     vidSeen.observe(el);
   }
-  await Promise.all(later.map(async el => {
-    if (el.dataset.sm){ const sk = await smallPhoto(el.dataset.media); if (el.isConnected && !el.getAttribute("src")) el.src = await mediaURL(sk || el.dataset.media); return; }
-    const u = await mediaURL(el.dataset.media); if (u && !el.getAttribute("src")) el.src = u;
-  }));
 }
 // Videos play muted while at least half on screen; tap the speaker for sound. Grids show a still with a play mark.
-const VMIME = {};
-const vidSeen = new IntersectionObserver(async es => {
+const vidSeen = new IntersectionObserver(es => {
   for (const e of es){
     const vd = e.target;
     if (e.isIntersecting && e.intersectionRatio >= .5){
       vd.dataset.want = "1";
-      if (!vd.getAttribute("src")){ const u = await videoURL(vd.dataset.media, vd.dataset.mime); if (!u || vd.dataset.want !== "1") continue; vd.src = u; }
+      if (!vd.getAttribute("src")){ const u = videoURL(vd.dataset.media); if (!u) continue; vd.src = u; }
       // iPhone won't start one with sound unless a tap did: it plays muted instead of sitting frozen.
       vd.play().catch(err => { if (!err || err.name !== "NotAllowedError" || vd.muted) return; vd.muted = true; vd.play().catch(() => {}); const b = vd.parentElement.querySelector("[data-vsound]"); if (b) b.classList.remove("on"); });
     } else { vd.dataset.want = ""; if (!vd.paused) vd.pause(); }
@@ -298,9 +223,8 @@ document.addEventListener("click", e => {
 function mediaTag(f, cls, opts={}){
   const ar = DIMS[f.key] ? ` style="--ar:${DIMS[f.key]}"` : "";
   if (isVideo(f.mime)){
-    VMIME[f.key] = f.mime;
     if (opts.small) return `<img class="${cls||""}" data-media="${esc(f.key)}" data-small alt=""${ar} loading="lazy"><span class="vmark" aria-hidden="true">▶</span>`;
-    return `<video class="${cls||""}" data-media="${esc(f.key)}" data-mime="${esc(f.mime)}" muted playsinline loop preload="none"${ar}></video><button type="button" class="vsound" data-vsound aria-label="Sound"></button>`;
+    return `<video class="${cls||""}" data-media="${esc(f.key)}" data-mime="${esc(f.mime)}" poster="${esc(posterURL(f.key))}" muted playsinline loop preload="none"${ar}></video><button type="button" class="vsound" data-vsound aria-label="Sound"></button>`;
   }
   return `<img class="${cls||""}" data-media="${esc(f.key)}"${opts.small ? " data-small" : ""} alt=""${ar} ${opts.lazy===false?"":'loading="lazy"'}>`;
 }
@@ -504,9 +428,10 @@ function menLine(a, r, extra){
   return wrongVoice(t, a, "comments") ? pick(MEN_EXPLICIT, r) : t;
 }
 
-/* ================= the writer (Ollama on the owner's PC, address from Reel) ================= */
+/* ================= the writer (Ollama on the owner's PC) ================= */
+// The PC that serves this page proxies Ollama at its root, so with no address set the page's own origin is it.
 const DEFAULT_MODEL = "rp";
-const ollamaURL = () => (LIB.secret.url || "").trim().replace(/\/+$/, "");
+const ollamaURL = () => ((LIB.secret.url || "").trim() || location.origin).replace(/\/+$/, "");
 const ollamaModel = () => (LIB.secret.model || "").trim() || DEFAULT_MODEL;
 function aiError(kind, message){ const e = new Error(message); e.kind = kind; return e; }
 const errKind = e => (e && e.kind) || "";
@@ -634,7 +559,6 @@ async function writerRun(){
   } finally { writing = false; }
 }
 function writerLine(){
-  if (!ollamaURL()) return "Off: Reel has no Ollama address. Set it in Reel's Settings and it's used here too. The built-in lines fill in meanwhile.";
   if (S.writerMsg) return S.writerMsg;
   const n = S.posts.filter(needsWriting).length;
   return n ? `${n} ${n === 1 ? "post" : "posts"} waiting for the writer.` : `Everything is written with ${ollamaModel()}.`;
@@ -981,11 +905,24 @@ async function comeBack(){
    the photo, so they follow it into reposts, and what you liked, disliked or saw in Reel counts here too. */
 // a text post (no photo) is rated and seen under its own id
 const fileKeys = p => p.files && p.files.length ? p.files.map(f => f.key) : ["t:" + p.id], streamKey = p => fileKeys(p)[0];
-// Upvote, like or save here = one up for the photo; downvote = one down. Kept per photo in this app's misc.
+// Upvote, like or save here = one up for the photo; downvote = one down. Kept per photo in this app's misc, and told to
+// the engine too (one up, one down or an undo per photo, as the rating changes), so Reel's feeds learn from it.
+let tasteChain = Promise.resolve();
+function tellTaste(key, vote){
+  if (!LIB.mediaKeys.has(key)) return;
+  tasteChain = tasteChain.then(() => fetch(ENGINE + "api/taste", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item: key, vote }) })).then(() => {}, () => {});
+}
+const tasteDir = x => !x ? "" : x.down ? "down" : x.up ? "up" : "";
 function rememberRating(p){
   const up = (p.vote > 0 ? 1 : 0) + (p.liked ? 1 : 0) + (p.saved ? 1 : 0), down = p.vote < 0 ? 1 : 0, T = (S.misc.taste ||= {});
   let changed = false;
-  for (const k of fileKeys(p)){ const x = T[k]; if ((x ? x.up : 0) === up && (x ? x.down : 0) === down) continue; if (up || down) T[k] = { up, down }; else delete T[k]; changed = true; }
+  for (const k of fileKeys(p)){
+    const x = T[k]; if ((x ? x.up : 0) === up && (x ? x.down : 0) === down) continue;
+    const was = tasteDir(x), is = tasteDir({ up, down });
+    if (up || down) T[k] = { up, down }; else delete T[k];
+    changed = true;
+    if (was !== is){ if (was) tellTaste(k, "undo"); if (is) tellTaste(k, is); }
+  }
   if (changed){ clearTimeout(seenSave); seenSave = setTimeout(saveMisc, 800); }
 }
 function tasteOf(p){
@@ -1135,11 +1072,14 @@ function render(){
   Promise.all([hydrate(v), hydrate($("#top")), hydrate(document.querySelector(".tabbar"))]);
   wireSeen(v);
 }
-// Reel hasn't fetched anything yet (no accounts, or no photos): nothing to post from.
+// Nothing to post from: the PC couldn't be reached, or Reel's engine has no accounts or no photos yet.
 function renderEmpty(){
   document.querySelector(".tabbar").hidden = true;
   setTop(`<h1 class="logo">${esc(APP.name)}</h1>`);
-  $("#view").innerHTML = `<div class="empty"><div class="emptymark">${APP.mark || ""}</div><h2>Open Reel first</h2><p>${esc(APP.name)} posts the photos Reel fetched from your Drive folders, for the same accounts. Open Reel first so it can fetch your photos, then come back here.</p><p class="hint">On iPhone, an app added to the Home Screen can't see another one's photos. Open ${esc(APP.name)} from inside Reel instead: Reel → Settings → Open ${esc(APP.name)}.</p><a class="btn primary" href="../">Open Reel</a><button class="btn" type="button" data-recheck>Check again</button></div>`;
+  const body = LIB.err === "conn"
+    ? `<h2>Can't reach your PC</h2><p>${esc(APP.name)} posts the photos Reel's engine holds on your PC, for the same accounts. Check that the PC is on and Tailscale is connected on this phone, then check again.</p>`
+    : `<h2>Open Reel first</h2><p>${esc(APP.name)} posts the photos Reel fetched from your Drive folders, for the same accounts. Open Reel first so it can fetch and prepare your photos, then come back here.</p>`;
+  $("#view").innerHTML = `<div class="empty"><div class="emptymark">${APP.mark || ""}</div>${body}<a class="btn primary" href="../">Open Reel</a><button class="btn" type="button" data-recheck>Check again</button></div>`;
 }
 // Pull the feed down from the top (or tap Home) and it reloads with whatever is new, like Instagram.
 let refreshing = false, pull = null;
@@ -1208,7 +1148,7 @@ document.addEventListener("click", async e => {
   const d = t.dataset;
   if (d.href !== undefined){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
-  if ("recheck" in d){ t.textContent = "Checking…"; await loadLibrary(); if (LIB.ok){ await afterLibrary(); render(); } else { t.textContent = "Still nothing. Open Reel first."; } return; }
+  if ("recheck" in d){ t.textContent = "Checking…"; await loadLibrary(); if (LIB.ok){ await afterLibrary(); render(); } else { renderEmpty(); toast(LIB.err === "conn" ? "Still can't reach the PC." : "Still nothing to post. Open Reel first."); } return; }
   if (d.reveal !== undefined){ e.preventDefault(); revealed.add(d.reveal); const box = t.closest(".nsfw"); if (box){ box.classList.remove("nsfw"); const o = box.querySelector(".nsfwcover"); if (o) o.remove(); } return; }
   if ("switch" in d){ accountSwitcher(d.switchto ? () => go(d.switchto) : null); return; }
   if (d.accgo !== undefined){ await switchTo(d.accgo); render(); window.scrollTo(0, 0); return; }

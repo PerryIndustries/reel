@@ -276,3 +276,57 @@ test('activity is newest first, capped at 100, and a deleted account vanishes fr
   r = await getJson(`${base}/reel/api/activity`);
   assert.ok(r.body.every((x) => x.acct.id === 'a1'));
 });
+
+test('library: every account with its ready files from non-story posts of any status, deduped, with taste and seen', async (t) => {
+  const e = await engine(t);
+  const { ctx, base } = e;
+  addAcct(ctx, 'own2', { own: true, pfp: 'pfp/r003.jpg' });
+  ctx.db.prepare('UPDATE accounts SET created_at = created_at + 1000 WHERE id = ?').run('own2');
+  addAcct(ctx, 'own1', { own: true, pfp: 'pfp/r002.jpg', followers: 7000 });
+  ctx.db.prepare("UPDATE accounts SET settings = ? WHERE id = ?").run(JSON.stringify({ pronouns: 'he', heat: 'explicit', following: 420, verified: true }), 'own1');
+  addAcct(ctx, 'npc1', { pfp: 'https://s4.anilist.co/x.png' });
+  addAcct(ctx, 'quiet');
+  for (const k of ['k1', 'k2', 'k3', 'k4', 'story']) addItem(ctx, k);
+  addItem(ctx, 'vid', { kind: 'video', w: 720, h: 1280, dur: 4 });
+  addItem(ctx, 'raw'); ctx.db.prepare('UPDATE items SET derived = 0 WHERE key = ?').run('raw');
+  addItem(ctx, 'bad'); ctx.db.prepare("UPDATE items SET err = 'ffmpeg failed' WHERE key = ?").run('bad');
+  addItem(ctx, 'gone'); ctx.db.prepare('UPDATE items SET gone = 1 WHERE key = ?').run('gone');
+  ctx.db.prepare('UPDATE items SET up = 2, seen_at = 1234 WHERE key = ?').run('k1');
+  ctx.db.prepare('UPDATE items SET down = 1 WHERE key = ?').run('vid');
+  ctx.db.prepare('UPDATE items SET up = 9, seen_at = 99 WHERE key = ?').run('story');
+  addPost(ctx, { id: 'live1', acct: 'own1', keys: ['k1', 'k2'], ageH: 10 });
+  addPost(ctx, { id: 'again', acct: 'own1', keys: ['k2', 'raw', 'bad', 'gone', 'missing'], ageH: 5 });
+  addPost(ctx, { id: 'queued', acct: 'own1', keys: ['vid'], status: 'queued' });
+  addPost(ctx, { id: 'down', acct: 'own1', keys: ['k3'], status: 'down' });
+  addPost(ctx, { id: 'st', acct: 'own1', keys: ['story'], kind: 'story', ageH: 1 });
+  addPost(ctx, { id: 'n1', acct: 'npc1', keys: ['k4'] });
+  const r = await getJson(`${base}/reel/api/library`);
+  assert.equal(r.status, 200);
+  assert.deepEqual(Object.keys(r.body).sort(), ['accounts', 'current', 'media', 'seen', 'taste']);
+  assert.deepEqual(r.body.accounts.map((a) => a.id), ['own1', 'own2', 'npc1', 'quiet'], 'own accounts first, then by creation');
+  assert.equal(r.body.current, 'own1');
+  const own1 = r.body.accounts[0];
+  assert.deepEqual(own1, {
+    id: 'own1', handle: 'h_own1', name: 'Name own1', pfp: 'pfp/r002.jpg', own: true, npc: false, bio: 'bio own1',
+    pronouns: 'he', heat: 'explicit', followers: 7000, following: 420, verified: true, seed: own1.seed, startedAt: own1.startedAt,
+  });
+  assert.equal(typeof own1.seed, 'number');
+  assert.equal(typeof own1.startedAt, 'number');
+  const npc = r.body.accounts[2];
+  assert.equal(npc.npc, true);
+  assert.equal(npc.pfp, 'https://s4.anilist.co/x.png');
+  assert.deepEqual([npc.pronouns, npc.heat, npc.verified], ['she', 'suggestive', false], 'defaults when the settings hold none');
+  assert.equal(npc.following, (await getJson(`${base}/reel/api/acct/npc1`)).body.acct.following, 'the same number the profile page shows');
+  assert.deepEqual(r.body.media.own1.map((m) => m.item).sort(), ['k1', 'k2', 'k3', 'vid'], 'deduped, story and unready items left out, queued and down posts counted');
+  const entry = (k) => r.body.media.own1.find((m) => m.item === k);
+  assert.deepEqual(entry('k1'), { kind: 'photo', item: 'k1', thumb: 'media/k1/thumb.jpg', full: 'media/k1/full.jpg', video: null, poster: null, w: 1080, h: 1350, dur: null });
+  assert.deepEqual(entry('vid'), { kind: 'video', item: 'vid', thumb: 'media/vid/thumb.jpg', full: null, video: 'media/vid/video.mp4', poster: 'media/vid/poster.jpg', w: 720, h: 1280, dur: 4 });
+  assert.deepEqual(r.body.media.npc1.map((m) => m.item), ['k4']);
+  assert.deepEqual(r.body.media.own2, []);
+  assert.deepEqual(r.body.media.quiet, []);
+  assert.deepEqual(r.body.taste, { k1: { up: 2, down: 0 }, vid: { up: 0, down: 1 } }, 'only files in the lists');
+  assert.deepEqual(r.body.seen, { 'f:k1': 1234 });
+  ctx.db.prepare('DELETE FROM accounts WHERE id = ?').run('npc1');
+  const after = await getJson(`${base}/reel/api/library`);
+  assert.ok(!after.body.accounts.some((a) => a.id === 'npc1') && !('npc1' in after.body.media), 'a deleted account vanishes');
+});
