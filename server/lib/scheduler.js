@@ -95,7 +95,7 @@ function usage(ctx) {
 // Items this account has posted before (its taken-down posts, via the posts_acct index).
 const postedBy = (db, acctId) => new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.acct = ? AND p.status = 'down' AND p.kind <> 'story'`).all(acctId).map((r) => r.v));
 
-const storiesFolder = (it) => String(it.folder || '').split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() === 'stories';
+export const storiesFolder = (it) => String(it.folder || '').split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() === 'stories';
 
 // Random among the never-posted items when there are any (new photos before reposts), otherwise among all.
 function pickItem(ctx, pool, posted) {
@@ -244,6 +244,18 @@ export function publish(ctx, postId, now) {
     else if (!story && !db.prepare('SELECT 1 FROM comments WHERE post = ? LIMIT 1').get(post.id)) enqueue(ctx, 'comments', post.id, 2, now, null);
   });
   return db.prepare('SELECT * FROM posts WHERE id = ?').get(post.id);
+}
+
+// The feed picked a file that is in no post yet: it goes up right now as its own post on its account.
+// Returns the live post row, null when the file is gone, not ready, already in a post or its account is missing.
+export function postNow(ctx, key, now) {
+  const { db } = ctx;
+  const item = db.prepare(`SELECT key, folder, kind, acct FROM items WHERE key = ? AND ${POSTABLE}`).get(key);
+  if (!item || storiesFolder(item) || usage(ctx).has(key)) return null;
+  const acct = db.prepare('SELECT * FROM accounts WHERE id = ?').get(item.acct);
+  if (!acct) return null;
+  const id = addPost(ctx, acct, [item], now, now, postedBy(db, acct.id).has(key) ? 1 : 0);
+  return publish(ctx, id, now);
 }
 
 // Publishes everything whose due_at has passed (a PC that was off catches up on its first tick).

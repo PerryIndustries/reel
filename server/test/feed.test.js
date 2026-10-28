@@ -226,3 +226,23 @@ test('paging: a cursor re-read returns the same cards, an unknown stream is null
   const pg = page(empty, newStream(empty, 'home', T), null, T);
   assert.deepEqual(pg, { stream: pg.stream, cursor: null, cards: [] });
 });
+
+test('a file in no post still comes up on home and reels, and goes up as a live post when picked', (t) => {
+  const ctx = makeCtx(t, 21);
+  addAcct(ctx, 'a0');
+  addItem(ctx, 'posted', 'a0'); addPost(ctx, { id: 'pp', acct: 'a0', key: 'posted' });
+  addItem(ctx, 'loose1', 'a0');
+  addItem(ctx, 'loosev', 'a0', { kind: 'video' });
+  ctx.db.prepare("INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at) VALUES ('st', 'stories/st', 'stories', 'photo', 'a0', 1, 0, ?)").run(T);
+  const cards = drain(ctx, 'home');
+  assert.equal(cards.length, 3, 'the posted file and both loose ones, never the stories-folder one');
+  const live = ctx.db.prepare("SELECT kind, items FROM posts WHERE status = 'live' ORDER BY items").all();
+  assert.deepEqual(live.map((p) => JSON.parse(p.items)[0]).sort(), ['loose1', 'loosev', 'posted']);
+  assert.equal(live.find((p) => p.items.includes('loosev')).kind, 'reel');
+  // once posted they are ordinary posts: a second stream shows each once, no duplicates
+  assert.equal(drain(ctx, 'home').length, 3);
+  const ctx2 = makeCtx(t, 22);
+  addAcct(ctx2, 'a0');
+  addItem(ctx2, 'p1', 'a0'); addItem(ctx2, 'v1', 'a0', { kind: 'video' });
+  assert.deepEqual(drain(ctx2, 'reels').map((c) => c.kind), ['reel']);
+});

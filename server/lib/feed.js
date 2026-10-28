@@ -2,7 +2,7 @@
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
 // a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix.
 // A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
-import { publish } from './scheduler.js';
+import { publish, postNow, storiesFolder } from './scheduler.js';
 import { card } from './cards.js';
 
 const DAY = 24 * 3600_000;
@@ -69,6 +69,17 @@ function candidates(ctx, scope) {
     seenFirst.add(first);
     out.push({ id: p.id, acct: p.acct, status: p.status, up_at: p.up_at, pinned: p.pinned, first, item });
   }
+  if (m) return out;
+  // Home, reels and explore draw from the whole library: a file in no post yet is a candidate too, and goes up
+  // as a post the moment it is picked.
+  const loose = ctx.db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down FROM items i JOIN accounts a ON a.id = i.acct
+    WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 ${scope === 'reels' ? "AND i.kind = 'video'" : ''}
+    AND i.key NOT IN (SELECT j.value FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued') AND p.kind <> 'story')`).all();
+  for (const it of loose) {
+    if (seenFirst.has(it.key) || storiesFolder(it)) continue;
+    seenFirst.add(it.key);
+    out.push({ id: null, acct: it.acct, status: 'loose', first: it.key, item: it });
+  }
   return out;
 }
 
@@ -133,7 +144,7 @@ export function page(ctx, streamId, cursor, now, scope) {
     const i = pickOne(ctx, s, now);
     if (i < 0) { s.done = true; break; }
     const [c] = s.pool.splice(i, 1);
-    let row = ctx.db.prepare('SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.id = ?').get(c.id);
+    let row = c.id ? ctx.db.prepare('SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.id = ?').get(c.id) : postNow(ctx, c.first, now);
     if (row && row.status === 'queued') row = publish(ctx, c.id, now);
     if (!row || row.status !== 'live') continue;
     s.emitted.push(row.id);
