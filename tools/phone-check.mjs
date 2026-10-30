@@ -205,6 +205,33 @@ try {
     await waitFor(() => sawPost('POST', '/api/taste', (b) => b.vote === 'undo'), 5000, 'taste undo');
   });
 
+  await check('A thumbs-down card stays folded after another tab, and Undo still brings it back', async () => {
+    const id = await page.evaluate(() => document.querySelector('article.post [data-down]').dataset.down);
+    await page.locator(`article.post[data-post="${id}"] [data-down]`).first().click();
+    await page.evaluate(() => { location.hash = '#/activity'; });
+    await page.waitForSelector('#view article.post', { state: 'detached', timeout: 5000 });
+    await page.evaluate(() => { location.hash = '#/'; });
+    await page.waitForSelector(`article.post[data-post="${id}"]`, { timeout: 5000 });
+    const fold = await page.evaluate((p) => { const el = document.querySelector(`article.post[data-post="${p}"]`); return { bar: !!el.querySelector('.lessbar'), btn: !!el.querySelector('[data-down]') }; }, id);
+    if (!fold.bar || fold.btn) throw new Error(`card came back: ${JSON.stringify(fold)}`);
+    await page.locator(`article.post[data-post="${id}"] [data-undown]`).first().click();
+    await page.waitForSelector(`article.post[data-post="${id}"] [data-down]`, { timeout: 5000 });
+  });
+
+  await check('The reels viewer has a thumbs-down that votes and moves to the next video', async () => {
+    await page.goto(base + '#/reels');
+    await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
+    await page.locator('#rgrid .tile').first().click();
+    await page.waitForSelector('#rv [data-rdown]', { timeout: 5000, state: 'attached' });
+    const before = posts.filter((p) => p.url.endsWith('/api/taste')).length;
+    await page.locator('#rv .r [data-rdown]').first().click();
+    await waitFor(() => posts.filter((p) => p.url.endsWith('/api/taste')).length > before, 5000, 'taste down from the viewer');
+    const body = JSON.parse(posts.filter((p) => p.url.endsWith('/api/taste')).at(-1).body);
+    if (body.vote !== 'down' || !body.item) throw new Error(`sent ${JSON.stringify(body)}`);
+    await waitFor(async () => (await page.evaluate(() => document.getElementById('rv').scrollTop)) > 0, 5000, 'next video');
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+  });
+
   await check('Reels tab shows tiles and the viewer reuses a pool of 3 videos', async () => {
     await page.goto(base + '#/reels');
     await page.waitForSelector('#rgrid .tile', { timeout: 8000 });

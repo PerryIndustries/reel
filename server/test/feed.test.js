@@ -133,6 +133,39 @@ test('taste up raises an item\'s pick frequency in the first page and down lower
   assert.ok((hits.p1 || 0) < avg * 0.5, `down ${hits.p1 || 0} vs neutral ${avg}`);
 });
 
+test('a thumbs-down counts in a stream that was already open', (t) => {
+  const ctx = makeCtx(t, 12);
+  for (let a = 0; a < 30; a++) {
+    addAcct(ctx, `a${a}`);
+    addItem(ctx, `k${a}`, `a${a}`);
+    addPost(ctx, { id: `p${a}`, acct: `a${a}`, key: `k${a}` });
+  }
+  let hits = 0;
+  for (let s = 0; s < 60; s++) {
+    ctx.db.prepare('UPDATE items SET down = 0').run();
+    const id = newStream(ctx, 'explore', T);
+    ctx.db.prepare("UPDATE items SET down = 3 WHERE key = 'k1'").run();
+    hits += page(ctx, id, null, T).cards.filter((c) => c.id === 'p1').length;
+  }
+  assert.equal(hits, 0);
+});
+
+test('a card thumbed down is left out when the stream is read again from the start', (t) => {
+  const ctx = makeCtx(t, 13);
+  for (let a = 0; a < 12; a++) {
+    addAcct(ctx, `a${a}`);
+    addItem(ctx, `k${a}`, `a${a}`);
+    addPost(ctx, { id: `p${a}`, acct: `a${a}`, key: `k${a}` });
+  }
+  const id = newStream(ctx, 'home', T);
+  const first = page(ctx, id, null, T).cards;
+  const gone = first[0].id;
+  ctx.db.prepare('UPDATE items SET down = 1 WHERE key = ?').run(gone.replace('p', 'k'));
+  const again = page(ctx, id, null, T).cards.map((c) => c.id);
+  assert.ok(!again.includes(gone));
+  assert.ok(again.includes(first[1].id));
+});
+
 test('a queued post picked into a stream becomes live', (t) => {
   const ctx = makeCtx(t, 3);
   addAcct(ctx, 'a0');

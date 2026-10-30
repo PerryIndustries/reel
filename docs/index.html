@@ -723,6 +723,7 @@ class Feed {
     this.near.unobserve(old); old.replaceWith(el);
     it.el = el; it.real = true; this.real++;
     this.near.observe(el); wireCard(el);
+    if (it.card.less) foldCard(el);
     if (above){ const dh = el.offsetHeight - oldH; if (dh) window.scrollBy(0, dh); }
     VM.sync();
   }
@@ -919,13 +920,16 @@ async function rateUp(id, card){
     await Promise.all(items.map(item => send("POST", "taste", { item, vote: "up" })));
   } catch(e){ if (!isDown(e)) toast("Couldn't save that: " + e.message); }
 }
+function foldCard(el){
+  el.querySelectorAll("video").forEach(x => { VM.unload(x); playedVids.delete(x); });
+  el.dataset.was = el.innerHTML; el.classList.add("less");
+  el.innerHTML = `<div class="pad lessbar"><span>Got it, you'll see this less.</span><button type="button" class="link" data-undown="${esc(el.dataset.post)}">Undo</button></div>`;
+}
 async function rateDown(id, card){
   const el = card || document.querySelector(`[data-post="${CSS.escape(id)}"]`); if (!el) return;
   const items = (el.dataset.items || "").split("|").filter(Boolean);
-  el.querySelectorAll("video").forEach(x => { VM.unload(x); playedVids.delete(x); });
-  el.dataset.was = el.innerHTML; el.classList.add("less");
-  const h = el.offsetHeight;
-  el.innerHTML = `<div class="pad lessbar"><span>Got it, you'll see this less.</span><button type="button" class="link" data-undown="${esc(el.dataset.post)}">Undo</button></div>`;
+  if (el._item) el._item.card.less = true;   // scrolling away and back, or another tab, redraws the card from this
+  foldCard(el);
   el._lessItems = items;
   try { await Promise.all(items.map(item => send("POST", "taste", { item, vote: "down" }))); }
   catch(e){ if (!isDown(e)) toast("Couldn't save that: " + e.message); }
@@ -933,6 +937,7 @@ async function rateDown(id, card){
 async function undoDown(id, card){
   const el = card; if (!el || !el.dataset.was) return;
   const items = el._lessItems || (el.dataset.items || "").split("|").filter(Boolean);
+  if (el._item) delete el._item.card.less;
   el.innerHTML = el.dataset.was; delete el.dataset.was; el.classList.remove("less");
   wireCard(el); VM.sync();
   try { await Promise.all(items.map(item => send("POST", "taste", { item, vote: "undo" }))); } catch(e){ /* the card is back either way */ }
@@ -1236,6 +1241,7 @@ function openReels(list, start, st){
         <a href="#/c/${esc(c.id)}" data-closefull>${I.comment}<span>${fmt(c.comments)}</span></a>
         <button type="button" data-share>${I.share}</button>
         <button type="button" data-rmute>${reelsMuted ? I.muted : I.sound}</button>
+        <button type="button" data-rdown="${esc(c.id)}" class="${c.less ? "liked" : ""}" aria-label="Show less like this">${I.thumbDown}</button>
       </div>
       <div class="info"><a class="u" href="#/acct/${esc(a.id)}" data-closefull>${av(32, a)}<span>${esc(handleOf(a))}</span></a><div class="clamp">${esc(c.caption || "")}</div><div class="small" style="opacity:.85;margin-top:4px">${esc(ago(c.at || now(), true))}</div></div>`);
     wireScrub(s);
@@ -1343,6 +1349,14 @@ document.addEventListener("click", async e => {
     const c = RV && RV.cards.find(x => x.id === t.dataset.rlike); if (!c) return;
     c.liked = !c.liked; t.className = c.liked ? "liked" : ""; t.innerHTML = (c.liked ? I.heartOn : I.heart) + `<span>${fmt(c.likes + (c.liked ? 1 : 0))}</span>`;
     try { await send("POST", "like", { post: c.id, on: c.liked }); } catch(err){ /* shown again next time */ }
+    return;
+  }
+  if (t.dataset.rdown){
+    const c = RV && RV.cards.find(x => x.id === t.dataset.rdown); if (!c) return;
+    c.less = !c.less; t.className = c.less ? "liked" : "";
+    if (c.less){ toast("Got it, you'll see this less."); rv.scrollTo({ top: (RV.k + 1) * rv.clientHeight, behavior: "smooth" }); }
+    try { await Promise.all(c.media.map(m => send("POST", "taste", { item: m.item, vote: c.less ? "down" : "undo" }))); }
+    catch(err){ if (!isDown(err)) toast("Couldn't save that: " + err.message); }
     return;
   }
   if ("rmute" in t.dataset){ setMuted(!reelsMuted); rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }

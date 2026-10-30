@@ -93,7 +93,7 @@ export function newStream(ctx, scope, now) {
     list = list.filter((c) => !c.pinned).sort((a, b) => (b.up_at ?? now) - (a.up_at ?? now) || (a.id < b.id ? -1 : 1));
   }
   const id = newId(ctx, now);
-  streamsOf(ctx).set(id, { id, scope, at: now, pool: list, emitted: [], recent: [], profile, done: false });
+  streamsOf(ctx).set(id, { id, scope, at: now, pool: list, emitted: [], dealtDown: new Map(), recent: [], profile, done: false });
   return id;
 }
 
@@ -124,6 +124,13 @@ function pickOne(ctx, s, now) {
   return last;
 }
 
+
+// True once a card has been thumbed down since this stream dealt it; a re-read from the start leaves it out.
+const votedOut = (ctx, s, row) => {
+  const first = parseKeys(row)[0];
+  return !!first && (ctx.db.prepare('SELECT down FROM items WHERE key = ?').get(first)?.down || 0) > (s.dealtDown.get(row.id) || 0);
+};
+
 // -> {stream, cursor, cards}. An unknown/expired stream id is not an error for the caller: the API
 // starts a new one. `cursor` is the number of cards already delivered ("" / null = from the start).
 export function page(ctx, streamId, cursor, now, scope) {
@@ -137,7 +144,7 @@ export function page(ctx, streamId, cursor, now, scope) {
     if (pos < s.emitted.length) {
       const row = ctx.db.prepare('SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.id = ?').get(s.emitted[pos]);
       pos++;
-      if (row) cards.push(card(ctx, row, now));
+      if (row && (s.profile || !votedOut(ctx, s, row))) cards.push(card(ctx, row, now));
       continue;
     }
     if (s.done) break;
@@ -148,6 +155,7 @@ export function page(ctx, streamId, cursor, now, scope) {
     if (row && row.status === 'queued') row = publish(ctx, c.id, now);
     if (!row || row.status !== 'live') continue;
     s.emitted.push(row.id);
+    s.dealtDown.set(row.id, Number(c.item.down) || 0);
     s.recent.push(row.acct);
   }
   if (pos >= s.emitted.length && s.pool.length === 0) s.done = true;
