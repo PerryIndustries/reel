@@ -233,6 +233,17 @@ try {
     return `feed tap -> ${hash}, explore video tile -> ${href}`;
   });
 
+  await check('The reels viewer shows the whole video instead of zooming in to fill the screen', async () => {
+    await page.goto(base + '#/reels');
+    await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
+    await page.locator('#rgrid .tile').first().tap();
+    await page.waitForSelector('#rv .r video', { timeout: 5000, state: 'attached' });
+    const fit = await page.evaluate(() => getComputedStyle(document.querySelector('#rv .r video')).objectFit);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    if (fit !== 'contain') throw new Error(`object-fit is ${fit}`);
+    return `object-fit ${fit}`;
+  });
+
   await check('Dragging the reel scrub bar shows a big preview with the time, then jumps there on release', async () => {
     await page.goto(base + '#/reels');
     await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
