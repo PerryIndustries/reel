@@ -9,6 +9,7 @@ const DAY = 24 * 3600_000;
 const STREAM_TTL = 6 * 3600_000;
 export const PAGE_SIZE = 8;
 const SPACING = 3; // no same account within the last 3 cards (home / explore)
+// No two cards in a row from the same top-level Drive folder (home / explore / reels), whenever another folder has a candidate.
 const MAX_STREAMS = 200;
 export const DOWN = 0.02; // odds kept per thumbs-down
 
@@ -58,7 +59,7 @@ function candidates(ctx, scope) {
   if (m) { where.push('p.acct = ?'); args.push(m[1]); }
   const rows = db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, p.due_at
     FROM posts p JOIN accounts a ON a.id = p.acct WHERE ${where.join(' AND ')}`).all(...args);
-  const getItem = db.prepare('SELECT key, seen_at, up, down FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, folder, seen_at, up, down FROM items WHERE key = ?');
   const out = [];
   const seenFirst = new Set();
   for (const p of rows) {
@@ -67,7 +68,7 @@ function candidates(ctx, scope) {
     const item = getItem.get(first);
     if (!item) continue;
     seenFirst.add(first);
-    out.push({ id: p.id, acct: p.acct, status: p.status, up_at: p.up_at, pinned: p.pinned, first, item });
+    out.push({ id: p.id, acct: p.acct, folder: item.folder ?? '', status: p.status, up_at: p.up_at, pinned: p.pinned, first, item });
   }
   if (m) return out;
   // Home, reels and explore draw from the whole library: a file in no post yet is a candidate too, and goes up
@@ -78,7 +79,7 @@ function candidates(ctx, scope) {
   for (const it of loose) {
     if (seenFirst.has(it.key) || storiesFolder(it)) continue;
     seenFirst.add(it.key);
-    out.push({ id: null, acct: it.acct, status: 'loose', first: it.key, item: it });
+    out.push({ id: null, acct: it.acct, folder: it.folder ?? '', status: 'loose', first: it.key, item: it });
   }
   return out;
 }
@@ -97,19 +98,35 @@ export function newStream(ctx, scope, now) {
   return id;
 }
 
+// Folder of the card a stream dealt last: the first item of its last emitted post. Read from the database (not
+// kept beside `emitted`) so a stream continued with emitted cards already in it still knows where it stands.
+function lastFolder(ctx, s) {
+  const id = s.emitted[s.emitted.length - 1];
+  if (id == null) return null;
+  const row = ctx.db.prepare('SELECT items FROM posts WHERE id = ?').get(id);
+  const first = row && parseKeys(row)[0];
+  const it = first && ctx.db.prepare('SELECT folder FROM items WHERE key = ?').get(first);
+  return it ? (it.folder ?? '') : null;
+}
+
 function pickOne(ctx, s, now) {
   const spaced = !s.profile && s.scope !== 'reels';
   const recent = new Set(s.recent.slice(-SPACING));
   if (!s.pool.length) return -1;
   if (s.profile) return 0;
   const uniform = s.scope === 'explore';
-  const weights = (allowed) => s.pool.map((c) => (allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
+  // Folder first: when any candidate is from another folder than the last card, only those are in play.
+  // A pool that is all one folder keeps going (never end early).
+  const prev = lastFolder(ctx, s);
+  const otherFolder = prev == null ? s.pool.length : s.pool.filter((c) => c.folder !== prev).length;
+  const folderOk = (c) => prev == null || otherFolder === 0 || c.folder !== prev;
+  const weights = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
   let w = weights((c) => !(spaced && recent.has(c.acct)));
   let total = w.reduce((x, y) => x + y, 0);
   if (total <= 0) {
     // Nobody is eligible (few accounts post): never end early, pick among the accounts shown least recently.
     const lastSeen = (acct) => s.recent.lastIndexOf(acct);
-    const oldest = Math.min(...s.pool.map((c) => lastSeen(c.acct)));
+    const oldest = Math.min(...s.pool.filter(folderOk).map((c) => lastSeen(c.acct)));
     w = weights((c) => lastSeen(c.acct) === oldest);
     total = w.reduce((x, y) => x + y, 0);
     if (total <= 0) return -1;

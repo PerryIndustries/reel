@@ -36,9 +36,9 @@ function addAcct(ctx, id, own = false) {
     .run(id, own ? 1 : 0, 'h_' + id, id, '', '', '{}', T - 30 * D, 2400, id.length * 7919 + id.charCodeAt(0));
 }
 
-function addItem(ctx, key, acct, { kind = 'photo', up = 0, down = 0, seenAt = null } = {}) {
+function addItem(ctx, key, acct, { kind = 'photo', up = 0, down = 0, seenAt = null, folder = 'f' } = {}) {
   ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,?,?,?)')
-    .run(key, `f/${key}`, 'f', kind, acct, T - D, up, down, seenAt);
+    .run(key, `${folder}/${key}`, folder, kind, acct, T - D, up, down, seenAt);
 }
 
 let seq = 0;
@@ -278,4 +278,91 @@ test('a file in no post still comes up on home and reels, and goes up as a live 
   addAcct(ctx2, 'a0');
   addItem(ctx2, 'p1', 'a0'); addItem(ctx2, 'v1', 'a0', { kind: 'video' });
   assert.deepEqual(drain(ctx2, 'reels').map((c) => c.kind), ['reel']);
+});
+
+// ---- folder spacing: never two cards in a row from the same top-level Drive folder ----
+
+const FOLDERS = ['Assda', 'File', 'Hentai', 'new'];
+const folderOf = (ctx, card) => ctx.db.prepare('SELECT folder FROM items WHERE key = ?').get(card.media[0].item).folder;
+
+// 4 accounts x folders; folder counts are uneven (Hentai/new heavy) so a random draw would often repeat them.
+function seedFolders(ctx, { kind = 'photo', postKind = 'post', counts = [3, 4, 12, 10] } = {}) {
+  for (let a = 0; a < 4; a++) addAcct(ctx, `a${a}`);
+  let n = 0;
+  FOLDERS.forEach((folder, f) => {
+    for (let i = 0; i < counts[f]; i++, n++) {
+      const acct = `a${n % 4}`;
+      addItem(ctx, `${folder}_${i}`, acct, { folder, kind });
+      addPost(ctx, { id: `p_${folder}_${i}`, acct, key: `${folder}_${i}`, kind: postKind });
+    }
+  });
+  return n;
+}
+
+for (const [scope, kind, postKind] of [['home', 'photo', 'post'], ['explore', 'photo', 'post'], ['reels', 'video', 'reel']]) {
+  test(`a ${scope} stream never shows the same folder twice in a row while another folder has cards`, (t) => {
+    const ctx = makeCtx(t, 31);
+    const total = seedFolders(ctx, { kind, postKind });
+    const cards = drain(ctx, scope);
+    assert.equal(cards.length, total, 'every card is delivered');
+    const f = cards.map((c) => folderOf(ctx, c));
+    // Hentai + new hold 22 of 29 cards, the other folders 7: the rest is one-folder leftovers where a repeat is unavoidable.
+    const unavoidableFrom = f.findIndex((_, i) => f.slice(i).every((x) => x === f[i]));
+    for (let i = 1; i < (unavoidableFrom < 0 ? f.length : unavoidableFrom); i++) assert.notEqual(f[i], f[i - 1], `${f[i]} twice at ${i - 1},${i}: ${f.join()}`);
+  });
+}
+
+test('when only one folder is left the stream still delivers every remaining card', (t) => {
+  const ctx = makeCtx(t, 32);
+  addAcct(ctx, 'a0');
+  addAcct(ctx, 'a1');
+  for (let i = 0; i < 9; i++) { addItem(ctx, `h${i}`, `a${i % 2}`, { folder: 'Hentai' }); addPost(ctx, { id: `h${i}`, acct: `a${i % 2}`, key: `h${i}` }); }
+  assert.equal(drain(ctx, 'home').length, 9);
+  assert.equal(drain(ctx, 'explore').length, 9);
+  addItem(ctx, 'v0', 'a0', { folder: 'File' });
+  addPost(ctx, { id: 'v0', acct: 'a0', key: 'v0' });
+  const f = drain(ctx, 'home').map((c) => folderOf(ctx, c));
+  assert.equal(f.length, 10);
+  for (let i = 1; i < f.length; i++) if (f[i] === f[i - 1]) assert.ok(f.slice(i).every((x) => x === 'Hentai'), 'a repeat before the lone File card ran out');
+});
+
+test('folder spacing and the 3-card account spacing hold together', (t) => {
+  const ctx = makeCtx(t, 33);
+  for (let a = 0; a < 6; a++) addAcct(ctx, `a${a}`);
+  const folders = ['Assda', 'File', 'Hentai'];
+  for (let i = 0; i < 90; i++) {
+    const acct = `a${i % 6}`;
+    addItem(ctx, `k${i}`, acct, { folder: folders[Math.floor(i / 6) % 3] });
+    addPost(ctx, { id: `p${i}`, acct, key: `k${i}` });
+  }
+  const cards = drain(ctx, 'home');
+  assert.equal(cards.length, 90);
+  const f = cards.map((c) => folderOf(ctx, c));
+  cards.forEach((c, i) => {
+    if (i >= 70) return; // tail leftovers
+    if (i) assert.notEqual(f[i], f[i - 1], `folder repeat at ${i}`);
+    for (let j = Math.max(0, i - 3); j < i; j++) assert.notEqual(cards[j].acct.id, c.acct.id, `account ${c.acct.id} at ${j} and ${i}`);
+  });
+});
+
+test('a stream continued after cards were already emitted respects the last emitted folder', (t) => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const ctx = makeCtx(t, seed);
+    seedFolders(ctx);
+    const id = newStream(ctx, 'home', T);
+    // as if restored: three Hentai cards were already dealt, one Hentai/new/Assda/File candidate remains each
+    const s = ctx.feedStreams.get(id);
+    const dealt = s.pool.filter((c) => c.folder === 'Hentai').slice(0, 3);
+    for (const c of dealt) { s.pool.splice(s.pool.indexOf(c), 1); s.emitted.push(c.id); s.recent.push(c.acct); }
+    const cards = page(ctx, id, '3', T).cards;
+    assert.ok(cards.length > 0);
+    assert.notEqual(folderOf(ctx, cards[0]), 'Hentai', `seed ${seed}: continued into the folder that was last emitted`);
+  }
+});
+
+test('a profile grid stays chronological and ignores folders', (t) => {
+  const ctx = makeCtx(t, 34);
+  addAcct(ctx, 'a0');
+  for (let i = 0; i < 6; i++) { addItem(ctx, `k${i}`, 'a0', { folder: 'Hentai' }); addPost(ctx, { id: `p${i}`, acct: 'a0', key: `k${i}`, upAt: T - (i + 1) * H }); }
+  assert.deepEqual(drain(ctx, 'acct:a0').map((c) => c.id), ['p0', 'p1', 'p2', 'p3', 'p4', 'p5']);
 });
