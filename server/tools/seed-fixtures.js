@@ -49,13 +49,13 @@ function makeBases(dir) {
     const video = path.join(dir, `v${i}.mp4`);
     const poster = path.join(dir, `v${i}-poster.jpg`);
     const thumb = path.join(dir, `v${i}-thumb.jpg`);
-    // silent audio track on purpose: test audio must be inaudible
-    ffmpeg(['-f', 'lavfi', '-i', `testsrc2=s=180x320:r=10:d=1.5,hue=h=${i * 70}`, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
-      '-t', '1.5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-preset', 'ultrafast', '-c:a', 'aac', '-b:a', '16k',
+    // silent audio track on purpose: test audio must be inaudible. 12 s so a video can be left part way through.
+    ffmpeg(['-f', 'lavfi', '-i', `testsrc2=s=180x320:r=10:d=12,hue=h=${i * 70}`, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=mono',
+      '-t', '12', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-preset', 'ultrafast', '-c:a', 'aac', '-b:a', '16k',
       '-movflags', '+faststart', video]);
     ffmpeg(['-i', video, '-frames:v', '1', '-q:v', '5', poster]);
     ffmpeg(['-i', poster, '-vf', 'scale=90:-2', '-q:v', '6', thumb]);
-    return { video, poster, thumb, w: 180, h: 320, dur: 1.5 };
+    return { video, poster, thumb, w: 180, h: 320, dur: 12 };
   });
   return { photos, videos };
 }

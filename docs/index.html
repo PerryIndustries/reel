@@ -492,7 +492,7 @@ const VM = {
     v.preload = near ? "auto" : "metadata";
     v.src = v.dataset.vsrc;
   },
-  unload(v){ if (v.getAttribute("src")){ v.pause(); v.removeAttribute("src"); v.load(); } },
+  unload(v){ if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); } },
   // keep the (up to) 3 feed videos nearest the middle of the screen loaded, everything else empty
   sync(){
     const vids = [...document.querySelectorAll("#view video[data-vsrc]")];
@@ -506,6 +506,58 @@ const VM = {
 };
 let vmTick = 0;
 window.addEventListener("scroll", () => { if (!vmTick) vmTick = requestAnimationFrame(() => { vmTick = 0; VM.sync(); }); }, { passive: true });
+
+/* ================= where each video was left ================= */
+// Kept per library item (a clip of a long video is its own item, with its own file). Every video's time is remembered
+// for this visit, so a feed video opened full screen carries on from there and closing the viewer hands the time back.
+// A video watched on purpose (full screen, or with sound) is also kept on the phone for next time. Within the last few
+// seconds (or once it loops) the spot is dropped, so a finished video starts over.
+const VPOS = {
+  mem: new Map(),             // item -> { t, keep }
+  disk: LS.get("vpos", {}),   // item -> [t, saved at]
+  dirty: 0,
+  MAX: 300,
+  nearEnd: d => Math.max(1, Math.min(3, d * 0.1)),
+  at(item){ const m = VPOS.mem.get(item); if (m) return m.t; const d = VPOS.disk[item]; return d ? d[0] : 0; },
+  put(item, t, keep){
+    const m = VPOS.mem.get(item);
+    keep = keep || !!(m && m.keep) || !!VPOS.disk[item];
+    VPOS.mem.set(item, { t, keep });
+    if (keep){ VPOS.disk[item] = [Math.round(t * 10) / 10, Date.now()]; VPOS.save(); }
+  },
+  clear(item){ VPOS.mem.delete(item); if (VPOS.disk[item]){ delete VPOS.disk[item]; VPOS.save(); } },
+  save(){ if (!VPOS.dirty) VPOS.dirty = setTimeout(VPOS.flush, 2000); },
+  flush(){
+    clearTimeout(VPOS.dirty); VPOS.dirty = 0;
+    const ks = Object.keys(VPOS.disk);
+    if (ks.length > VPOS.MAX) ks.sort((a, b) => VPOS.disk[a][1] - VPOS.disk[b][1]).slice(0, ks.length - VPOS.MAX).forEach(k => delete VPOS.disk[k]);
+    LS.set("vpos", VPOS.disk);
+  },
+  // Read the time off a video, but only once it has been put back in place for the file it now holds (a video mid-swap
+  // or just reloaded reports 0, which must never overwrite the real spot).
+  note(v){
+    const item = v.dataset.item;
+    if (!item || !v.currentSrc || v._vposSrc !== v.currentSrc || v._vposDone || v.seeking || !(v.duration > 0)) return;
+    const t = v.currentTime, d = v.duration;
+    if (t > d - VPOS.nearEnd(d)){ v._vposDone = true; VPOS.clear(item); return; } // watched to the end: next time from the top
+    if (t < 1.5) return;
+    VPOS.put(item, t, !!v.closest("#full") || !v.muted);
+  },
+  // Take the time off a video that is about to lose its file, and stop reading it until it is put back in place.
+  leave(v){ VPOS.note(v); v._vposSrc = null; },
+  // Put a video back where it was once its length is known (iPhone ignores a time set before loadedmetadata).
+  restore(v){
+    const item = v.dataset.item; if (!item || !v.currentSrc) return;
+    v._vposSrc = v.currentSrc; v._vposDone = false;
+    const t = VPOS.at(item), d = v.duration;
+    if (t > 0 && d > 0 && t < d - VPOS.nearEnd(d)){ try { v.currentTime = t; } catch(_){} }
+  },
+};
+for (const [ev, fn] of [["loadedmetadata", VPOS.restore], ["timeupdate", VPOS.note], ["pause", VPOS.note], ["emptied", v => { if (v.readyState === 0) v._vposSrc = null; }]])
+  document.addEventListener(ev, e => { if (e.target instanceof HTMLVideoElement) fn(e.target); }, true);
+const vposAll = () => { document.querySelectorAll("video").forEach(VPOS.note); if (VPOS.dirty) VPOS.flush(); };
+window.addEventListener("pagehide", vposAll);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") vposAll(); });
 
 /* only one video ever has sound */
 function oneSound(v){
@@ -602,7 +654,7 @@ function seenObserver(){
 const TASTE = {}; // hearts given to a photo during this visit
 const arOf = m => (m.w && m.h) ? `--ar:${(m.w / m.h).toFixed(4)}` : "";
 function slideHTML(m){
-  if (m.kind === "video") return `<div class="slide"><video data-vsrc="${esc(m.video)}" data-auto="1" poster="${esc(m.poster || m.thumb)}" style="${arOf(m)}" muted loop playsinline preload="none"></video><button class="mute" type="button" data-mute aria-label="Sound">${feedMuted ? I.muted : I.sound}</button></div>`;
+  if (m.kind === "video") return `<div class="slide"><video data-vsrc="${esc(m.video)}" data-item="${esc(m.item || "")}" data-auto="1" poster="${esc(m.poster || m.thumb)}" style="${arOf(m)}" muted loop playsinline preload="none"></video><button class="mute" type="button" data-mute aria-label="Sound">${feedMuted ? I.muted : I.sound}</button></div>`;
   return `<div class="slide"><img src="${esc(m.full)}" alt="" loading="lazy" decoding="async" style="${arOf(m)}"></div>`;
 }
 function storyOf(aid){ return (S.stories || []).find(g => g.acct.id === aid); }
@@ -1255,13 +1307,13 @@ function openReels(list, start, st){
       buildSec(j);
       const v = RV.pool[j % 3], s = RV.secs[j], m = RV.cards[j].media[0];
       if (v.dataset.idx !== String(j)){
-        v.pause(); v.removeAttribute("src"); v.dataset.idx = j; v.dataset.want = "0";
-        v.poster = m.poster || m.thumb; v.src = m.video; v.load();
+        VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.dataset.idx = j; v.dataset.want = "0"; v.dataset.item = m.item || "";
+        v.poster = m.poster || m.thumb; v.src = m.video; v.load(); // VPOS puts it back where it was once it has loaded
       }
       if (v.parentElement !== s) s.prepend(v);
     }
     rv.querySelectorAll(".r.paused").forEach(x => x.classList.remove("paused"));
-    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; try { if (v.readyState > 0) v.currentTime = 0; } catch(_){} playVid(v); } else v.pause(); });
+    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; playVid(v); } else v.pause(); });
     if (RV.st && k >= RV.cards.length - 3 && !RV.loading) loadMoreReels(addSecs);
   };
   let tm = 0; rv.addEventListener("scroll", () => { clearTimeout(tm); tm = setTimeout(activate, 120); }, { passive: true });
@@ -1325,7 +1377,10 @@ function wireScrub(sec){
   const end = () => {
     if (!sec.classList.contains("scrubbing")) return; sec.classList.remove("scrubbing");
     const v = vd();
-    if (v && v.duration){ try { v.currentTime = last * v.duration; } catch(_){} }
+    if (v && v.duration){
+      try { v.currentTime = last * v.duration; } catch(_){}
+      v._vposDone = false; if (last * v.duration < 1.5 && v.dataset.item) VPOS.clear(v.dataset.item); // dragged back to the start: start there next time too
+    }
     if (v && !sec.classList.contains("paused")) playVid(v);
     if (pv){ pv.removeAttribute("src"); pv.load(); pv.remove(); pv = null; busy = false; } // back to 3 videos at most
   };
@@ -1334,7 +1389,7 @@ function wireScrub(sec){
 }
 function closeFull(){
   const f = $("#full");
-  f.querySelectorAll("video").forEach(v => { v.pause(); v.removeAttribute("src"); v.load(); });
+  f.querySelectorAll("video").forEach(v => { VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); }); // the feed picks the time up from VPOS
   f.querySelectorAll(".r").forEach(s => clearInterval(s._tick));
   const had = !!f.innerHTML; f.innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
   RV = null;

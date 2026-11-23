@@ -302,6 +302,61 @@ try {
     return `preview ${Math.round(mid.w)}px "${mid.t}", reel at ${after.at.toFixed(2)} after release, ${after.vids} videos`;
   });
 
+  // ---- a video opens where it was left ---------------------------------------------------------------------
+  // Puts a loaded video at time t the way watching would (a seek, then the timeupdate after it).
+  const putAt = (sel, t) => page.evaluate(async ([sel, t]) => {
+    const v = document.querySelector(sel);
+    await new Promise((r) => { const on = () => { if (!v.seeking) { v.removeEventListener('timeupdate', on); r(); } }; v.addEventListener('timeupdate', on); v.currentTime = t; });
+  }, [sel, t]);
+  const curReel = '#rv video[data-pool][data-want="1"]';
+  // a video whose file has loaded and been put back in place
+  const loadedAt = (sel, ms = 10000) => page.waitForFunction((sel) => { const v = document.querySelector(sel); return v && v.readyState >= 1 && v.duration > 1 && !v.seeking && v._vposSrc === v.currentSrc; }, sel, { timeout: ms });
+  const onDisk = (k) => page.evaluate((k) => { try { return !!JSON.parse(localStorage.getItem('reel2-vpos') || '{}')[k]; } catch (e) { return false; } }, k);
+  let resumeItem = null;
+  await check('A feed video opened full screen starts where the feed had it, and closing hands the time back', async () => {
+    await page.goto(base + `#/p/${seeded.reelsPost}/more`);
+    const feedVid = '#view article.post .slides video[data-item]';
+    await page.waitForSelector(feedVid, { timeout: 8000, state: 'attached' });
+    resumeItem = await page.evaluate((s) => document.querySelector(s).dataset.item, feedVid);
+    const mine = `#view video[data-item="${resumeItem}"]`;
+    await loadedAt(mine);
+    await putAt(mine, 5);
+    await page.locator('#view article.post .slides').first().tap();
+    await loadedAt(curReel);
+    const opened = await page.evaluate((s) => { const v = document.querySelector(s); return { t: v.currentTime, item: v.dataset.item }; }, curReel);
+    if (opened.item !== resumeItem) throw new Error(`viewer opened ${opened.item}, not ${resumeItem}`);
+    if (Math.abs(opened.t - 5) > 1) throw new Error(`viewer started at ${opened.t.toFixed(2)}s, the feed was at 5s`);
+    await putAt(curReel, 8);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    await page.waitForFunction(() => location.hash.startsWith('#/p/'), null, { timeout: 5000 });
+    await loadedAt(mine);
+    const back = await page.evaluate((s) => document.querySelector(s).currentTime, mine);
+    if (back < 7.5 || back > 10) throw new Error(`feed card back at ${back.toFixed(2)}s, the viewer was at 8s`);
+    return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s`;
+  });
+
+  await check('A video left part way in the viewer opens there after a reload; one watched to the end starts over', async () => {
+    if (!resumeItem) throw new Error('no item from the check before');
+    await waitFor(() => onDisk(resumeItem), 5000, 'the spot saved on the phone');
+    await page.goto(base + '#/');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.goto(base + `#/reels/${seeded.reelsPost}`);
+    await loadedAt(curReel);
+    const t1 = await page.evaluate((s) => document.querySelector(s).currentTime, curReel);
+    if (t1 < 7.5 || t1 > 10) throw new Error(`after a reload the viewer started at ${t1.toFixed(2)}s, left at 8s`);
+    const dur = await page.evaluate((s) => document.querySelector(s).duration, curReel);
+    await putAt(curReel, dur - 0.4);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    await waitFor(async () => !(await onDisk(resumeItem)), 5000, 'the spot dropped');
+    await page.goto(base + '#/');
+    await page.goto(base + `#/reels/${seeded.reelsPost}`);
+    await loadedAt(curReel);
+    const t2 = await page.evaluate((s) => document.querySelector(s).currentTime, curReel);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    if (t2 > 1.5) throw new Error(`a finished video opened at ${t2.toFixed(2)}s instead of the start`);
+    return `reload -> ${t1.toFixed(1)}s; finished -> ${t2.toFixed(1)}s`;
+  });
+
   // iPhone refuses sound outside a tap: the app must play muted for now but keep "sound on" saved
   await check('A blocked autoplay with sound on leaves the saved choice alone (muted stays false)', async () => {
     const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
