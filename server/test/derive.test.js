@@ -8,7 +8,7 @@ import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { makeLog } from '../lib/log.js';
 import { openDb } from '../lib/db.js';
-import { deriveOne, pickNext, derivedPaths, slug, CLIP, photoArgs } from '../lib/derive.js';
+import { deriveOne, pickNext, derivedPaths, slug, CLIP, photoArgs, zoomFile, ZOOM_PX } from '../lib/derive.js';
 
 const haveFfmpeg = spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0
   && spawnSync('ffprobe', ['-version'], { windowsHide: true }).status === 0;
@@ -41,6 +41,7 @@ before(() => {
     '-c:v', 'libx264', '-pix_fmt', 'yuv444p', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', path.join(fixDir, 'odd.mp4')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=1081x1921:rate=5:duration=1',
     '-c:v', 'libx264', '-pix_fmt', 'yuv444p', '-preset', 'ultrafast', path.join(fixDir, 'portrait.mp4')]);
+  ff(['-f', 'lavfi', '-i', 'testsrc=size=3600x2700:rate=1', '-frames:v', '1', path.join(fixDir, 'big.jpg')]);
   fs.writeFileSync(path.join(fixDir, 'corrupt.jpg'), Buffer.from('this is not an image at all'));
 });
 
@@ -234,4 +235,32 @@ test('photoArgs: tile grids use -filter_complex on group 0, plain photos keep -v
   const plain = photoArgs('in.jpg', false, 'scale=10:10', 3, 'o.jpg');
   assert.equal(plain[plain.indexOf('-vf') + 1], 'scale=10:10');
   assert.ok(!plain.includes('-filter_complex'));
+});
+
+test('zoom copy: cut from the source up to 2560 px on first ask, kept, and full.jpg when the source is gone', opts, async (t) => {
+  const ctx = makeCtx(t);
+  const item = addItem(ctx, 'z#1', 'big.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, item, NOW), 'ok');
+  const p = derivedPaths(ctx, 'z#1');
+  const zoom = await zoomFile(ctx, slug('z#1'));
+  assert.equal(zoom, path.join(p.dir, 'zoom.jpg'));
+  const z = probe(zoom, 'stream=width,height').streams[0];
+  const f = probe(p.full, 'stream=width,height').streams[0];
+  assert.equal(Math.max(z.width, z.height), ZOOM_PX);
+  assert.ok(z.width > f.width * 2, `zoom ${z.width} vs full ${f.width}`);
+  const made = fs.statSync(zoom).mtimeMs;
+  assert.equal(await zoomFile(ctx, slug('z#1')), zoom);
+  assert.equal(fs.statSync(zoom).mtimeMs, made, 'the second ask reuses the file');
+  // two asks at once make it once
+  const item2 = addItem(ctx, 'z2', 'photo.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, item2, NOW), 'ok');
+  const [a, b] = await Promise.all([zoomFile(ctx, 'z2'), zoomFile(ctx, 'z2')]);
+  assert.equal(a, b);
+  // no source on disk: the phone still gets the 1080 copy
+  const item3 = addItem(ctx, 'z3', 'photo.jpg', 'photo');
+  assert.equal(await deriveOne(ctx, item3, NOW), 'ok');
+  fs.rmSync(path.join(ctx.cfg.sourceDir, item3.path));
+  assert.equal(await zoomFile(ctx, 'z3'), derivedPaths(ctx, 'z3').full);
+  // not a photo, or not an item: nothing
+  assert.equal(await zoomFile(ctx, 'nope'), null);
 });

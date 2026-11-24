@@ -151,6 +151,41 @@ async function isTileGrid(ctx, src) {
   } catch { return false; }
 }
 
+// ---- zoom copy: a sharper photo made the first time the phone zooms in --------------------------------------
+// full.jpg is 1080 px, about a phone screen, so zooming into it only blurs. zoom.jpg (up to 2560 px) is cut from
+// the source on first request and kept next to the other files. It runs outside the derive queue (a video
+// encode there can take minutes) and one request per photo at a time. Anything that can't be made answers with
+// full.jpg instead, so the phone always gets a picture.
+export const ZOOM_PX = 2560;
+const zooming = new Map();
+export function zoomFile(ctx, s) {
+  const row = ctx.db.prepare("SELECT * FROM items WHERE kind = 'photo' AND replace(replace(key, '#', '_'), ':', '_') = ?").get(s);
+  if (!row) return Promise.resolve(null);
+  const p = derivedPaths(ctx, row.key);
+  const zoom = path.join(p.dir, 'zoom.jpg');
+  if (fs.existsSync(zoom)) return Promise.resolve(zoom);
+  if (zooming.has(row.key)) return zooming.get(row.key);
+  const job = (async () => {
+    const src = sourceFile(ctx, row);
+    if (!src || !fs.existsSync(src) || !fs.existsSync(p.dir)) return fs.existsSync(p.full) ? p.full : null;
+    const tmp = path.join(p.dir, 'zoom.tmp.jpg');
+    const ff = (args) => run([...ctx.cfg.ffmpeg, '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args]);
+    const probe = await run([...ctx.cfg.ffprobe, '-v', 'error', '-show_entries', 'stream_group=type', '-of', 'json', src]);
+    let grid = false;
+    try { grid = probe.code === 0 && (JSON.parse(probe.stdout).stream_groups || []).some((g) => g.type === 'Tile Grid'); } catch { /* plain photo */ }
+    const r = await ff(photoArgs(src, grid, PHOTO_FIT(ZOOM_PX), 3, tmp));
+    if (r.code !== 0 || !fs.existsSync(tmp)) {
+      fs.rmSync(tmp, { force: true });
+      ctx.log('warn', `zoom copy of ${row.key} failed: ${firstLine(r)}`);
+      return fs.existsSync(p.full) ? p.full : null;
+    }
+    fs.renameSync(tmp, zoom);
+    return zoom;
+  })().finally(() => zooming.delete(row.key));
+  zooming.set(row.key, job);
+  return job;
+}
+
 async function derivePhoto(ctx, item, src, dir) {
   const tmp = freshTmp(dir);
   try {

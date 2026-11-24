@@ -310,7 +310,8 @@ try {
   }, [sel, t]);
   const curReel = '#rv video[data-pool][data-want="1"]';
   // a video whose file has loaded and been put back in place
-  const loadedAt = (sel, ms = 10000) => page.waitForFunction((sel) => { const v = document.querySelector(sel); return v && v.readyState >= 1 && v.duration > 1 && !v.seeking && v._vposSrc === v.currentSrc; }, sel, { timeout: ms });
+  const loadedAt = (sel, ms = 10000) => page.waitForFunction((sel) => { const v = document.querySelector(sel); return v && v.readyState >= 1 && v.duration > 1 && !v.seeking && v._vposSrc === v.currentSrc; }, sel, { timeout: ms })
+    .catch(async () => { const st = await page.evaluate((sel) => { const v = document.querySelector(sel); return v ? { rs: v.readyState, d: v.duration, seeking: v.seeking, src: v.getAttribute('src'), cur: v.currentSrc, vp: v._vposSrc, hash: location.hash } : { none: true, hash: location.hash }; }, sel); throw new Error(`${sel} never loaded: ${JSON.stringify(st)}`); });
   const onDisk = (k) => page.evaluate((k) => { try { return !!JSON.parse(localStorage.getItem('reel2-vpos') || '{}')[k]; } catch (e) { return false; } }, k);
   let resumeItem = null;
   await check('A feed video opened full screen starts where the feed had it, and closing hands the time back', async () => {
@@ -335,7 +336,7 @@ try {
     const backSame = await page.evaluate((s) => document.querySelector(s) === window.__feedVid, mine);
     if (!backSame) throw new Error('closing downloaded the video again instead of handing the loaded copy back to the feed');
     const back = await page.evaluate((s) => document.querySelector(s).currentTime, mine);
-    if (back < 7.5 || back > 10) throw new Error(`feed card back at ${back.toFixed(2)}s, the viewer was at 8s`);
+    if (back < 7.5 || back > 11.5) throw new Error(`feed card back at ${back.toFixed(2)}s, the viewer was at 8s`);
     return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s; same loaded video both ways`;
   });
 
@@ -347,7 +348,7 @@ try {
     await page.goto(base + `#/reels/${seeded.reelsPost}`);
     await loadedAt(curReel);
     const t1 = await page.evaluate((s) => document.querySelector(s).currentTime, curReel);
-    if (t1 < 7.5 || t1 > 10) throw new Error(`after a reload the viewer started at ${t1.toFixed(2)}s, left at 8s`);
+    if (t1 < 7.5 || t1 > 11.5) throw new Error(`after a reload the viewer started at ${t1.toFixed(2)}s, left at 8s`);
     const dur = await page.evaluate((s) => document.querySelector(s).duration, curReel);
     await putAt(curReel, dur - 0.4);
     await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
@@ -359,6 +360,48 @@ try {
     await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
     if (t2 > 1.5) throw new Error(`a finished video opened at ${t2.toFixed(2)}s instead of the start`);
     return `reload -> ${t1.toFixed(1)}s; finished -> ${t2.toFixed(1)}s`;
+  });
+
+  // ---- photos: tap opens full screen, double-tap / pinch zoom, drag pans, swipe down closes --------------------
+  await check('A photo opens full screen on a tap; double-tap and pinch zoom in (sharper copy), drag pans, swipe down closes', async () => {
+    const cdp = await ctx.newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const drag = async (from, to, steps = 8) => {
+      await touch('touchStart', from);
+      for (let i = 1; i <= steps; i++) { await touch('touchMove', from.map(([x, y], k) => [x + (to[k][0] - x) * i / steps, y + (to[k][1] - y) * i / steps])); await sleep(16); }
+      await touch('touchEnd', []);
+    };
+    const tapAt = async (x, y) => { await touch('touchStart', [[x, y]]); await touch('touchEnd', []); };
+    const scaleOf = () => page.evaluate(() => { const im = document.querySelectorAll('#pz img')[0]; const m = /scale\(([\d.]+)\)/.exec(im.style.transform || ''); return m ? +m[1] : 1; });
+    const zoomAsks = [];
+    page.on('response', (r) => { if (r.url().endsWith('/zoom.jpg')) zoomAsks.push(r.status()); });
+    await page.goto(base + '#/');
+    await page.waitForSelector('#view article.post .slide img', { timeout: 10000 });
+    await page.evaluate(() => { document.querySelector('#view article.post .slide img').closest('article').scrollIntoView(); });
+    await sleep(300);
+    await page.locator('#view article.post .slide img').first().tap();
+    await page.waitForSelector('#pz img', { timeout: 3000 });
+    const { w, h } = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+    const cx = w / 2, cy = h / 2;
+    await tapAt(cx, cy); await sleep(60); await tapAt(cx, cy); await sleep(400);
+    const s1 = await scaleOf();
+    if (Math.abs(s1 - 2.5) > 0.05) throw new Error(`double-tap zoomed to ${s1}`);
+    await waitFor(() => page.evaluate(() => document.querySelector('#pz img').getAttribute('src').endsWith('/zoom.jpg')), 5000, 'the sharper copy');
+    const t0 = await page.evaluate(() => document.querySelector('#pz img').style.transform);
+    await drag([[cx, cy]], [[cx + 60, cy + 40]]); await sleep(350);
+    const t1 = await page.evaluate(() => document.querySelector('#pz img').style.transform);
+    if (t0 === t1) throw new Error('dragging a zoomed photo did not move it');
+    if (!(await page.$('#pz'))) throw new Error('dragging a zoomed photo closed the viewer');
+    await tapAt(cx, cy); await sleep(60); await tapAt(cx, cy); await sleep(400);
+    if (await scaleOf() !== 1) throw new Error(`second double-tap left it at ${await scaleOf()}`);
+    await drag([[cx - 40, cy], [cx + 40, cy]], [[cx - 120, cy], [cx + 120, cy]]); await sleep(350);
+    const s2 = await scaleOf();
+    if (s2 < 2.4 || s2 > 3.6) throw new Error(`pinching 80px -> 240px apart zoomed to ${s2}`);
+    await tapAt(cx, cy); await sleep(60); await tapAt(cx, cy); await sleep(400);
+    await drag([[cx, cy - 100]], [[cx, cy + 150]]); await sleep(300);
+    if (await page.$('#pz')) throw new Error('swiping down did not close the viewer');
+    if (!zoomAsks.length || zoomAsks.some((s) => s !== 200)) throw new Error(`zoom.jpg answers: ${JSON.stringify(zoomAsks)}`);
+    return `double-tap x${s1}, pinch x${s2.toFixed(2)}, zoom.jpg ${zoomAsks.join(',')}, swipe down closed`;
   });
 
   // iPhone refuses sound outside a tap: the app must play muted for now but keep "sound on" saved

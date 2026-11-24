@@ -143,3 +143,10 @@ test('the static site is served from siteDir only when it is set, with api and m
   assert.equal((await raw(e.base, 'GET', '/reel/media/p_1_2/thumb.jpg')).headers['content-type'], 'image/jpeg');
   assert.equal((await raw(e.base, 'GET', '/reel/api/status')).status, 200);
 });
+
+test('zoom.jpg of an unknown item or a climbing slug is not found', async (t) => {
+  const { e } = await setup(t);
+  assert.equal((await raw(e.base, 'GET', '/reel/media/nope/zoom.jpg')).status, 404);
+  assert.equal((await raw(e.base, 'GET', '/reel/media/../zoom.jpg')).status, 404);
+  assert.equal((await raw(e.base, 'GET', '/reel/media/%2e%2e/zoom.jpg')).status, 404);
+});

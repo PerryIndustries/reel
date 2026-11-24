@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { sendError } from './router.js';
+import { zoomFile } from './derive.js';
 
 const FILES = Object.freeze({
   'thumb.jpg': 'image/jpeg',
@@ -89,8 +90,16 @@ export function routes(router, ctx) {
   const root = path.resolve(ctx.cfg.derivedDir);
 
   const media = (req, res, params) => {
-    const type = FILES[params.file];
     const s = params.slug;
+    if (params.file === 'zoom.jpg') {
+      // made from the source on first ask (see derive.zoomFile); full.jpg when it can't be
+      if (!s || /[\\/:\0]/.test(s) || s === '.' || s === '..') return sendError(res, 404, 'not found');
+      return zoomFile(ctx, s).then(
+        (file) => (file && inside(root, file) ? sendFile(req, res, file, 'image/jpeg', { 'cache-control': 'public, max-age=31536000, immutable' }) : sendError(res, 404, 'not found')),
+        () => sendError(res, 500, 'zoom failed'),
+      );
+    }
+    const type = FILES[params.file];
     // the slug is one path segment; anything that could climb out of it is simply not found
     if (!type || !s || s === '.' || s === '..' || /[\\/:\0]/.test(s)) return sendError(res, 404, 'not found');
     const file = path.resolve(root, s, params.file);

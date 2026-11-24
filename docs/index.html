@@ -271,6 +271,13 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv .r.paused::after{content:"";position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(0,0,0,.45) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E") center/34px no-repeat;pointer-events:none}
 .rv .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff}
 .rv .close svg{width:28px;height:28px}
+.pz{touch-action:none;overflow:hidden;-webkit-user-select:none;user-select:none}
+.pz .strip{display:flex;height:100%;will-change:transform}
+.pz .pzs{flex:0 0 100%;width:100%;height:100%;display:grid;place-items:center;overflow:hidden}
+.pz img{max-width:100%;max-height:100%;object-fit:contain;display:block;transform-origin:50% 50%;will-change:transform;-webkit-user-drag:none;pointer-events:none}
+.pz .close{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:10px;z-index:2;width:40px;height:40px;display:grid;place-items:center;color:#fff;background:rgba(0,0,0,.35);border-radius:50%}
+.pz .close svg{width:26px;height:26px}
+.pz .count{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);right:14px;z-index:2;font-size:13px;font-weight:600;background:rgba(0,0,0,.45);padding:3px 9px;border-radius:12px}
 @media (prefers-reduced-motion:reduce){.burst svg{animation:none;opacity:0}.slide img{transition:none}}
 .spec{border-bottom:8px solid var(--line)}
 .dmicon{position:relative}.dmicon svg{width:24px;height:24px}
@@ -738,6 +745,10 @@ function wireCard(el){
     if (firstVid && t - lastTap >= 320 && e.target.closest(".slide") === sl.firstElementChild){
       const id = el.dataset.post;
       openT = setTimeout(() => { const fv = sl.firstElementChild.querySelector("video"); if (fv && fv.getAttribute("src")) WARM.keep(fv); go("#/reels/" + id); }, 330);
+    } else if (t - lastTap >= 320){
+      // A photo: one tap opens it full screen to zoom into, two taps like it.
+      const slide = e.target.closest(".slide");
+      if (slide && slide.querySelector("img")) openT = setTimeout(() => openPhotos(sl, slide), 330);
     }
     if (t - lastTap < 320){
       const post = c.closest("article.post");
@@ -1425,6 +1436,98 @@ function closeFull(){
   const had = !!f.innerHTML; f.innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
   RV = null;
   if (had) VM.release();
+  document.querySelectorAll('#view video[data-want="1"]').forEach(v => { if (v.getAttribute("src")) playVid(v); });
+}
+/* ---------- photo viewer: pinch to zoom, drag to look around, double-tap to zoom in or out ---------- */
+// Opens on the photos of one post. Starts on the 1080 px copy and swaps in the sharper zoom copy (made on the PC the
+// first time) once you zoom in. At normal size a sideways swipe moves between photos and a swipe down closes.
+const zoomURL = src => src.replace(/\/full\.jpg(\?.*)?$/, "/zoom.jpg");
+function openPhotos(sl, slide){
+  const imgs = [...sl.querySelectorAll(".slide img")]; if (!imgs.length) return;
+  let idx = Math.max(0, imgs.indexOf(slide.querySelector("img")));
+  document.querySelectorAll("#view video").forEach(v => v.pause());
+  $("#full").innerHTML = `<div class="full pz" id="pz"><button class="close" type="button" data-pzclose aria-label="Close">${I.back}</button>
+    ${imgs.length > 1 ? `<span class="count"></span>` : ""}
+    <div class="strip">${imgs.map(im => `<div class="pzs"><img alt="" src="${esc(im.getAttribute("src"))}" data-zoom="${esc(zoomURL(im.getAttribute("src")))}"></div>`).join("")}</div></div>`;
+  const root = $("#pz"), strip = root.querySelector(".strip"), cnt = root.querySelector(".count");
+  const els = [...strip.querySelectorAll("img")];
+  let s = 1, tx = 0, ty = 0;
+  const W = () => root.clientWidth, H = () => root.clientHeight;
+  const img = () => els[idx];
+  const draw = anim => {
+    const im = img(); im.style.transition = anim ? "transform .22s ease-out" : ""; im.style.transform = `translate(${tx}px,${ty}px) scale(${s})`;
+  };
+  const place = (dx, anim) => { strip.style.transition = anim ? "transform .25s ease-out" : ""; strip.style.transform = `translateX(${-idx * W() + (dx || 0)}px)`; if (cnt) cnt.textContent = `${idx + 1}/${els.length}`; };
+  // keep the zoomed photo covering the screen: it can't be dragged past its own edges
+  const lim = () => { const im = img(); return { x: Math.max(0, (im.offsetWidth * s - W()) / 2), y: Math.max(0, (im.offsetHeight * s - H()) / 2) }; };
+  const clamp = () => { const l = lim(); tx = Math.max(-l.x, Math.min(l.x, tx)); ty = Math.max(-l.y, Math.min(l.y, ty)); };
+  const sharpen = () => { const im = img(); if (im.dataset.sharp) return; im.dataset.sharp = "1"; const hi = new Image(); hi.onload = () => { im.src = hi.src; }; hi.src = im.dataset.zoom; };
+  const reset = anim => { s = 1; tx = 0; ty = 0; draw(anim); };
+  // screen point -> offset from the middle of the screen
+  const rel = (x, y) => { const r = root.getBoundingClientRect(); return { x: x - r.left - r.width / 2, y: y - r.top - r.height / 2 }; };
+  const zoomAt = (ns, m) => { const px = (m.x - tx) / s, py = (m.y - ty) / s; s = ns; tx = m.x - s * px; ty = m.y - s * py; };
+  place(0, false);
+
+  const pts = new Map(); let g = null, lastTap = 0, lastTapAt = { x: 0, y: 0 };
+  const two = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, m: rel((a.x + b.x) / 2, (a.y + b.y) / 2) }; };
+  root.addEventListener("pointerdown", e => {
+    if (e.target.closest("[data-pzclose]")) return;
+    try { root.setPointerCapture(e.pointerId); } catch(_){}
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2){ const t = two(); g = { kind: "pinch", s0: s, d0: t.d, m0: t.m, tx0: tx, ty0: ty }; }
+    else if (pts.size === 1) g = { kind: "one", x0: e.clientX, y0: e.clientY, tx0: tx, ty0: ty, mode: null, at: Date.now() };
+  });
+  root.addEventListener("pointermove", e => {
+    if (!pts.has(e.pointerId) || !g) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.kind === "pinch" && pts.size >= 2){
+      const t = two(), p = { x: (g.m0.x - g.tx0) / g.s0, y: (g.m0.y - g.ty0) / g.s0 };
+      s = Math.min(8, Math.max(0.6, g.s0 * t.d / g.d0)); tx = t.m.x - s * p.x; ty = t.m.y - s * p.y;
+      if (s > 1.15) sharpen();
+      draw(false); return;
+    }
+    if (g.kind !== "one") return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.mode && Math.hypot(dx, dy) > 8) g.mode = s > 1.01 ? "pan" : Math.abs(dx) > Math.abs(dy) ? "swipe" : dy > 0 ? "down" : "none";
+    if (g.mode === "pan"){ tx = g.tx0 + dx; ty = g.ty0 + dy; const l = lim(); tx = Math.max(-l.x - 40, Math.min(l.x + 40, tx)); ty = Math.max(-l.y - 40, Math.min(l.y + 40, ty)); draw(false); }
+    else if (g.mode === "swipe") place(els.length > 1 ? dx : dx / 4, false);
+    else if (g.mode === "down"){ tx = 0; ty = dy; draw(false); root.style.background = `rgba(0,0,0,${Math.max(.2, 1 - dy / 400)})`; }
+  });
+  const up = e => {
+    if (!pts.has(e.pointerId)) return;
+    const p = pts.get(e.pointerId); pts.delete(e.pointerId);
+    if (!g) return;
+    if (g.kind === "pinch"){
+      if (pts.size === 1){ const [q] = [...pts.values()]; g = { kind: "one", x0: q.x, y0: q.y, tx0: tx, ty0: ty, mode: s > 1.01 ? "pan" : "none", at: 0 }; }
+      else g = null;
+      if (s < 1.05) reset(true); else { clamp(); draw(true); }
+      return;
+    }
+    const dx = p.x - g.x0, dy = p.y - g.y0, mode = g.mode, at = g.at; g = null;
+    if (mode === "pan"){ clamp(); draw(true); return; }
+    if (mode === "swipe"){
+      const go = Math.abs(dx) > W() * 0.18 ? (dx < 0 ? 1 : -1) : 0, ni = Math.max(0, Math.min(els.length - 1, idx + go));
+      if (ni !== idx){ reset(false); idx = ni; s = 1; tx = 0; ty = 0; }
+      place(0, true); return;
+    }
+    if (mode === "down"){
+      if (dy > 110){ closeFull(); return; }
+      root.style.background = ""; reset(true); return;
+    }
+    if (!mode && Date.now() - at < 350){ // a tap; two quick taps zoom in where you tapped, or back out
+      const now2 = Date.now(), m = rel(p.x, p.y);
+      if (now2 - lastTap < 300 && Math.hypot(p.x - lastTapAt.x, p.y - lastTapAt.y) < 40){
+        lastTap = 0;
+        if (s > 1.01) reset(true); else { zoomAt(2.5, m); clamp(); sharpen(); draw(true); }
+      } else { lastTap = now2; lastTapAt = { x: p.x, y: p.y }; }
+    }
+  };
+  root.addEventListener("pointerup", up); root.addEventListener("pointercancel", up);
+  // iPhone's own page zoom must not take the pinch
+  for (const ev of ["gesturestart", "gesturechange", "gestureend"]) root.addEventListener(ev, e => e.preventDefault());
+  root.addEventListener("touchmove", e => e.preventDefault(), { passive: false });
+  root.querySelector("[data-pzclose]").addEventListener("click", () => closeFull());
+  addEventListener("resize", function rs(){ if (!$("#pz")) return removeEventListener("resize", rs); reset(false); place(0, false); });
 }
 document.addEventListener("click", async e => {
   const rv = e.target.closest("#rv"); if (!rv) return;
