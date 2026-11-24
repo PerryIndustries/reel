@@ -413,6 +413,27 @@ try {
     return `double-tap x${s1}, pinch x${s2.toFixed(2)}, zoom.jpg ${zoomAsks.join(',')}, swipe down closed`;
   });
 
+  await check('Pinching a photo on Home zooms it in place over the page and it springs back on release (no viewer opens)', async () => {
+    const cdp = await ctx.newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    await page.goto(base + '#/');
+    await page.waitForSelector('#view article.post .slide img', { timeout: 10000 });
+    const r = await page.evaluate(() => { const im = document.querySelector('#view article.post .slide img'); im.scrollIntoView({ block: 'center' }); const b = im.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: b.width }; });
+    await page.waitForFunction(() => { const im = document.querySelector('#view article.post .slide img'); return im.naturalWidth > 0; }, null, { timeout: 5000 });
+    const hash0 = await page.evaluate(() => location.hash);
+    const a0 = [[r.x - 30, r.y], [r.x + 30, r.y]], a1 = [[r.x - 90, r.y], [r.x + 90, r.y]];
+    await touch('touchStart', a0);
+    for (let i = 1; i <= 8; i++) { await touch('touchMove', a0.map(([x, y], k) => [x + (a1[k][0] - x) * i / 8, y])); await sleep(16); }
+    const mid = await page.evaluate(() => { const p = document.getElementById('pinch'); const cl = p && p.querySelector('img'); const m = cl && /scale\(([\d.]+)\)/.exec(cl.style.transform); return { on: !!p, scale: m ? +m[1] : 0, hidden: document.querySelector('#view article.post .slide img').style.visibility }; });
+    await touch('touchEnd', []);
+    await sleep(450);
+    const after = await page.evaluate(() => ({ gone: !document.getElementById('pinch'), shown: document.querySelector('#view article.post .slide img').style.visibility === '', viewer: !!document.getElementById('pz'), hash: location.hash }));
+    if (!mid.on || mid.scale < 2.6 || mid.scale > 3.4) throw new Error(`mid-pinch: ${JSON.stringify(mid)}`);
+    if (!after.gone || !after.shown) throw new Error(`after release: ${JSON.stringify(after)}`);
+    if (after.viewer || after.hash !== hash0) throw new Error(`a pinch opened something: ${JSON.stringify(after)}`);
+    return `x${mid.scale.toFixed(2)} while pinching, back in place after`;
+  });
+
   // ---- reels viewer touches: hold a side = 2x, hold + drag down locks / up unlocks, hold middle pauses, drag right closes
   await check('Reels: holding a side plays 2x, hold-drag down locks it across reels, drag up unlocks, middle hold pauses, drag right closes', async () => {
     const cdp = await ctx.newCDPSession(page);

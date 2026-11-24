@@ -100,6 +100,9 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .slide{flex:0 0 100%;scroll-snap-align:center;display:grid;place-items:center;background:#000;position:relative}
 .slide img,.slide video{width:100%;max-height:75vh;object-fit:contain;display:block;aspect-ratio:var(--ar,4/5)}
 .slide img{opacity:0;transition:opacity .25s ease}
+.slide{touch-action:pan-x pan-y}
+#pinch{position:fixed;inset:0;z-index:60;pointer-events:none;background:rgba(0,0,0,0)}
+#pinch img{position:fixed;transform-origin:50% 50%;will-change:transform;object-fit:contain}
 .slide img.ld{opacity:1}
 .ptr{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 58px);width:34px;height:34px;margin-left:-17px;border-radius:50%;background:var(--bg);box-shadow:0 2px 10px rgba(0,0,0,.18);display:grid;place-items:center;z-index:9;opacity:0;pointer-events:none;transform:scale(.6)}
 .ptr i{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--fg)}
@@ -743,6 +746,7 @@ function wireCard(el){
   const firstVid = sl && sl.firstElementChild && sl.firstElementChild.querySelector("video");
   c.addEventListener("click", e => {
     if (e.target.closest("[data-mute]")) return;
+    if (now() - pinchEndAt < 500) return; // the lift after a pinch is not a tap
     const t = now();
     clearTimeout(openT);
     if (firstVid && t - lastTap >= 320 && e.target.closest(".slide") === sl.firstElementChild){
@@ -1530,6 +1534,45 @@ function closeFull(){
   if (had) VM.release();
   document.querySelectorAll('#view video[data-want="1"]').forEach(v => { if (v.getAttribute("src")) playVid(v); });
 }
+/* ---------- pinch a photo right in the feed (Instagram): it grows over everything and springs back on release ---------- */
+let PINCH = null, pinchEndAt = 0;
+const pinchPts = e => { const [a, b] = [e.touches[0], e.touches[1]]; return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; };
+document.addEventListener("touchstart", e => {
+  if (PINCH || e.touches.length !== 2 || $("#full").innerHTML) return;
+  const img = e.target.closest && e.target.closest("#view .slide img"); if (!img || !img.naturalWidth) return;
+  e.preventDefault();
+  const r = img.getBoundingClientRect(), p = pinchPts(e);
+  const box = document.createElement("div"); box.id = "pinch";
+  const cl = document.createElement("img"); cl.src = img.currentSrc || img.src; cl.alt = "";
+  Object.assign(cl.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  box.appendChild(cl); document.body.appendChild(box);
+  img.style.visibility = "hidden";
+  PINCH = { img, cl, box, d0: p.d, m0: { x: p.x, y: p.y }, c: { x: r.left + r.width / 2, y: r.top + r.height / 2 }, sharp: false };
+}, { passive: false, capture: true });
+document.addEventListener("touchmove", e => {
+  if (!PINCH) return;
+  e.preventDefault();
+  if (e.touches.length < 2) return;
+  const P = PINCH, p = pinchPts(e);
+  const sc = Math.min(5, Math.max(1, p.d / P.d0));
+  // the spot that started under the fingers stays under them
+  const px = P.m0.x - P.c.x, py = P.m0.y - P.c.y;
+  const tx = p.x - P.c.x - sc * px, ty = p.y - P.c.y - sc * py;
+  P.cl.style.transition = ""; P.cl.style.transform = `translate(${tx}px,${ty}px) scale(${sc})`;
+  P.box.style.background = `rgba(0,0,0,${Math.min(.75, (sc - 1) * .6)})`;
+  if (sc > 1.4 && !P.sharp){ P.sharp = true; const hi = new Image(); hi.onload = () => { if (PINCH === P) P.cl.src = hi.src; }; hi.src = zoomURL(P.img.getAttribute("src")); }
+}, { passive: false, capture: true });
+const pinchEnd = e => {
+  if (!PINCH || (e.touches && e.touches.length >= 2)) return;
+  const P = PINCH; PINCH = null; pinchEndAt = now();
+  P.cl.style.transition = "transform .22s ease-out"; P.cl.style.transform = "";
+  P.box.style.transition = "background .22s"; P.box.style.background = "rgba(0,0,0,0)";
+  setTimeout(() => { P.box.remove(); P.img.style.visibility = ""; }, 230);
+};
+document.addEventListener("touchend", pinchEnd, true); document.addEventListener("touchcancel", pinchEnd, true);
+// iPhone's own page zoom must not take a pinch on a feed photo
+document.addEventListener("gesturestart", e => { if (e.target.closest && e.target.closest("#view .slide")) e.preventDefault(); });
+
 /* ---------- photo viewer: pinch to zoom, drag to look around, double-tap to zoom in or out ---------- */
 // Opens on the photos of one post. Starts on the 1080 px copy and swaps in the sharper zoom copy (made on the PC the
 // first time) once you zoom in. At normal size a sideways swipe moves between photos and a swipe down closes.
