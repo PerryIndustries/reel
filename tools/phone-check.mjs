@@ -404,6 +404,58 @@ try {
     return `double-tap x${s1}, pinch x${s2.toFixed(2)}, zoom.jpg ${zoomAsks.join(',')}, swipe down closed`;
   });
 
+  // ---- reels viewer touches: hold a side = 2x, hold + drag down locks / up unlocks, hold middle pauses, drag right closes
+  await check('Reels: holding a side plays 2x, hold-drag down locks it across reels, drag up unlocks, middle hold pauses, drag right closes', async () => {
+    const cdp = await ctx.newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    const move = async (from, to, steps = 8) => { for (let i = 1; i <= steps; i++) { await touch('touchMove', [[from[0] + (to[0] - from[0]) * i / steps, from[1] + (to[1] - from[1]) * i / steps]]); await sleep(16); } };
+    const cur = () => page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); const b = document.getElementById('rvfast'); return v && { rate: v.playbackRate, paused: v.paused, badge: b.hidden ? '' : b.textContent, idx: v.dataset.idx }; });
+    await page.goto(base + '#/reels');
+    await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
+    await page.locator('#rgrid .tile').first().tap();
+    await page.waitForFunction(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return v && v.readyState >= 2 && !v.paused; }, null, { timeout: 10000 });
+    const { w, h } = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
+    const right = [w - 30, h * 0.45], mid = [w / 2, h * 0.45];
+    const out = [];
+    // hold the right side: 2x while held, 1x after
+    await touch('touchStart', [right]); await sleep(450);
+    const held = await cur();
+    await touch('touchEnd', []); await sleep(120);
+    const let1 = await cur();
+    if (held.rate !== 2 || !held.badge.startsWith('2x')) throw new Error(`holding the right side: ${JSON.stringify(held)}`);
+    if (let1.rate !== 1 || let1.badge) throw new Error(`after letting go: ${JSON.stringify(let1)}`);
+    if (let1.paused) throw new Error('a hold paused the reel (the click after it counted as a tap)');
+    out.push('hold 2x');
+    // hold, drag down: locked; still 2x on the next reel
+    await touch('touchStart', [right]); await sleep(400); await move(right, [right[0], right[1] + 90]); await touch('touchEnd', []); await sleep(150);
+    const locked = await cur();
+    if (locked.rate !== 2 || !/locked/.test(locked.badge)) throw new Error(`hold + drag down: ${JSON.stringify(locked)}`);
+    await page.evaluate(() => { const rv = document.getElementById('rv'); rv.scrollTop += rv.clientHeight; });
+    await page.waitForFunction((i) => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return v && v.dataset.idx !== i; }, locked.idx, { timeout: 4000 });
+    await sleep(200);
+    const next = await cur();
+    if (next.rate !== 2) throw new Error(`the next reel plays at ${next.rate}x with 2x locked`);
+    out.push('lock carries to next reel');
+    // hold, drag up: unlocked
+    await touch('touchStart', [mid]); await sleep(400); await move(mid, [mid[0], mid[1] - 90]); await touch('touchEnd', []); await sleep(150);
+    const unl = await cur();
+    if (unl.rate !== 1 || unl.badge) throw new Error(`hold + drag up: ${JSON.stringify(unl)}`);
+    out.push('unlock');
+    // hold the middle: paused while held, playing after
+    await touch('touchStart', [mid]); await sleep(450);
+    const hp = await cur();
+    await touch('touchEnd', []); await sleep(250);
+    const ha = await cur();
+    if (!hp.paused || ha.paused) throw new Error(`middle hold: during ${JSON.stringify(hp)}, after ${JSON.stringify(ha)}`);
+    out.push('middle hold pauses');
+    // drag left to right: closes
+    const from = [40, h * 0.5];
+    await touch('touchStart', [from]); await move(from, [w * 0.8, h * 0.52], 10); await touch('touchEnd', []);
+    await waitFor(() => page.evaluate(() => !document.getElementById('rv')), 3000, 'the viewer to close');
+    out.push('drag right closes');
+    return out.join(', ');
+  });
+
   // iPhone refuses sound outside a tap: the app must play muted for now but keep "sound on" saved
   await check('A blocked autoplay with sound on leaves the saved choice alone (muted stays false)', async () => {
     const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });

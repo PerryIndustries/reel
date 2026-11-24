@@ -245,7 +245,10 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .sv .ft .reply{flex:1;border:1px solid rgba(255,255,255,.6);border-radius:999px;padding:10px 14px;color:rgba(255,255,255,.85);font-size:14px}
 .sv .ft .seen{display:flex;flex-direction:column;align-items:flex-start;gap:2px;font-size:13px;font-weight:600}
 .sv .ft svg{width:26px;height:26px;color:#fff}
-.rv{overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none}
+.rv{overflow-y:auto;scroll-snap-type:y mandatory;scrollbar-width:none;touch-action:pan-y;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.rv .fast{position:fixed;top:calc(env(safe-area-inset-top,0px) + 16px);left:50%;transform:translateX(-50%);z-index:3;background:rgba(0,0,0,.55);color:#fff;font-weight:700;font-size:14px;padding:6px 12px;border-radius:16px;pointer-events:none;display:flex;gap:6px;align-items:center}
+.rv .fast[hidden]{display:none}
+.rv .fast .hint2{font-weight:500;opacity:.8;font-size:12px}
 .rv::-webkit-scrollbar{display:none}
 .rv .r{position:relative;height:100vh;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always}
 .rv video{width:100%;height:100%;object-fit:contain}
@@ -1309,8 +1312,8 @@ function openReels(list, start, st){
   if (!list.length) return;
   VM.claim();
   const pool = [0, 1, 2].map(() => { const v = document.createElement("video"); v.playsInline = true; v.setAttribute("playsinline", ""); v.loop = true; v.muted = reelsMuted; v.preload = "auto"; v.dataset.pool = "1"; return v; });
-  RV = { cards: list.slice(), pool, k: -1, st, loading: false, secs: [] };
-  $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-closefull aria-label="Close">${I.back}</button><div id="rvlist"></div></div>`;
+  RV = { cards: list.slice(), pool, k: -1, st, loading: false, secs: [], held2x: false, lock2x: false, noClickUntil: 0 };
+  $("#full").innerHTML = `<div class="full rv" id="rv"><button class="close" type="button" data-closefull aria-label="Close">${I.back}</button><div class="fast" id="rvfast" hidden></div><div id="rvlist"></div></div>`;
   const rv = $("#rv"), box = $("#rvlist");
   const addSecs = from => { for (let i = from; i < RV.cards.length; i++){ const s = document.createElement("section"); s.className = "r"; s.dataset.k = i; box.appendChild(s); RV.secs[i] = s; } };
   addSecs(0);
@@ -1353,12 +1356,14 @@ function openReels(list, start, st){
       if (v.parentElement !== s) s.prepend(v);
     }
     rv.querySelectorAll(".r.paused").forEach(x => x.classList.remove("paused"));
-    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; playVid(v); } else v.pause(); });
+    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; playVid(v); } else { v.pause(); v.playbackRate = 1; } });
+    reelRate();
     if (RV.st && k >= RV.cards.length - 3 && !RV.loading) loadMoreReels(addSecs);
   };
-  let tm = 0; rv.addEventListener("scroll", () => { clearTimeout(tm); tm = setTimeout(activate, 120); }, { passive: true });
+  let raf = 0; rv.addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (RV) activate(); }); }, { passive: true });
   RV.activate = activate;
   activate();
+  wireReelGestures(rv);
 }
 async function loadMoreReels(addSecs){
   const st = RV && RV.st; if (!st || st.cursor === null) return;
@@ -1373,6 +1378,75 @@ async function loadMoreReels(addSecs){
   finally { if (RV) RV.loading = false; }
 }
 const reelVid = sec => sec && sec.querySelector("video");
+const curReelVid = () => RV && reelVid(RV.secs[RV.k]);
+// 2x while a side is held, or all the time once locked (it stays locked from reel to reel until unlocked or closed)
+function reelRate(){
+  if (!RV) return;
+  const fast = RV.held2x || RV.lock2x, v = curReelVid();
+  if (v) v.playbackRate = fast ? 2 : 1;
+  const b = $("#rvfast"); if (!b) return;
+  b.hidden = !fast;
+  b.innerHTML = RV.lock2x ? `2x locked <span class="hint2">hold, drag up to unlock</span>` : `2x <span class="hint2">drag down to lock</span>`;
+}
+function closeReels(){ closeFull(); if (route().name === "reels" && route().a) history.back(); }
+// Instagram-style touches on the full-screen reels:
+//   drag left to right            -> the reel slides away and the viewer closes
+//   hold the left or right side   -> 2x while held
+//   hold, then drag down / up     -> lock 2x on / unlock it
+//   hold the middle               -> paused while held
+// A tap still pauses or plays; up and down swipes still move between reels.
+function wireReelGestures(rv){
+  let g = null;
+  const SIDE = 0.28, HOLD_MS = 260, LOCK_PX = 45;
+  const endHold = () => {
+    if (!g || g.mode !== "hold") return;
+    if (g.zone === "pause"){ const v = curReelVid(), sec = RV && RV.secs[RV.k]; if (v && sec && !sec.classList.contains("paused")) playVid(v); }
+    if (RV){ RV.held2x = false; reelRate(); }
+  };
+  const startHold = () => {
+    if (!g || g.mode || !RV) return;
+    g.mode = "hold";
+    const W = rv.clientWidth;
+    g.zone = (g.x0 < W * SIDE || g.x0 > W * (1 - SIDE)) ? "fast" : "pause";
+    if (g.zone === "fast"){ RV.held2x = true; reelRate(); }
+    else { const v = curReelVid(); if (v) v.pause(); }
+  };
+  rv.addEventListener("pointerdown", e => {
+    if (e.target.closest("button,a,.scrub") || !e.isPrimary) return;
+    g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, mode: null, zone: null, timer: setTimeout(startHold, HOLD_MS) };
+  });
+  rv.addEventListener("pointermove", e => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.mode && Math.hypot(dx, dy) > 12){
+      clearTimeout(g.timer);
+      g.mode = (dx > 0 && Math.abs(dx) > Math.abs(dy) * 1.2) ? "close" : "scroll";
+    }
+    if (g.mode === "close"){ rv.style.transition = ""; rv.style.transform = `translateX(${Math.max(0, dx)}px)`; rv.style.opacity = String(Math.max(.4, 1 - dx / (rv.clientWidth * 1.4))); }
+    else if (g.mode === "hold" && RV){
+      if (dy > LOCK_PX && !RV.lock2x){ RV.lock2x = true; reelRate(); if (navigator.vibrate) navigator.vibrate(10); }
+      else if (dy < -LOCK_PX && RV.lock2x){ RV.lock2x = false; reelRate(); if (navigator.vibrate) navigator.vibrate(10); }
+    }
+  });
+  const up = e => {
+    if (!g || e.pointerId !== g.id) return;
+    clearTimeout(g.timer);
+    const dx = e.clientX - g.x0, mode = g.mode;
+    if (mode === "close"){
+      if (dx > rv.clientWidth * 0.28 && e.type === "pointerup"){
+        rv.style.transition = "transform .18s ease-out, opacity .18s"; rv.style.transform = "translateX(100%)"; rv.style.opacity = "0.4";
+        setTimeout(closeReels, 170);
+      } else { rv.style.transition = "transform .2s ease-out, opacity .2s"; rv.style.transform = ""; rv.style.opacity = ""; }
+    }
+    if (mode === "hold") endHold();
+    if ((mode === "hold" || mode === "close") && RV) RV.noClickUntil = now() + 500; // the click after a hold or drag is not a tap
+    g = null;
+  };
+  rv.addEventListener("pointerup", up); rv.addEventListener("pointercancel", up);
+  // once a hold or a sideways close has started, the finger must not also scroll the reels
+  rv.addEventListener("touchmove", e => { if (g && (g.mode === "hold" || g.mode === "close")) e.preventDefault(); }, { passive: false });
+  rv.addEventListener("contextmenu", e => e.preventDefault());
+}
 function tapPause(e){
   const sec = e.target.closest(".r"), vd = reelVid(sec); if (!vd) return;
   if (sec.classList.toggle("paused")){ vd.dataset.want = "0"; vd.pause(); }
@@ -1532,8 +1606,9 @@ function openPhotos(sl, slide){
 document.addEventListener("click", async e => {
   const rv = e.target.closest("#rv"); if (!rv) return;
   const t = e.target.closest("button,a");
+  if (!t && RV && now() < RV.noClickUntil){ RV.noClickUntil = 0; return; }
   if (!t){ tapPause(e); return; }
-  if ("closefull" in t.dataset){ closeFull(); if (t.tagName === "A") return; if (route().name === "reels" && route().a) history.back(); return; }
+  if ("closefull" in t.dataset){ if (t.tagName === "A"){ closeFull(); return; } closeReels(); return; }
   if (t.dataset.rlike){
     const c = RV && RV.cards.find(x => x.id === t.dataset.rlike); if (!c) return;
     c.liked = !c.liked; t.className = c.liked ? "liked" : ""; t.innerHTML = (c.liked ? I.heartOn : I.heart) + `<span>${fmt(c.likes + (c.liked ? 1 : 0))}</span>`;
