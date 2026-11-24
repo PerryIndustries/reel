@@ -257,7 +257,12 @@ try {
     await page.waitForSelector('.xt', { timeout: 8000 });
     const href = await page.evaluate(() => { const a = document.querySelector('.xt.big'); return a && a.getAttribute('href'); });
     if (!href || !href.startsWith('#/reels/')) throw new Error(`explore video tile goes to ${href}`);
-    return `feed tap -> ${hash}, explore video tile -> ${href}`;
+    await page.locator('.xt.big').first().tap();
+    await page.waitForSelector('#full .rv video', { timeout: 5000, state: 'attached' });
+    const ex = await page.evaluate(() => ({ hash: location.hash, xt: !!document.querySelector('#view .xt') }));
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    if (ex.hash !== '#/explore' || !ex.xt) throw new Error(`explore tile left Explore: ${JSON.stringify(ex)}`);
+    return `feed tap stays on ${hash}, explore video tile opens over Explore`;
   });
 
   await check('The reels viewer shows the whole video instead of zooming in to fill the screen', async () => {
@@ -322,9 +327,11 @@ try {
     const mine = `#view video[data-item="${resumeItem}"]`;
     await loadedAt(mine);
     await putAt(mine, 5);
-    await page.evaluate((s) => { window.__feedVid = document.querySelector(s); }, mine);
+    const hash0 = await page.evaluate((s) => { window.__feedVid = document.querySelector(s); window.__feedCard = window.__feedVid.closest('article'); window.__reelsGrid = 0; new MutationObserver(() => { if (document.getElementById('rgrid')) window.__reelsGrid++; }).observe(document.getElementById('view'), { childList: true, subtree: true }); return location.hash; }, mine);
     await page.locator('#view article.post .slides').first().tap();
     await loadedAt(curReel);
+    const under = await page.evaluate(() => ({ hash: location.hash, card: window.__feedCard.isConnected, grid: window.__reelsGrid }));
+    if (under.hash !== hash0 || !under.card || under.grid) throw new Error(`opening left the page: ${JSON.stringify(under)} (was ${hash0})`);
     const opened = await page.evaluate((s) => { const v = document.querySelector(s); return { t: v.currentTime, item: v.dataset.item, same: v === window.__feedVid }; }, curReel);
     if (!opened.same) throw new Error('the viewer downloaded the video again instead of taking the loaded copy from the feed');
     if (opened.item !== resumeItem) throw new Error(`viewer opened ${opened.item}, not ${resumeItem}`);
@@ -333,11 +340,13 @@ try {
     await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
     await page.waitForFunction(() => location.hash.startsWith('#/p/'), null, { timeout: 5000 });
     await loadedAt(mine);
+    const after = await page.evaluate(() => ({ hash: location.hash, card: window.__feedCard.isConnected, grid: window.__reelsGrid }));
+    if (after.hash !== hash0 || !after.card || after.grid) throw new Error(`closing redrew the page or showed the Reels tab: ${JSON.stringify(after)}`);
     const backSame = await page.evaluate((s) => document.querySelector(s) === window.__feedVid, mine);
     if (!backSame) throw new Error('closing downloaded the video again instead of handing the loaded copy back to the feed');
     const back = await page.evaluate((s) => document.querySelector(s).currentTime, mine);
     if (back < 7.5 || back > 11.5) throw new Error(`feed card back at ${back.toFixed(2)}s, the viewer was at 8s`);
-    return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s; same loaded video both ways`;
+    return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s; same loaded video both ways; page never left`;
   });
 
   await check('A video left part way in the viewer opens there after a reload; one watched to the end starts over', async () => {

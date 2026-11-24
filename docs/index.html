@@ -747,7 +747,17 @@ function wireCard(el){
     clearTimeout(openT);
     if (firstVid && t - lastTap >= 320 && e.target.closest(".slide") === sl.firstElementChild){
       const id = el.dataset.post;
-      openT = setTimeout(() => { const fv = sl.firstElementChild.querySelector("video"); if (fv && fv.getAttribute("src")) WARM.keep(fv); go("#/reels/" + id); }, 330);
+      openT = setTimeout(() => {
+        const fv = sl.firstElementChild.querySelector("video");
+        if (fv && fv.getAttribute("src")){
+          const ph = fv.cloneNode(false); ph.removeAttribute("src"); ph.preload = "none"; ph.dataset.want = "0";
+          ph.dataset.psrc = ph.dataset.vsrc; delete ph.dataset.vsrc; // parked until the viewer closes
+          if (autoIO) autoIO.unobserve(fv);
+          fv.replaceWith(ph); if (ph.dataset.auto) autoplayIO().observe(ph);
+          WARM.keep(fv);
+        }
+        openReelsFor(id);
+      }, 330);
     } else if (t - lastTap >= 320){
       // A photo: one tap opens it full screen to zoom into, two taps like it.
       const slide = e.target.closest(".slide");
@@ -1297,9 +1307,11 @@ async function vReelsTab(v, r, stale){
     empty: `<div class="empty" style="grid-column:1/-1"><h2>No videos yet</h2><p>Videos in your library post as reels and play here.</p></div>` });
   if (r.a) openReelsFor(r.a);
 }
+// A feed card whose video went into the viewer gets it back (VM loads the stand-in, which takes the warm copy).
+function unparkFeed(){ document.querySelectorAll("#view video[data-psrc]").forEach(x => { x.dataset.vsrc = x.dataset.psrc; delete x.dataset.psrc; }); }
 async function openReelsFor(id){
   let first = null;
-  try { first = await getPost(id); } catch(e){ return; }
+  try { first = await getPost(id); } catch(e){ unparkFeed(); VM.sync(); return; }
   const st = reelState();
   const list = [first, ...st.cards.filter(c => c.id !== id)];
   openReels(list, 0, st);
@@ -1388,6 +1400,11 @@ function reelRate(){
   b.hidden = !fast;
   b.innerHTML = RV.lock2x ? `2x locked <span class="hint2">hold, drag up to unlock</span>` : `2x <span class="hint2">drag down to lock</span>`;
 }
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest('a[href^="#/reels/"]'); if (!a || e.defaultPrevented) return;
+  const id = decodeURIComponent(a.getAttribute("href").slice("#/reels/".length)); if (!id) return;
+  e.preventDefault(); openReelsFor(id);
+});
 function closeReels(){ closeFull(); if (route().name === "reels" && route().a) history.back(); }
 // Instagram-style touches on the full-screen reels:
 //   drag left to right            -> the reel slides away and the viewer closes
@@ -1509,6 +1526,7 @@ function closeFull(){
   f.querySelectorAll(".r").forEach(s => clearInterval(s._tick));
   const had = !!f.innerHTML; f.innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
   RV = null;
+  unparkFeed();
   if (had) VM.release();
   document.querySelectorAll('#view video[data-want="1"]').forEach(v => { if (v.getAttribute("src")) playVid(v); });
 }
@@ -1916,7 +1934,7 @@ document.addEventListener("click", async e => {
   const d = t.dataset;
   if (d.story){ openStories(d.story); return; }
   if (d.hl){ const [aid, k] = d.hl.split("|"); const list = HL[aid] || []; if (list[+k]) openStories(aid, { list, k: +k }); return; }
-  if (d.reelopen){ go("#/reels/" + d.reelopen); return; }
+  if (d.reelopen){ openReelsFor(d.reelopen); return; }
   if (d.href){ e.preventDefault(); go(d.href); return; }
   if ("back" in d){ if (history.length > 1) history.back(); else go("#/"); return; }
   if (d.tab === "home"){
