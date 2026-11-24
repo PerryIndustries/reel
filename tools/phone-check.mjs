@@ -321,18 +321,22 @@ try {
     const mine = `#view video[data-item="${resumeItem}"]`;
     await loadedAt(mine);
     await putAt(mine, 5);
+    await page.evaluate((s) => { window.__feedVid = document.querySelector(s); }, mine);
     await page.locator('#view article.post .slides').first().tap();
     await loadedAt(curReel);
-    const opened = await page.evaluate((s) => { const v = document.querySelector(s); return { t: v.currentTime, item: v.dataset.item }; }, curReel);
+    const opened = await page.evaluate((s) => { const v = document.querySelector(s); return { t: v.currentTime, item: v.dataset.item, same: v === window.__feedVid }; }, curReel);
+    if (!opened.same) throw new Error('the viewer downloaded the video again instead of taking the loaded copy from the feed');
     if (opened.item !== resumeItem) throw new Error(`viewer opened ${opened.item}, not ${resumeItem}`);
     if (Math.abs(opened.t - 5) > 1) throw new Error(`viewer started at ${opened.t.toFixed(2)}s, the feed was at 5s`);
     await putAt(curReel, 8);
     await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
     await page.waitForFunction(() => location.hash.startsWith('#/p/'), null, { timeout: 5000 });
     await loadedAt(mine);
+    const backSame = await page.evaluate((s) => document.querySelector(s) === window.__feedVid, mine);
+    if (!backSame) throw new Error('closing downloaded the video again instead of handing the loaded copy back to the feed');
     const back = await page.evaluate((s) => document.querySelector(s).currentTime, mine);
     if (back < 7.5 || back > 10) throw new Error(`feed card back at ${back.toFixed(2)}s, the viewer was at 8s`);
-    return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s`;
+    return `feed 5s -> viewer ${opened.t.toFixed(1)}s; viewer 8s -> feed ${back.toFixed(1)}s; same loaded video both ways`;
   });
 
   await check('A video left part way in the viewer opens there after a reload; one watched to the end starts over', async () => {

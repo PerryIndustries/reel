@@ -489,21 +489,42 @@ const VM = {
   hold: 0,
   load(v, near){
     if (!v.dataset.vsrc || v.getAttribute("src")) return;
+    const w = WARM.take(v.dataset.vsrc);
+    if (w){ warmIntoFeed(v, w); return; }
     v.preload = near ? "auto" : "metadata";
     v.src = v.dataset.vsrc;
   },
-  unload(v){ if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); } },
+  unload(v){ if (v === WARM.v) return; if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); } },
   // keep the (up to) 3 feed videos nearest the middle of the screen loaded, everything else empty
   sync(){
     const vids = [...document.querySelectorAll("#view video[data-vsrc]")];
     if (VM.hold){ vids.forEach(VM.unload); return; }
     const mid = innerHeight / 2;
     const rows = vids.map(v => { const r = v.getBoundingClientRect(); return { v, d: Math.abs((r.top + r.bottom) / 2 - mid), vis: r.bottom > -innerHeight * .6 && r.top < innerHeight * 1.6 }; }).sort((x, y) => x.d - y.d);
-    rows.forEach((x, i) => { if (i < 3 && x.vis) VM.load(x.v, i === 0); else VM.unload(x.v); });
+    rows.forEach((x, i) => { if (i < 3 && x.vis) VM.load(x.v, true); else VM.unload(x.v); }); // the cards either side buffer too, so they start at once
   },
   claim(){ VM.hold++; VM.sync(); },
   release(){ VM.hold = Math.max(0, VM.hold - 1); VM.sync(); },
 };
+// One loaded video kept for a moment while it moves between the feed and the full-screen viewer, so opening or
+// closing a video carries on with what was already downloaded instead of fetching it again from the start.
+const WARM = {
+  v: null, t: 0,
+  keep(v){ WARM.drop(); v.dataset.want = "0"; v.pause(); WARM.v = v; WARM.t = setTimeout(WARM.drop, 4000); },
+  take(src){ const v = WARM.v; if (!v || v.getAttribute("src") !== src) return null; clearTimeout(WARM.t); WARM.v = null;
+    if (v._vposDone){ v._vposDone = false; try { v.currentTime = 0; } catch(_){} } // watched to the end: from the top
+    return v; },
+  drop(){ clearTimeout(WARM.t); const v = WARM.v; WARM.v = null; if (v){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); if (!v.closest("#view")) v.remove(); } }, // still in a feed card: it just goes back to empty
+};
+// The viewer's video goes back into the feed card that shows the same file, in place of its empty <video>.
+function warmIntoFeed(v, w){
+  if (autoIO) autoIO.unobserve(v);
+  for (const k of ["vsrc", "item", "auto"]) { if (v.dataset[k] != null) w.dataset[k] = v.dataset[k]; else delete w.dataset[k]; }
+  delete w.dataset.pool; delete w.dataset.idx;
+  w.setAttribute("style", v.getAttribute("style") || ""); w.poster = v.poster; w.loop = true; w.muted = feedMuted;
+  v.replaceWith(w);
+  if (w.dataset.auto) autoplayIO().observe(w);
+}
 let vmTick = 0;
 window.addEventListener("scroll", () => { if (!vmTick) vmTick = requestAnimationFrame(() => { vmTick = 0; VM.sync(); }); }, { passive: true });
 
@@ -716,7 +737,7 @@ function wireCard(el){
     clearTimeout(openT);
     if (firstVid && t - lastTap >= 320 && e.target.closest(".slide") === sl.firstElementChild){
       const id = el.dataset.post;
-      openT = setTimeout(() => go("#/reels/" + id), 330);
+      openT = setTimeout(() => { const fv = sl.firstElementChild.querySelector("video"); if (fv && fv.getAttribute("src")) WARM.keep(fv); go("#/reels/" + id); }, 330);
     }
     if (t - lastTap < 320){
       const post = c.closest("article.post");
@@ -1305,8 +1326,16 @@ function openReels(list, start, st){
     RV.secs.forEach((s, j) => { if (s && s.dataset.built && !win.includes(j)){ clearInterval(s._tick); s.innerHTML = ""; delete s.dataset.built; } });
     for (const j of win){
       buildSec(j);
-      const v = RV.pool[j % 3], s = RV.secs[j], m = RV.cards[j].media[0];
-      if (v.dataset.idx !== String(j)){
+      let v = RV.pool[j % 3]; const s = RV.secs[j], m = RV.cards[j].media[0];
+      const w = v.dataset.idx !== String(j) && WARM.take(m.video);
+      if (w){ // the feed's copy, already loaded and at the right time
+        if (autoIO) autoIO.unobserve(w);
+        if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); }
+        v.remove();
+        delete w.dataset.vsrc; delete w.dataset.auto; w.removeAttribute("style");
+        w.dataset.pool = "1"; w.dataset.idx = j; w.dataset.want = "0"; w.dataset.item = m.item || ""; w.loop = true;
+        RV.pool[j % 3] = v = w;
+      } else if (v.dataset.idx !== String(j)){
         VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.dataset.idx = j; v.dataset.want = "0"; v.dataset.item = m.item || "";
         v.poster = m.poster || m.thumb; v.src = m.video; v.load(); // VPOS puts it back where it was once it has loaded
       }
@@ -1389,6 +1418,8 @@ function wireScrub(sec){
 }
 function closeFull(){
   const f = $("#full");
+  const cur = RV && RV.pool.find(v => v.dataset.want === "1" && v.getAttribute("src") && v.isConnected);
+  if (cur){ cur.remove(); WARM.keep(cur); }
   f.querySelectorAll("video").forEach(v => { VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); }); // the feed picks the time up from VPOS
   f.querySelectorAll(".r").forEach(s => clearInterval(s._tick));
   const had = !!f.innerHTML; f.innerHTML = ""; clearTimeout(storyTimer); cancelAnimationFrame(storyRAF);
