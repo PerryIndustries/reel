@@ -1,8 +1,9 @@
 // Feed streams: the endless scroll behind home, reels, explore and a profile grid.
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
 // a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix. In all
-// three, files added in the last 7 days and never seen come first (within the spacing rules), and files that arrive
-// while a stream is open join it.
+// three, new files (added in the last 7 days, never seen) and favorites (see isFav) come first, taking turns, within
+// the dealing rules, and files that arrive while a stream is open join it. Home never deals two videos in a row
+// while a photo card is left.
 // A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
 import { publish, postNow, storiesFolder } from './scheduler.js';
 import { card } from './cards.js';
@@ -12,11 +13,20 @@ const STREAM_TTL = 6 * 3600_000;
 export const PAGE_SIZE = 8;
 const SPACING = 3; // no same account within the last 3 cards (home / explore)
 // No two cards in a row from the same top-level Drive folder (home / explore / reels), whenever another folder has a candidate.
+// Home never deals a video right after a video while a photo card is left (photos may follow photos). A card is the
+// kind of its first, visible item. When the rules clash, the folder rule gives way first, then this one.
 const MAX_STREAMS = 200;
 export const DOWN = 0.02; // odds kept per thumbs-down
 // New uploads first: a file added in the last 7 days that has never been seen (and never thumbed down) is dealt
 // ahead of everything else in home, reels and explore, within the spacing rules, until it is seen.
 export const NEW_WINDOW = 7 * DAY;
+// Favorites first too: a file he hearted 2+ times (each heart tap is a taste up), or on a saved or pinned post, never
+// thumbed down and not seen in the last 12 h (so the front rotates through them instead of showing the same few).
+// The front alternates new and favorite while both have a card the rules allow; then whichever is left; then the
+// normal weighted mix.
+export const FAV_UPS = 2;
+export const FAV_REST = 12 * 3600_000;
+export const isFav = (item, now) => !(Number(item.down) > 0) && (Number(item.up) >= FAV_UPS || !!item.kept) && (item.seen_at == null || now - item.seen_at >= FAV_REST);
 export const isNew = (item, now) => item.seen_at == null && !(Number(item.down) > 0) && now - Number(item.added_at ?? 0) <= NEW_WINDOW;
 
 // novelty x taste. Never seen: 1. Seen: back toward 1 over 3 days, faster when voted up.
@@ -65,14 +75,16 @@ function candidates(ctx, scope) {
   if (m) { where.push('p.acct = ?'); args.push(m[1]); }
   const rows = db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, p.due_at
     FROM posts p JOIN accounts a ON a.id = p.acct WHERE ${where.join(' AND ')}`).all(...args);
-  const getItem = db.prepare('SELECT key, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  const kept = new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.saved = 1 OR p.pinned = 1`).all().map((r) => r.v));
   const out = [];
   const seenFirst = new Set();
   for (const p of rows) {
     const first = parseKeys(p)[0];
     if (!first || seenFirst.has(first)) continue;
-    const item = getItem.get(first);
-    if (!item) continue;
+    const row = getItem.get(first);
+    if (!row) continue;
+    const item = kept.has(first) ? { ...row, kept: 1 } : row;
     seenFirst.add(first);
     out.push({ id: p.id, acct: p.acct, folder: item.folder ?? '', status: p.status, up_at: p.up_at, pinned: p.pinned, first, item });
   }
@@ -85,7 +97,7 @@ function candidates(ctx, scope) {
   for (const it of loose) {
     if (seenFirst.has(it.key) || storiesFolder(it)) continue;
     seenFirst.add(it.key);
-    out.push({ id: null, acct: it.acct, folder: it.folder ?? '', status: 'loose', first: it.key, item: it });
+    out.push({ id: null, acct: it.acct, folder: it.folder ?? '', status: 'loose', first: it.key, item: kept.has(it.key) ? { ...it, kept: 1 } : it });
   }
   return out;
 }
@@ -104,15 +116,15 @@ export function newStream(ctx, scope, now) {
   return id;
 }
 
-// Folder of the card a stream dealt last: the first item of its last emitted post. Read from the database (not
-// kept beside `emitted`) so a stream continued with emitted cards already in it still knows where it stands.
-function lastFolder(ctx, s) {
+// Folder and kind of the card a stream dealt last: the first item of its last emitted post. Read from the database
+// (not kept beside `emitted`) so a stream continued with emitted cards already in it still knows where it stands.
+function lastCard(ctx, s) {
   const id = s.emitted[s.emitted.length - 1];
   if (id == null) return null;
   const row = ctx.db.prepare('SELECT items FROM posts WHERE id = ?').get(id);
   const first = row && parseKeys(row)[0];
-  const it = first && ctx.db.prepare('SELECT folder FROM items WHERE key = ?').get(first);
-  return it ? (it.folder ?? '') : null;
+  const it = first && ctx.db.prepare('SELECT folder, kind FROM items WHERE key = ?').get(first);
+  return it ? { folder: it.folder ?? '', kind: it.kind } : null;
 }
 
 // Files that arrived (or finished processing) after the stream was built join its pool while they are new, so
@@ -128,7 +140,7 @@ function joinArrivals(ctx, s, now) {
   const holder = new Map();
   for (const r of db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, j.value v FROM posts p JOIN accounts a ON a.id = p.acct, json_each(p.items) j
     WHERE p.status IN ('live','queued') AND p.kind <> 'story' ORDER BY p.id`).all()) if (!holder.has(r.v)) holder.set(r.v, r);
-  const getItem = db.prepare('SELECT key, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
   for (const it of unknown) {
     if (s.known.has(it.key)) continue;
     s.known.add(it.key); // looked at once: a carousel member whose post is already in play is not looked up again
@@ -155,14 +167,14 @@ function holderOf(ctx, key, scope) {
     ${scope === 'reels' ? "AND p.kind = 'reel'" : ''} AND json_extract(p.items, '$[0]') = ? ORDER BY p.id LIMIT 1`).get(key) ?? null;
 }
 
-// The stream's copy of a candidate's seen / thumbs-down state is from when it was built; a file seen or voted on
-// since (in another stream, or on another tab) is no longer new.
-function refreshNew(ctx, s, now) {
-  const get = ctx.db.prepare('SELECT seen_at, down FROM items WHERE key = ?');
+// The stream's copy of a candidate's seen / vote state is from when it was built; a file seen or voted on since
+// (in another stream, or on another tab) is no longer new, or rests as a favorite.
+function refreshFront(ctx, s, now) {
+  const get = ctx.db.prepare('SELECT seen_at, up, down FROM items WHERE key = ?');
   for (const c of s.pool) {
-    if (!isNew(c.item, now)) continue;
+    if (!isNew(c.item, now) && !isFav(c.item, now)) continue;
     const r = get.get(c.first);
-    if (r) c.item = { ...c.item, seen_at: r.seen_at, down: r.down };
+    if (r) c.item = { ...c.item, seen_at: r.seen_at, up: r.up, down: r.down };
   }
 }
 
@@ -172,17 +184,28 @@ function pickOne(ctx, s, now) {
   if (!s.pool.length) return -1;
   if (s.profile) return 0;
   const uniform = s.scope === 'explore';
-  // Folder first: when any candidate is from another folder than the last card, only those are in play.
-  // A pool that is all one folder keeps going (never end early).
-  const prev = lastFolder(ctx, s);
-  const otherFolder = prev == null ? s.pool.length : s.pool.filter((c) => c.folder !== prev).length;
-  const folderOk = (c) => prev == null || otherFolder === 0 || c.folder !== prev;
+  // Hard rules on the last card: on home no video right after a video, and another folder than the last card's.
+  // Only the cards passing both are in play; when none does, the folder rule is dropped, then the video rule too,
+  // so a pool of only videos or only one folder keeps going (never end early).
+  const prev = lastCard(ctx, s);
+  const kindOk = (c) => s.scope !== 'home' || prev == null || prev.kind !== 'video' || c.item.kind !== 'video';
+  const sameFolder = (c) => prev == null || c.folder !== prev.folder;
+  const both = (c) => kindOk(c) && sameFolder(c);
+  const folderOk = s.pool.some(both) ? both : s.pool.some(kindOk) ? kindOk : s.pool.some(sameFolder) ? sameFolder : () => true;
   const base = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
-  // among the cards allowed here, new uploads go first whenever there is one
+  // among the cards allowed here, new uploads and favorites go first, taking turns while both have one
+  let group = null;
   const weights = (allowed) => {
     const w = base(allowed);
-    const fresh = w.map((x, i) => (x > 0 && isNew(s.pool[i].item, now) ? x : 0));
-    return fresh.some((x) => x > 0) ? fresh : w;
+    const front = {
+      new: w.map((x, i) => (x > 0 && isNew(s.pool[i].item, now) ? x : 0)),
+      fav: w.map((x, i) => (x > 0 && !isNew(s.pool[i].item, now) && isFav(s.pool[i].item, now) ? x : 0)),
+    };
+    for (const g of s.lastGroup === 'new' ? ['fav', 'new'] : ['new', 'fav']) {
+      if (front[g].some((x) => x > 0)) { group = g; return front[g]; }
+    }
+    group = null;
+    return w;
   };
   let w = weights((c) => !(spaced && recent.has(c.acct)));
   let total = w.reduce((x, y) => x + y, 0);
@@ -194,6 +217,7 @@ function pickOne(ctx, s, now) {
     total = w.reduce((x, y) => x + y, 0);
     if (total <= 0) return -1;
   }
+  if (group) s.lastGroup = group;
   let x = (ctx.rand ?? Math.random)() * total;
   let last = -1;
   for (let i = 0; i < w.length; i++) {
@@ -228,7 +252,7 @@ export function page(ctx, streamId, cursor, now, scope) {
       if (row && (s.profile || !votedOut(ctx, s, row))) cards.push(card(ctx, row, now));
       continue;
     }
-    if (!s.profile && !checked) { checked = true; joinArrivals(ctx, s, now); refreshNew(ctx, s, now); }
+    if (!s.profile && !checked) { checked = true; joinArrivals(ctx, s, now); refreshFront(ctx, s, now); }
     if (s.done) break;
     const i = pickOne(ctx, s, now);
     if (i < 0) { s.done = true; break; }

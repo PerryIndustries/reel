@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { openDb } from '../lib/db.js';
-import { weight, newStream, page, PAGE_SIZE, isNew } from '../lib/feed.js';
+import { weight, newStream, page, PAGE_SIZE, isNew, isFav } from '../lib/feed.js';
 
 const H = 3600_000;
 const D = 24 * H;
@@ -468,4 +468,157 @@ test('new uploads: a loose file queued after the stream was built is dealt as th
   assert.equal(cards[0].id, 'q_fresh');
   assert.equal(ctx.db.prepare("SELECT status FROM posts WHERE id = 'q_fresh'").get().status, 'live');
   assert.equal(ctx.db.prepare("SELECT COUNT(*) n FROM posts p, json_each(p.items) j WHERE j.value = 'fresh'").get().n, 1, 'no second post for it');
+});
+
+// ---- home: video then photo (REEL-4) ----------------------------------------------------------------------
+// A card is the kind of its first item. Home never deals a video right after a video while a photo card is left.
+const kindOf = (ctx, c) => ctx.db.prepare('SELECT kind FROM items WHERE key = ?').get(firstKey(c)).kind;
+const kinds = (ctx, cards) => cards.map((c) => (kindOf(ctx, c) === 'video' ? 'V' : 'P')).join('');
+// true when a video follows a video at a point where a photo card was still to come
+const videoAfterVideoWithPhotosLeft = (k) => [...k].some((x, i) => i > 0 && x === 'V' && k[i - 1] === 'V' && k.slice(i).includes('P'));
+function mixedHome(ctx, { videos, photos, accts = 6 }) {
+  for (let a = 0; a < accts; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < videos; i++) addOld(ctx, `v${a}_${i}`, `a${a}`, { kind: 'video', postKind: 'reel' });
+    for (let i = 0; i < photos; i++) addOld(ctx, `ph${a}_${i}`, `a${a}`);
+  }
+}
+
+// fails if home deals video after video while photos are left (no kind rule)
+test('home: a video is never followed by a video while a photo card is left', (t) => {
+  const ctx = makeCtx(t, 41);
+  mixedHome(ctx, { videos: 6, photos: 4 });
+  const k = kinds(ctx, drain(ctx, 'home'));
+  assert.equal(k.length, 60, 'every card is dealt');
+  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
+  assert.ok(k.startsWith('VPVPVP'), 'more videos than photos: they alternate from the start');
+});
+
+// fails if the rule also forbids photo after photo (strict alternation)
+test('home: photos may follow photos', (t) => {
+  const ctx = makeCtx(t, 42);
+  mixedHome(ctx, { videos: 2, photos: 8 });
+  const k = kinds(ctx, drain(ctx, 'home'));
+  assert.ok(k.includes('PP'), k);
+  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
+});
+
+// fails if the stream stalls when only videos are left (no escape hatch)
+test('home: with only videos left the stream keeps dealing videos', (t) => {
+  const ctx = makeCtx(t, 43);
+  mixedHome(ctx, { videos: 5, photos: 0 });
+  assert.equal(kinds(ctx, drain(ctx, 'home')), 'V'.repeat(30));
+});
+
+// fails if the folder rule wins over the video rule when they clash
+test('home: after a video, a photo from the same folder beats a video from another folder', (t) => {
+  const ctx = makeCtx(t, 44);
+  for (let a = 0; a < 6; a++) addAcct(ctx, `a${a}`);
+  for (let a = 0; a < 6; a++) addOld(ctx, `va${a}`, `a${a}`, { kind: 'video', postKind: 'reel', folder: 'A' });
+  for (let a = 0; a < 6; a++) addOld(ctx, `pa${a}`, `a${a}`, { folder: 'A' });
+  for (let a = 0; a < 6; a++) addOld(ctx, `vb${a}`, `a${a}`, { kind: 'video', postKind: 'reel', folder: 'B' });
+  const k = kinds(ctx, drain(ctx, 'home'));
+  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
+});
+
+// fails if the rule leaks into explore (a grid) or reels
+test('explore and reels deal videos back to back', (t) => {
+  const ctx = makeCtx(t, 45);
+  mixedHome(ctx, { videos: 6, photos: 4 });
+  assert.equal(videoAfterVideoWithPhotosLeft(kinds(ctx, drain(ctx, 'explore'))), true, 'explore deals video after video with photos still left');
+  assert.equal(drain(ctx, 'reels').length, 36, 'reels: every video');
+});
+
+// fails if a card's kind is read from another item than its first (a carousel opening on a video counts as a photo)
+test('home: a carousel whose first item is a video counts as a video', (t) => {
+  const ctx = makeCtx(t, 46);
+  mixedHome(ctx, { videos: 3, photos: 2 });
+  for (let a = 0; a < 6; a++) {
+    for (const k of [`cv${a}`, `cp${a}`]) ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,0,0,?)')
+      .run(k, `f/${k}`, 'f', k.startsWith('cv') ? 'video' : 'photo', `a${a}`, T - 30 * D, T - 4 * D);
+    ctx.db.prepare(`INSERT INTO posts(id, acct, items, kind, caption, status, due_at, up_at, liked, saved, pinned, seed, created_at)
+      VALUES (?,?,?,'post','cap','live',?,?,0,0,0,7,?)`).run(`car${a}`, `a${a}`, JSON.stringify([`cv${a}`, `cp${a}`]), T - 5 * H, T - 5 * H, T - 40 * D);
+  }
+  const k = kinds(ctx, drain(ctx, 'home'));
+  assert.equal(k.length, 36);
+  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
+});
+
+// fails if new-first overrides the video rule (a batch of new videos would come back to back)
+test('home: new videos alternate with photos, new photos first', (t) => {
+  const ctx = makeCtx(t, 47);
+  mixedHome(ctx, { videos: 2, photos: 4 });
+  for (let a = 0; a < 6; a++) addNew(ctx, `nv${a}`, `a${a}`, { kind: 'video', postKind: 'reel' });
+  for (let a = 0; a < 3; a++) addNew(ctx, `np${a}`, `a${a + 3}`);
+  const cards = firstPage(ctx, 'home');
+  const id = newStream(ctx, 'home', T);
+  const all = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
+  const k = kinds(ctx, all);
+  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
+  const isN = (c) => /^n[vp]/.test(firstKey(c));
+  assert.ok(all.slice(0, 4).every(isN), `the first 4 are new (spacing may hold one back after): ${all.map(firstKey)}`);
+  assert.equal(all.filter(isN).length, 9, 'all 9 new files within 16 cards');
+  assert.ok(cards.length === 8);
+});
+
+// ---- favorites at the front beside new files (REEL-4) -----------------------------------------------------
+// Favorite: hearted 2+ times (items.up) or on a saved / pinned post, never thumbed down, not seen in the last 12 h.
+function addFav(ctx, key, acct, { up = 3, seenAt = T - 2 * D, kind = 'photo', postKind = 'post', saved = 0 } = {}) {
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,?,0,?)')
+    .run(key, `f/${key}`, 'f', kind, acct, T - 30 * D, up, seenAt);
+  addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind });
+  if (saved) ctx.db.prepare('UPDATE posts SET saved = 1 WHERE id = ?').run(`p_${key}`);
+}
+const groupOf = (c) => (/^new/.test(firstKey(c)) ? 'N' : /^fav/.test(firstKey(c)) ? 'F' : 'o');
+
+// fails if FAV_UPS drops to 1, if saved/pinned is ignored, if a thumbed-down file can be a favorite, or if there is no rest
+test('isFav: hearted 2+ times or kept, never thumbed down, rested 12 h since seen', () => {
+  assert.equal(isFav({ up: 2, down: 0, seen_at: T - 13 * H }, T), true);
+  assert.equal(isFav({ up: 1, down: 0, seen_at: T - 13 * H }, T), false, 'one heart is not a lot');
+  assert.equal(isFav({ up: 0, down: 0, kept: 1, seen_at: null }, T), true, 'saved or pinned');
+  assert.equal(isFav({ up: 5, down: 1, seen_at: T - 2 * D }, T), false, 'thumbed down');
+  assert.equal(isFav({ up: 5, down: 0, seen_at: T - H }, T), false, 'seen an hour ago rests');
+});
+
+// fails if new files always win over favorites (no turns), or if favorites get no front place
+test('front: new files and favorites take turns, then the normal mix', (t) => {
+  const ctx = makeCtx(t, 51);
+  for (let a = 0; a < 12; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 4; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`);
+  for (let a = 0; a < 6; a++) addFav(ctx, `fav${a}`, `a${a + 6}`);
+  const id = newStream(ctx, 'home', T);
+  const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
+  const g = cards.map(groupOf).join('');
+  assert.equal(g.slice(0, 12), 'NFNFNFNFNFNF', g);
+  assert.equal(g.slice(12), 'oooo');
+});
+
+// fails if favorites keep their built-time seen state (one seen on another tab would lead again)
+test('front: a favorite seen after the stream was built rests', (t) => {
+  const ctx = makeCtx(t, 52);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); addFav(ctx, `fav${a}`, `a${a}`); }
+  const id = newStream(ctx, 'home', T);
+  ctx.db.prepare("UPDATE items SET seen_at = ? WHERE key IN ('fav0','fav1','fav2')").run(T - H);
+  const cards = page(ctx, id, null, T).cards;
+  assert.deepEqual(cards.slice(0, 3).map(firstKey).sort(), ['fav3', 'fav4', 'fav5']);
+});
+
+// fails if a saved post's file is not a favorite (the kept flag is not carried into the stream)
+test('front: a file on a saved post is a favorite even with no hearts', (t) => {
+  const ctx = makeCtx(t, 53);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  addFav(ctx, 'fav_saved', 'a2', { up: 0, saved: 1 });
+  assert.equal(firstKey(firstPage(ctx, 'home')[0]), 'fav_saved');
+});
+
+// fails if the front groups skip the video rule: new videos and favorite photos interleave V P V P
+test('front: new videos and favorite photos interleave under the video rule', (t) => {
+  const ctx = makeCtx(t, 54);
+  for (let a = 0; a < 12; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 3; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`, { kind: 'video', postKind: 'reel' });
+  for (let a = 0; a < 6; a++) addFav(ctx, `fav${a}`, `a${a + 6}`);
+  const id = newStream(ctx, 'home', T);
+  const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
+  assert.equal(cards.slice(0, 12).map(groupOf).join(''), 'NFNFNFNFNFNF');
+  assert.equal(kinds(ctx, cards.slice(0, 12)), 'VPVPVPVPVPVP');
 });
