@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
-import { openDb } from '../lib/db.js';
-import { weight, newStream, page, PAGE_SIZE, isNew, isFav } from '../lib/feed.js';
+import { openDb, ensureColumn } from '../lib/db.js';
+import { weight, newStream, page, PAGE_SIZE, isNew, isFav, likedBoost } from '../lib/feed.js';
 
 const H = 3600_000;
 const D = 24 * H;
@@ -26,6 +26,7 @@ function makeCtx(t, seed = 1) {
   const env = tempEnv();
   const cfg = loadConfig(env);
   const db = openDb(cfg.dbPath);
+  ensureColumn(db, 'items', 'liked_at', 'INT'); // api.start adds it in the engine
   const ctx = { cfg, db, log: () => {}, state: {}, ticks: [], hooks: { gone: [], dmWritten: [] }, rand: seeded(seed) };
   t.after(() => { try { db.close(); } catch { /* closed */ } removeTempDir(env.REEL_DATA); });
   return ctx;
@@ -80,7 +81,9 @@ test('weight: never seen is 1, recently seen is low, votes scale it', () => {
   const day = weight({ seen_at: T - D, up: 0, down: 0 }, T);
   assert.ok(Math.abs(day - (1 - Math.exp(-1 / 3))) < 1e-9);
   assert.ok(weight({ seen_at: T - D, up: 2, down: 0 }, T) > day * 3, 'voted up comes back sooner and counts more');
-  assert.ok(Math.abs(weight({ seen_at: null, up: 3, down: 0 }, T) - 4 ** 0.7) < 1e-9);
+  assert.ok(Math.abs(weight({ seen_at: null, up: 3, down: 0 }, T) - 4) < 1e-9, 'likes count linearly: 1 + hearts');
+  assert.ok(Math.abs(weight({ seen_at: null, up: 0, down: 0, kept: 1 }, T) - 6) < 1e-9, 'saved or pinned counts as 5 hearts');
+  assert.ok(Math.abs(weight({ seen_at: T - H, up: 100, down: 0 }, T) - (1 - Math.exp(-1 / 6)) * 101) < 1e-9, 'never back faster than 6 h');
   assert.ok(Math.abs(weight({ seen_at: null, up: 0, down: 2 }, T) - 0.0004) < 1e-9);
   assert.ok(weight({ seen_at: null, up: 0, down: 1 }, T) <= 0.02, 'one thumbs-down is at least 50x less likely than a neutral photo');
 });
@@ -599,9 +602,9 @@ test('front: a file on a saved post is a favorite even with no hearts', (t) => {
 
 // ---- Home is only favorites (REEL-5) ----------------------------------------------------------------------
 // Favorited: hearted at least once (items.up >= 1) or on a saved / pinned post, never thumbed down.
-function addFile(ctx, key, acct, { up = 0, down = 0, seenAt = T - 4 * D, addedAt = T - 30 * D, kind = 'photo', postKind = 'post', saved = 0, folder = 'f' } = {}) {
-  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,?,?,?)')
-    .run(key, `${folder}/${key}`, folder, kind, acct, addedAt, up, down, seenAt);
+function addFile(ctx, key, acct, { up = 0, down = 0, seenAt = T - 4 * D, addedAt = T - 30 * D, kind = 'photo', postKind = 'post', saved = 0, folder = 'f', likedAt = null } = {}) {
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at, liked_at) VALUES (?,?,?,?,?,1,0,?,?,?,?,?)')
+    .run(key, `${folder}/${key}`, folder, kind, acct, addedAt, up, down, seenAt, likedAt);
   addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind });
   if (saved) ctx.db.prepare('UPDATE posts SET saved = 1 WHERE id = ?').run(`p_${key}`);
 }
@@ -625,18 +628,90 @@ test('home deals only favorited files; new files stay out of Home and lead Reels
   assert.equal(ex.filter((k) => k.startsWith('new')).length, 6, `explore: all new files in the first 12 (taking turns with favorites): ${ex}`);
 });
 
-// fails if Home has no rested-first order (a favorite seen an hour ago comes up as often as one rested)
-test('home: rested favorites first, then the recently seen ones, and every favorite is dealt', (t) => {
+// Hit rate per file over many fresh streams of `scope`: share of opens where it lands in the first `n` cards.
+function hitRates(ctx, scope, opens, n) {
+  const hits = {};
+  for (let r = 0; r < opens; r++) {
+    ctx.db.exec('BEGIN');
+    try {
+      const id = newStream(ctx, scope, T);
+      for (const c of page(ctx, id, null, T).cards.slice(0, n)) hits[firstKey(c)] = (hits[firstKey(c)] || 0) + 1;
+    } finally { ctx.db.exec('ROLLBACK'); ctx.feedStreams.clear(); }
+  }
+  return (prefix) => { const ks = Object.keys(hits).filter((k) => k.startsWith(prefix)); return ks.reduce((x, k) => x + hits[k], 0) / opens; };
+}
+
+// fails if likes do not weigh in Home (a flat draw), or if it is a strict sort (one-heart files would never show)
+test('home: more hearts come up more often, one-heart files still show', (t) => {
   const ctx = makeCtx(t, 62);
   for (let a = 0; a < 6; a++) {
     addAcct(ctx, `a${a}`);
-    // seen 11 h ago: still resting, though plain novelty alone would give them a fair share of the front
-    for (let i = 0; i < 5; i++) addFile(ctx, `recent${a}_${i}`, `a${a}`, { up: 2, seenAt: T - 11 * H });
-    addFile(ctx, `rest${a}`, `a${a}`, { up: 2, seenAt: T - 2 * D });
+    for (let i = 0; i < 5; i++) addFile(ctx, `one${a}_${i}`, `a${a}`, { up: 1, seenAt: T - 2 * D });
+    addFile(ctx, `ten${a}`, `a${a}`, { up: 10, seenAt: T - 2 * D });
   }
-  const keys = drain(ctx, 'home').map(firstKey);
-  assert.ok(keys.slice(0, 6).every((k) => k.startsWith('rest')), keys.join());
-  assert.equal(keys.length, 36, 'the recently seen ones still come after');
+  const rate = hitRates(ctx, 'home', 120, 8);
+  const ten = rate('ten') / 6, one = rate('one') / 30; // per file: share of opens it is in the first 8
+  assert.ok(ten > one * 2.5, `10 hearts ${ten.toFixed(2)} vs 1 heart ${one.toFixed(2)}`);
+  assert.ok(one > 0.05, `one-heart files still come up: ${one.toFixed(2)}`);
+});
+
+// fails if seen-lately still pushes a much-liked file to the back (SOFT_SEEN 0), or does not lower it at all (1)
+test('home: a top file seen minutes ago is lowered a little, not sent to the back', (t) => {
+  const run = (seenAt, seed) => {
+    const ctx = makeCtx(t, seed);
+    for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 5; i++) addFile(ctx, `one${a}_${i}`, `a${a}`, { up: 1, seenAt: T - 2 * D }); }
+    addFile(ctx, 'top', 'a0', { up: 40, seenAt });
+    return hitRates(ctx, 'home', 120, 8)('top');
+  };
+  const justSeen = run(T - 10 * 60_000, 68), rested = run(T - 3 * D, 68);
+  assert.ok(justSeen > 0.5, `just seen, still in the first 8 of ${(justSeen * 100).toFixed(0)}% of opens`);
+  assert.ok(justSeen < rested, `lower than when rested (${(rested * 100).toFixed(0)}%)`);
+});
+
+// fails if a recent heart gives no lift (a file hearted an hour ago would sink behind rested ones), or never fades
+test('likedBoost: x4 right after a heart, gone after 3 days', () => {
+  assert.ok(Math.abs(likedBoost({ liked_at: T }, T) - 4) < 1e-9);
+  assert.ok(likedBoost({ liked_at: T - D }, T) > 2 && likedBoost({ liked_at: T - D }, T) < 3);
+  assert.equal(likedBoost({ liked_at: T - 4 * D }, T), 1);
+  assert.equal(likedBoost({ liked_at: null }, T), 1);
+});
+
+// fails if a file hearted lately is held back by having just been seen (he hearts what is on screen)
+test('home: files hearted in the last hours come up early even though he just saw them', (t) => {
+  const ctx = makeCtx(t, 70);
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < 6; i++) addFile(ctx, `old${a}_${i}`, `a${a}`, { up: 2, seenAt: T - 2 * D });
+    addFile(ctx, `liked${a}`, `a${a}`, { up: 1, seenAt: T - H, likedAt: T - H });
+  }
+  const rate = hitRates(ctx, 'home', 120, 8);
+  assert.ok(rate('liked') / 6 > (rate('old') / 36) * 2, `just hearted ${(rate('liked') / 6).toFixed(2)} vs older favorites ${(rate('old') / 36).toFixed(2)}`);
+});
+
+// fails if Home lets photos pile up while favorite videos are left (no video-after-photo preference)
+test('home: videos about every other card while favorite videos last', (t) => {
+  const ctx = makeCtx(t, 71);
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < 6; i++) addFile(ctx, `ph${a}_${i}`, `a${a}`, { up: 1 });
+    for (let i = 0; i < 2; i++) addFile(ctx, `vid${a}_${i}`, `a${a}`, { up: 1, kind: 'video', postKind: 'reel' });
+  }
+  const k = kinds(ctx, drain(ctx, 'home'));
+  const first = k.slice(0, 24);
+  assert.ok([...first].filter((x) => x === 'V').length >= 11, `11+ of the 12 videos in the first 24: ${k}`);
+  assert.ok(!first.includes('VV'), k);
+});
+
+// fails if explore's normal mix ignores likes (the old uniform draw)
+test('explore: a hearted file is drawn more often than an unhearted one', (t) => {
+  const ctx = makeCtx(t, 69);
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < 4; i++) addFile(ctx, `zero${a}_${i}`, `a${a}`, { up: 0, seenAt: T - 4 * D });
+    for (let i = 0; i < 4; i++) addFile(ctx, `one${a}_${i}`, `a${a}`, { up: 1, seenAt: T - 4 * D });
+  }
+  const rate = hitRates(ctx, 'explore', 120, 8);
+  assert.ok(rate('one') > rate('zero') * 1.4, `1 heart ${rate('one').toFixed(2)} vs none ${rate('zero').toFixed(2)}`);
 });
 
 // fails if Home stalls when every favorite was seen recently (the rested group alone would leave nothing to deal)

@@ -2,7 +2,7 @@
 // stories, activity, taste, seen and the like/save/pin switches, plus the one-read library that Wire
 // and Thread (docs/x/, docs/r/) post from. Accounts, settings, DMs, Drive sync, status and import live
 // in their own modules.
-import { ensureColumn } from './db.js';
+import { ensureColumn, getSetting, setSetting } from './db.js';
 import { HttpError } from './router.js';
 import { summary, hashStr, rng } from './accounts.js';
 import { followersGained } from './engagement.js';
@@ -72,6 +72,15 @@ function strField(body, k) {
 
 export function start(ctx) {
   ensureColumn(ctx.db, 'items', 'last_vote', 'TEXT');
+  // when he last hearted a file (the feed brings recent likes up early)
+  ensureColumn(ctx.db, 'items', 'liked_at', 'INT');
+  if (!getSetting(ctx.db, 'likedAtBackfill', false)) {
+    // Hearts before this column had no time. A hearted file added in the last 7 days can only have been hearted
+    // lately, and he hearts what is on screen, so its last-seen time stands in for the heart time.
+    ctx.db.prepare('UPDATE items SET liked_at = seen_at WHERE liked_at IS NULL AND up >= 1 AND seen_at IS NOT NULL AND added_at >= ?')
+      .run(Date.now() - 7 * 24 * 3600_000);
+    setSetting(ctx.db, 'likedAtBackfill', true);
+  }
 }
 
 export function routes(router, ctx) {
@@ -187,11 +196,11 @@ export function routes(router, ctx) {
     const it = db.prepare('SELECT key, last_vote FROM items WHERE key = ?').get(key);
     if (!it) throw new HttpError(404, 'no such item');
     if (vote === 'up') {
-      db.prepare("UPDATE items SET up = COALESCE(up, 0) + 1, last_vote = 'up' WHERE key = ?").run(key);
+      db.prepare("UPDATE items SET up = COALESCE(up, 0) + 1, last_vote = 'up', liked_at = ? WHERE key = ?").run(Date.now(), key);
     } else if (vote === 'down') {
       db.prepare("UPDATE items SET down = COALESCE(down, 0) + 1, last_vote = 'down' WHERE key = ?").run(key);
     } else if (it.last_vote === 'up') {
-      db.prepare('UPDATE items SET up = MAX(0, COALESCE(up, 0) - 1), last_vote = NULL WHERE key = ?').run(key);
+      db.prepare('UPDATE items SET up = MAX(0, COALESCE(up, 0) - 1), last_vote = NULL, liked_at = CASE WHEN COALESCE(up, 0) <= 1 THEN NULL ELSE liked_at END WHERE key = ?').run(key);
     } else if (it.last_vote === 'down') {
       db.prepare('UPDATE items SET down = MAX(0, COALESCE(down, 0) - 1), last_vote = NULL WHERE key = ?').run(key);
     }

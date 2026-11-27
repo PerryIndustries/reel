@@ -1,9 +1,9 @@
 // Feed streams: the endless scroll behind home, reels, explore and a profile grid.
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
-// a time. Home deals only files he favorited (see isFavorited), rested ones first, once there are FAV_HOME_MIN. Reels and
-// explore favour what you have not seen and what you voted up (explore is a uniform mix), with new files (added in
-// the last 7 days, never seen) and favorites (see isFav) first, taking turns, within the dealing rules; files that
-// arrive while a stream is open join it. Home never deals two videos in a row while a photo card is left.
+// a time. Every draw is weighted by weight(): not seen lately x likes x a recent heart x thumbs-down. Home deals only
+// files he favorited (see isFavorited) once there are FAV_HOME_MIN, a video after each photo while one is allowed. Reels and explore put new files (added in the last 7 days,
+// never seen) and favorites (see isFav) first, taking turns, within the dealing rules; files that arrive while a
+// stream is open join it. Home never deals two videos in a row while a photo card is left.
 // A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
 import { publish, postNow, storiesFolder } from './scheduler.js';
 import { card } from './cards.js';
@@ -27,25 +27,42 @@ export const NEW_WINDOW = 7 * DAY;
 export const FAV_UPS = 2;
 export const FAV_REST = 12 * 3600_000;
 export const isFav = (item, now) => !(Number(item.down) > 0) && (Number(item.up) >= FAV_UPS || !!item.kept) && (item.seen_at == null || now - item.seen_at >= FAV_REST);
-// Home is only files he favorited: hearted at least once, or on a saved or pinned post, never thumbed down. Rested
-// ones (not seen in the last 12 h) come first; then the rest, least recently seen first. A file he hearts anywhere
-// joins an open Home stream.
+// Home is only files he favorited: hearted at least once, or on a saved or pinned post, never thumbed down, drawn by
+// weight(), so more hearts come up more often and sooner, and one seen minutes ago waits its turn. A file he hearts
+// anywhere joins an open Home stream.
 // Home turns favorites-only once there are FAV_HOME_MIN of them (three pages), so a few hearts never leave it near empty.
 export const FAV_HOME_MIN = 24;
 export const isFavorited = (item) => !(Number(item.down) > 0) && (Number(item.up) >= 1 || !!item.kept);
-const rested = (item, now) => item.seen_at == null || now - item.seen_at >= FAV_REST;
 export const isNew = (item, now) => item.seen_at == null && !(Number(item.down) > 0) && now - Number(item.added_at ?? 0) <= NEW_WINDOW;
 
-// novelty x taste. Never seen: 1. Seen: back toward 1 over 3 days, faster when voted up.
-export function weight(item, now) {
-  const up = Math.max(0, Number(item.up) || 0);
+// Likes: each heart tap is one; a saved or pinned post counts as KEPT_LIKES more.
+export const KEPT_LIKES = 5;
+export const likesOf = (item) => Math.max(0, Number(item.up) || 0) + (item.kept ? KEPT_LIKES : 0);
+// Back from "just seen" no faster than this, however liked, so the top few do not lead every open.
+export const MIN_RECOVER = 6 * 3600_000;
+
+// A heart in the last LIKED_FRESH days lifts a file: x4 right after, easing to x1 (1 + 3 e^(-age / 1.5 d)), and
+// being seen does not count against it meanwhile.
+export const LIKED_FRESH = 3 * DAY;
+export const likedBoost = (item, now) => (item.liked_at != null && now - item.liked_at < LIKED_FRESH ? 1 + 3 * Math.exp(-(now - item.liked_at) / (1.5 * DAY)) : 1);
+// Favorites-only Home: seen lately lowers the odds only this far (to SOFT_SEEN x right after), never to the back.
+export const SOFT_SEEN = 0.3;
+
+// novelty x likes x recent heart x thumbs-down, the one weight every draw uses (home, reels, explore).
+// novelty: never seen 1; seen, back toward 1 over 3 days / (1 + likes), but never faster than MIN_RECOVER; `soft`
+// (favorites-only Home) keeps it at SOFT_SEEN or more; a heart in the last LIKED_FRESH days makes it 1.
+// likes: 1 + likes, so 10 hearts is 5.5x as likely as 1 heart. Thumbs-down: x0.02 each.
+export function weight(item, now, soft = false) {
+  const likes = likesOf(item);
   const down = Math.max(0, Number(item.down) || 0);
+  const boost = likedBoost(item, now);
   let novelty = 1;
-  if (item.seen_at != null) {
+  if (item.seen_at != null && boost === 1) {
     const age = Math.max(0, now - item.seen_at);
-    novelty = 1 - Math.exp(-age / (3 * DAY / (1 + up)));
+    novelty = 1 - Math.exp(-age / Math.max(MIN_RECOVER, 3 * DAY / (1 + likes)));
+    if (soft) novelty = SOFT_SEEN + (1 - SOFT_SEEN) * novelty;
   }
-  return novelty * (1 + up) ** 0.7 * DOWN ** down;
+  return novelty * (1 + likes) * boost * DOWN ** down;
 }
 
 const parseKeys = (p) => { try { const k = JSON.parse(p.items || '[]'); return Array.isArray(k) ? k : []; } catch { return []; } };
@@ -82,7 +99,7 @@ function candidates(ctx, scope) {
   if (m) { where.push('p.acct = ?'); args.push(m[1]); }
   const rows = db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, p.due_at
     FROM posts p JOIN accounts a ON a.id = p.acct WHERE ${where.join(' AND ')}`).all(...args);
-  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at, liked_at FROM items WHERE key = ?');
   const kept = new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.saved = 1 OR p.pinned = 1`).all().map((r) => r.v));
   const out = [];
   const seenFirst = new Set();
@@ -98,7 +115,7 @@ function candidates(ctx, scope) {
   if (m) return out;
   // Home, reels and explore draw from the whole library: a file in no post yet is a candidate too, and goes up
   // as a post the moment it is picked.
-  const loose = ctx.db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+  const loose = ctx.db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at, i.liked_at FROM items i JOIN accounts a ON a.id = i.acct
     WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 ${scope === 'reels' ? "AND i.kind = 'video'" : ''}
     AND i.key NOT IN (SELECT j.value FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued') AND p.kind <> 'story')`).all();
   for (const it of loose) {
@@ -149,9 +166,9 @@ function joinArrivals(ctx, s, now) {
   const home = !!s.favOnly;
   const kept = home ? new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.saved = 1 OR p.pinned = 1`).all().map((r) => r.v)) : new Set();
   const rows = (home
-    ? db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+    ? db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at, i.liked_at FROM items i JOIN accounts a ON a.id = i.acct
       WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND COALESCE(i.down, 0) = 0 ORDER BY i.key`).all().filter((it) => Number(it.up) >= 1 || kept.has(it.key))
-    : db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+    : db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at, i.liked_at FROM items i JOIN accounts a ON a.id = i.acct
       WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND i.seen_at IS NULL AND i.added_at >= ? ${reels ? "AND i.kind = 'video'" : ''} ORDER BY i.key`).all(now - NEW_WINDOW))
     .map((it) => (kept.has(it.key) ? { ...it, kept: 1 } : it));
   const unknown = rows.filter((it) => !s.known.has(it.key) && !storiesFolder(it) && (home ? isFavorited(it) : isNew(it, now)));
@@ -160,7 +177,7 @@ function joinArrivals(ctx, s, now) {
   const holder = new Map();
   for (const r of db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, j.value v FROM posts p JOIN accounts a ON a.id = p.acct, json_each(p.items) j
     WHERE p.status IN ('live','queued') AND p.kind <> 'story' ORDER BY p.id`).all()) if (!holder.has(r.v)) holder.set(r.v, r);
-  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, kind, folder, seen_at, up, down, added_at, liked_at FROM items WHERE key = ?');
   for (const it of unknown) {
     if (s.known.has(it.key)) continue;
     s.known.add(it.key); // looked at once: a carousel member whose post is already in play is not looked up again
@@ -191,12 +208,12 @@ function holderOf(ctx, key, scope) {
 // (in another stream, or on another tab) is no longer new, or rests as a favorite.
 // Home re-reads every candidate and drops one that is no longer favorited (thumbed down, heart undone).
 function refreshFront(ctx, s, now) {
-  const get = ctx.db.prepare('SELECT seen_at, up, down FROM items WHERE key = ?');
+  const get = ctx.db.prepare('SELECT seen_at, up, down, liked_at FROM items WHERE key = ?');
   const home = !!s.favOnly;
   for (const c of s.pool) {
     if (!home && !isNew(c.item, now) && !isFav(c.item, now)) continue;
     const r = get.get(c.first);
-    if (r) c.item = { ...c.item, seen_at: r.seen_at, up: r.up, down: r.down };
+    if (r) c.item = { ...c.item, seen_at: r.seen_at, up: r.up, down: r.down, liked_at: r.liked_at };
   }
   if (home) s.pool = s.pool.filter((c) => isFavorited(c.item));
 }
@@ -206,7 +223,6 @@ function pickOne(ctx, s, now) {
   const recent = new Set(s.recent.slice(-SPACING));
   if (!s.pool.length) return -1;
   if (s.profile) return 0;
-  const uniform = s.scope === 'explore';
   // Hard rules on the last card: on home no video right after a video, and another folder than the last card's.
   // Only the cards passing both are in play; when none does, the folder rule is dropped, then the video rule too,
   // so a pool of only videos or only one folder keeps going (never end early).
@@ -215,14 +231,19 @@ function pickOne(ctx, s, now) {
   const sameFolder = (c) => prev == null || c.folder !== prev.folder;
   const both = (c) => kindOk(c) && sameFolder(c);
   const folderOk = s.pool.some(both) ? both : s.pool.some(kindOk) ? kindOk : s.pool.some(sameFolder) ? sameFolder : () => true;
-  const base = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
+  const base = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(weight(c.item, now, !!s.favOnly), 1e-9) : 0));
   // among the cards allowed here, new uploads and favorites go first, taking turns while both have one
   let group = null;
   const weights = (allowed) => {
     const w = base(allowed);
     if (s.favOnly) {
-      const rest = w.map((x, i) => (x > 0 && rested(s.pool[i].item, now) ? x : 0));
-      return rest.some((x) => x > 0) ? rest : w;
+      // favorites only: the weight decides; after a photo a video comes next while one is allowed, so videos land
+      // about every other card while favorite videos last (photos still pair up when none is)
+      if (prev && prev.kind !== 'video') {
+        const vids = w.map((x, i) => (x > 0 && s.pool[i].item.kind === 'video' ? x : 0));
+        if (vids.some((x) => x > 0)) return vids;
+      }
+      return w;
     }
     const front = {
       new: w.map((x, i) => (x > 0 && isNew(s.pool[i].item, now) ? x : 0)),

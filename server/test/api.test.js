@@ -2,7 +2,10 @@
 // Real engine on a temp data dir and a random port; rows are inserted straight into its db.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startTestEngine, getJson, postJson } from './helpers.js';
+import { startTestEngine, getJson, postJson, tempEnv, removeTempDir } from './helpers.js';
+import { loadConfig } from '../lib/config.js';
+import { openDb } from '../lib/db.js';
+import { start as apiStart } from '../lib/api.js';
 import { makeTargets, countsAt } from '../lib/engagement.js';
 import { card } from '../lib/cards.js';
 
@@ -336,4 +339,38 @@ test('library: every account with its ready files from non-story posts of any st
   ctx.db.prepare('DELETE FROM accounts WHERE id = ?').run('npc1');
   const after = await getJson(`${base}/reel/api/library`);
   assert.ok(!after.body.accounts.some((a) => a.id === 'npc1') && !('npc1' in after.body.media), 'a deleted account vanishes');
+});
+
+// fails if a heart does not record its time, or undoing the last heart leaves it
+test('taste up records when he hearted the file; undoing the only heart clears it', async (t) => {
+  const e = await engine(t);
+  const { ctx, base } = e;
+  addAcct(ctx, 'a1', { own: true });
+  addItem(ctx, 'k');
+  addPost(ctx, { id: 'p1', acct: 'a1', keys: ['k'] });
+  const likedAt = () => ctx.db.prepare('SELECT liked_at FROM items WHERE key = ?').get('k').liked_at;
+  const before = Date.now();
+  await postJson(`${base}/reel/api/taste`, { item: 'k', vote: 'up' });
+  assert.ok(likedAt() >= before && likedAt() <= Date.now());
+  await postJson(`${base}/reel/api/taste`, { item: 'k', vote: 'undo' });
+  assert.equal(likedAt(), null);
+});
+
+// fails if the backfill skips recent hearted files, reaches old ones, or runs twice
+test('start backfills the heart time once, only for hearted files added in the last 7 days', (t) => {
+  const env = tempEnv();
+  const db = openDb(loadConfig(env).dbPath);
+  t.after(() => { db.close(); removeTempDir(env.REEL_DATA); });
+  const now = Date.now();
+  db.exec('ALTER TABLE items ADD COLUMN liked_at INT');
+  const ins = db.prepare('INSERT INTO items(key, derived, gone, added_at, up, seen_at) VALUES (?,1,0,?,?,?)');
+  ins.run('recent', now - 2 * D, 1, now - H);
+  ins.run('old', now - 30 * D, 3, now - H);
+  ins.run('unhearted', now - 2 * D, 0, now - H);
+  apiStart({ db });
+  const at = (k) => db.prepare('SELECT liked_at FROM items WHERE key = ?').get(k).liked_at;
+  assert.deepEqual([at('recent'), at('old'), at('unhearted')], [now - H, null, null]);
+  db.prepare("UPDATE items SET liked_at = NULL WHERE key = 'recent'").run();
+  apiStart({ db });
+  assert.equal(at('recent'), null, 'it runs once');
 });
