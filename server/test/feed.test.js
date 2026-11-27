@@ -36,7 +36,8 @@ function addAcct(ctx, id, own = false) {
     .run(id, own ? 1 : 0, 'h_' + id, id, '', '', '{}', T - 30 * D, 2400, id.length * 7919 + id.charCodeAt(0));
 }
 
-function addItem(ctx, key, acct, { kind = 'photo', up = 0, down = 0, seenAt = null, folder = 'f' } = {}) {
+// Files are hearted once by default: Home deals only favorited files (REEL-5).
+function addItem(ctx, key, acct, { kind = 'photo', up = 1, down = 0, seenAt = null, folder = 'f' } = {}) {
   ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,?,?,?)')
     .run(key, `${folder}/${key}`, folder, kind, acct, T - D, up, down, seenAt);
 }
@@ -118,7 +119,7 @@ test('taste up raises an item\'s pick frequency in the first page and down lower
   const ctx = makeCtx(t, 11);
   for (let a = 0; a < 30; a++) {
     addAcct(ctx, `a${a}`);
-    addItem(ctx, `k${a}`, `a${a}`, { up: a === 0 ? 3 : 0, down: a === 1 ? 2 : 0 });
+    addItem(ctx, `k${a}`, `a${a}`, { up: a === 0 ? 6 : 1, down: a === 1 ? 2 : 0 });
     addPost(ctx, { id: `p${a}`, acct: `a${a}`, key: `k${a}` });
   }
   const hits = {};
@@ -371,7 +372,7 @@ test('a profile grid stays chronological and ignores folders', (t) => {
 // Old files: added a month ago and seen 4 days ago. New files: added an hour ago, never seen.
 const firstKey = (c) => c.media[0].item;
 function addOld(ctx, key, acct, { kind = 'photo', postKind = 'post', folder = 'f' } = {}) {
-  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,0,0,?)')
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,1,0,?)')
     .run(key, `${folder}/${key}`, folder, kind, acct, T - 30 * D, T - 4 * D);
   addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind });
 }
@@ -390,7 +391,7 @@ function oldAndNew(ctx, { postKind = 'post', kind = 'photo' } = {}) {
 const firstPage = (ctx, scope, now = T) => page(ctx, newStream(ctx, scope, now), null, now).cards;
 
 // fails if new files get the plain novelty weight (then 6 of 66 equal-ish candidates would rarely lead), per scope
-for (const [scope, postKind, kind] of [['home', 'post', 'photo'], ['reels', 'reel', 'video'], ['explore', 'post', 'photo']]) {
+for (const [scope, postKind, kind] of [['reels', 'reel', 'video'], ['explore', 'post', 'photo']]) {
   test(`new uploads: the never-seen files added this week lead a new ${scope} stream`, (t) => {
     const ctx = makeCtx(t, 31);
     oldAndNew(ctx, { postKind, kind });
@@ -414,7 +415,7 @@ test('new uploads: one account with a batch of new files still never shows twice
   const ctx = makeCtx(t, 32);
   for (let a = 0; a < 5; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 8; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
   for (let i = 0; i < 5; i++) addNew(ctx, `new${i}`, 'a0');
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards, ...page(ctx, id, '16', T).cards];
   const accts = cards.map((c) => c.acct.id);
   for (let i = 1; i < accts.length; i++) for (let k = 1; k <= 3 && i - k >= 0; k++) assert.notEqual(accts[i], accts[i - k], `card ${i}`);
@@ -426,7 +427,7 @@ test('new uploads: a batch in one folder alternates with other folders', (t) => 
   const ctx = makeCtx(t, 33);
   for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`, { folder: 'other' }); }
   for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`, { folder: 'batch' });
-  const cards = firstPage(ctx, 'home');
+  const cards = firstPage(ctx, 'explore');
   const kinds = cards.map((c) => (firstKey(c).startsWith('new') ? 'N' : 'o')).join('');
   assert.equal(kinds, 'NoNoNoNo');
 });
@@ -435,7 +436,7 @@ test('new uploads: a batch in one folder alternates with other folders', (t) => 
 test('new uploads: a file seen after the stream was built is no longer dealt first', (t) => {
   const ctx = makeCtx(t, 34);
   oldAndNew(ctx);
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   ctx.db.prepare("UPDATE items SET seen_at = ? WHERE key IN ('new0','new1','new2')").run(T);
   const cards = page(ctx, id, null, T).cards;
   assert.deepEqual(cards.slice(0, 3).map(firstKey).sort(), ['new3', 'new4', 'new5']);
@@ -446,7 +447,7 @@ test('new uploads: a file seen after the stream was built is no longer dealt fir
 test('new uploads: files that arrive while a stream is open join it, loose or queued', (t) => {
   const ctx = makeCtx(t, 35);
   for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 10; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   assert.ok(page(ctx, id, null, T).cards.every((c) => firstKey(c).startsWith('old')));
   addNew(ctx, 'late_loose', 'a1', { post: false, addedAt: T + 60_000 });
   addNew(ctx, 'late_queued', 'a2', { addedAt: T + 60_000 });
@@ -462,7 +463,7 @@ test('new uploads: a loose file queued after the stream was built is dealt as th
   const ctx = makeCtx(t, 36);
   for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
   addNew(ctx, 'fresh', 'a3', { post: false });
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   addPost(ctx, { id: 'q_fresh', acct: 'a3', key: 'fresh', status: 'queued', dueAt: T + 3 * H });
   const cards = page(ctx, id, null, T).cards;
   assert.equal(cards[0].id, 'q_fresh');
@@ -534,7 +535,7 @@ test('home: a carousel whose first item is a video counts as a video', (t) => {
   const ctx = makeCtx(t, 46);
   mixedHome(ctx, { videos: 3, photos: 2 });
   for (let a = 0; a < 6; a++) {
-    for (const k of [`cv${a}`, `cp${a}`]) ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,0,0,?)')
+    for (const k of [`cv${a}`, `cp${a}`]) ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,1,0,?)')
       .run(k, `f/${k}`, 'f', k.startsWith('cv') ? 'video' : 'photo', `a${a}`, T - 30 * D, T - 4 * D);
     ctx.db.prepare(`INSERT INTO posts(id, acct, items, kind, caption, status, due_at, up_at, liked, saved, pinned, seed, created_at)
       VALUES (?,?,?,'post','cap','live',?,?,0,0,0,7,?)`).run(`car${a}`, `a${a}`, JSON.stringify([`cv${a}`, `cp${a}`]), T - 5 * H, T - 5 * H, T - 40 * D);
@@ -544,22 +545,6 @@ test('home: a carousel whose first item is a video counts as a video', (t) => {
   assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
 });
 
-// fails if new-first overrides the video rule (a batch of new videos would come back to back)
-test('home: new videos alternate with photos, new photos first', (t) => {
-  const ctx = makeCtx(t, 47);
-  mixedHome(ctx, { videos: 2, photos: 4 });
-  for (let a = 0; a < 6; a++) addNew(ctx, `nv${a}`, `a${a}`, { kind: 'video', postKind: 'reel' });
-  for (let a = 0; a < 3; a++) addNew(ctx, `np${a}`, `a${a + 3}`);
-  const cards = firstPage(ctx, 'home');
-  const id = newStream(ctx, 'home', T);
-  const all = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
-  const k = kinds(ctx, all);
-  assert.equal(videoAfterVideoWithPhotosLeft(k), false, k);
-  const isN = (c) => /^n[vp]/.test(firstKey(c));
-  assert.ok(all.slice(0, 4).every(isN), `the first 4 are new (spacing may hold one back after): ${all.map(firstKey)}`);
-  assert.equal(all.filter(isN).length, 9, 'all 9 new files within 16 cards');
-  assert.ok(cards.length === 8);
-});
 
 // ---- favorites at the front beside new files (REEL-4) -----------------------------------------------------
 // Favorite: hearted 2+ times (items.up) or on a saved / pinned post, never thumbed down, not seen in the last 12 h.
@@ -586,7 +571,7 @@ test('front: new files and favorites take turns, then the normal mix', (t) => {
   for (let a = 0; a < 12; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 4; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
   for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`);
   for (let a = 0; a < 6; a++) addFav(ctx, `fav${a}`, `a${a + 6}`);
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
   const g = cards.map(groupOf).join('');
   assert.equal(g.slice(0, 12), 'NFNFNFNFNFNF', g);
@@ -597,7 +582,7 @@ test('front: new files and favorites take turns, then the normal mix', (t) => {
 test('front: a favorite seen after the stream was built rests', (t) => {
   const ctx = makeCtx(t, 52);
   for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); addFav(ctx, `fav${a}`, `a${a}`); }
-  const id = newStream(ctx, 'home', T);
+  const id = newStream(ctx, 'explore', T);
   ctx.db.prepare("UPDATE items SET seen_at = ? WHERE key IN ('fav0','fav1','fav2')").run(T - H);
   const cards = page(ctx, id, null, T).cards;
   assert.deepEqual(cards.slice(0, 3).map(firstKey).sort(), ['fav3', 'fav4', 'fav5']);
@@ -608,17 +593,101 @@ test('front: a file on a saved post is a favorite even with no hearts', (t) => {
   const ctx = makeCtx(t, 53);
   for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
   addFav(ctx, 'fav_saved', 'a2', { up: 0, saved: 1 });
-  assert.equal(firstKey(firstPage(ctx, 'home')[0]), 'fav_saved');
+  assert.equal(firstKey(firstPage(ctx, 'explore')[0]), 'fav_saved');
 });
 
-// fails if the front groups skip the video rule: new videos and favorite photos interleave V P V P
-test('front: new videos and favorite photos interleave under the video rule', (t) => {
-  const ctx = makeCtx(t, 54);
-  for (let a = 0; a < 12; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 3; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
-  for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`, { kind: 'video', postKind: 'reel' });
-  for (let a = 0; a < 6; a++) addFav(ctx, `fav${a}`, `a${a + 6}`);
+
+// ---- Home is only favorites (REEL-5) ----------------------------------------------------------------------
+// Favorited: hearted at least once (items.up >= 1) or on a saved / pinned post, never thumbed down.
+function addFile(ctx, key, acct, { up = 0, down = 0, seenAt = T - 4 * D, addedAt = T - 30 * D, kind = 'photo', postKind = 'post', saved = 0, folder = 'f' } = {}) {
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,?,?,?)')
+    .run(key, `${folder}/${key}`, folder, kind, acct, addedAt, up, down, seenAt);
+  addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind });
+  if (saved) ctx.db.prepare('UPDATE posts SET saved = 1 WHERE id = ?').run(`p_${key}`);
+}
+
+// fails if Home deals unfavorited or new files, needs 2 hearts, ignores saved posts, or keeps a thumbed-down file
+test('home deals only favorited files; new files stay out of Home and lead Reels and Explore', (t) => {
+  const ctx = makeCtx(t, 61);
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < 3; i++) addFile(ctx, `once${a}_${i}`, `a${a}`, { up: 1 });
+    addFile(ctx, `many${a}`, `a${a}`, { up: 4 });
+    addFile(ctx, `plain${a}`, `a${a}`);
+    addFile(ctx, `down${a}`, `a${a}`, { up: 3, down: 1 });
+    addFile(ctx, `new${a}`, `a${a}`, { seenAt: null, addedAt: T - H });
+  }
+  addFile(ctx, 'saved0', 'a0', { saved: 1 });
+  const home = drain(ctx, 'home').map(firstKey).sort();
+  const want = ['saved0', ...[0, 1, 2, 3, 4, 5].flatMap((a) => [`once${a}_0`, `once${a}_1`, `once${a}_2`, `many${a}`])].sort();
+  assert.deepEqual(home, want);
+  const ex = drain(ctx, 'explore').slice(0, 12).map(firstKey);
+  assert.equal(ex.filter((k) => k.startsWith('new')).length, 6, `explore: all new files in the first 12 (taking turns with favorites): ${ex}`);
+});
+
+// fails if Home has no rested-first order (a favorite seen an hour ago comes up as often as one rested)
+test('home: rested favorites first, then the recently seen ones, and every favorite is dealt', (t) => {
+  const ctx = makeCtx(t, 62);
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    // seen 11 h ago: still resting, though plain novelty alone would give them a fair share of the front
+    for (let i = 0; i < 5; i++) addFile(ctx, `recent${a}_${i}`, `a${a}`, { up: 2, seenAt: T - 11 * H });
+    addFile(ctx, `rest${a}`, `a${a}`, { up: 2, seenAt: T - 2 * D });
+  }
+  const keys = drain(ctx, 'home').map(firstKey);
+  assert.ok(keys.slice(0, 6).every((k) => k.startsWith('rest')), keys.join());
+  assert.equal(keys.length, 36, 'the recently seen ones still come after');
+});
+
+// fails if Home stalls when every favorite was seen recently (the rested group alone would leave nothing to deal)
+test('home: when every favorite was just seen it still deals them all', (t) => {
+  const ctx = makeCtx(t, 63);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 5; i++) addFile(ctx, `f${a}_${i}`, `a${a}`, { up: 1, seenAt: T - 60_000 }); }
+  assert.equal(drain(ctx, 'home').length, 30);
+});
+
+// fails if a file hearted while Home is open does not join it (no Home branch in the arrivals join)
+test('home: a file hearted elsewhere joins an open Home stream', (t) => {
+  const ctx = makeCtx(t, 64);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 4; i++) addFile(ctx, `f${a}_${i}`, `a${a}`, { up: 1 }); addFile(ctx, `later${a}`, `a${a}`); }
   const id = newStream(ctx, 'home', T);
-  const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards];
-  assert.equal(cards.slice(0, 12).map(groupOf).join(''), 'NFNFNFNFNFNF');
-  assert.equal(kinds(ctx, cards.slice(0, 12)), 'VPVPVPVPVPVP');
+  page(ctx, id, null, T);
+  ctx.db.prepare("UPDATE items SET up = 1 WHERE key IN ('later2', 'later4')").run();
+  const rest = [];
+  for (let cur = '8'; cur != null;) { const pg = page(ctx, id, cur, T); rest.push(...pg.cards.map(firstKey)); cur = pg.cursor; }
+  assert.ok(rest.includes('later2') && rest.includes('later4'), rest.join());
+  assert.ok(!rest.some((k) => /^later[0135]$/.test(k)), 'the ones not hearted stay out');
+});
+
+// fails if a favorite thumbed down while the stream is open stays in its pool
+test('home: a favorite thumbed down while Home is open is never dealt', (t) => {
+  const ctx = makeCtx(t, 65);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 4; i++) addFile(ctx, `f${a}_${i}`, `a${a}`, { up: 1 }); }
+  const id = newStream(ctx, 'home', T);
+  ctx.db.prepare("UPDATE items SET down = 1 WHERE key IN ('f1_0', 'f3_2')").run();
+  const keys = [];
+  for (let cur = null, n = 0; n < 10; n++) { const pg = page(ctx, id, cur, T); keys.push(...pg.cards.map(firstKey)); cur = pg.cursor; if (cur == null) break; }
+  assert.equal(keys.length, 22);
+  assert.ok(!keys.includes('f1_0') && !keys.includes('f3_2'));
+});
+
+// fails if Home goes empty for a library with no favorites yet (no fallback to the normal mix)
+test('home: with no favorites at all it deals the normal mix, new files first', (t) => {
+  const ctx = makeCtx(t, 66);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 3; i++) addFile(ctx, `plain${a}_${i}`, `a${a}`); addFile(ctx, `new${a}`, `a${a}`, { seenAt: null, addedAt: T - H }); }
+  const keys = drain(ctx, 'home').map(firstKey);
+  assert.equal(keys.length, 24);
+  assert.ok(keys.slice(0, 6).every((k) => k.startsWith('new')), keys.join());
+});
+
+// fails if a handful of favorites already turns Home favorites-only (FAV_HOME_MIN dropped)
+test('home: under 24 favorites it stays on the normal mix; from 24 it is favorites only', (t) => {
+  const ctx = makeCtx(t, 67);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 4; i++) addFile(ctx, `plain${a}_${i}`, `a${a}`); }
+  for (let i = 0; i < 23; i++) addFile(ctx, `fav${i}`, `a${i % 6}`, { up: 1 });
+  assert.equal(drain(ctx, 'home').length, 47, '23 favorites: everything is dealt');
+  addFile(ctx, 'fav23', 'a5', { up: 1 });
+  const keys = drain(ctx, 'home').map(firstKey);
+  assert.equal(keys.length, 24);
+  assert.ok(keys.every((k) => k.startsWith('fav')));
 });

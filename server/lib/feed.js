@@ -1,9 +1,9 @@
 // Feed streams: the endless scroll behind home, reels, explore and a profile grid.
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
-// a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix. In all
-// three, new files (added in the last 7 days, never seen) and favorites (see isFav) come first, taking turns, within
-// the dealing rules, and files that arrive while a stream is open join it. Home never deals two videos in a row
-// while a photo card is left.
+// a time. Home deals only files he favorited (see isFavorited), rested ones first, once there are FAV_HOME_MIN. Reels and
+// explore favour what you have not seen and what you voted up (explore is a uniform mix), with new files (added in
+// the last 7 days, never seen) and favorites (see isFav) first, taking turns, within the dealing rules; files that
+// arrive while a stream is open join it. Home never deals two videos in a row while a photo card is left.
 // A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
 import { publish, postNow, storiesFolder } from './scheduler.js';
 import { card } from './cards.js';
@@ -27,6 +27,13 @@ export const NEW_WINDOW = 7 * DAY;
 export const FAV_UPS = 2;
 export const FAV_REST = 12 * 3600_000;
 export const isFav = (item, now) => !(Number(item.down) > 0) && (Number(item.up) >= FAV_UPS || !!item.kept) && (item.seen_at == null || now - item.seen_at >= FAV_REST);
+// Home is only files he favorited: hearted at least once, or on a saved or pinned post, never thumbed down. Rested
+// ones (not seen in the last 12 h) come first; then the rest, least recently seen first. A file he hearts anywhere
+// joins an open Home stream.
+// Home turns favorites-only once there are FAV_HOME_MIN of them (three pages), so a few hearts never leave it near empty.
+export const FAV_HOME_MIN = 24;
+export const isFavorited = (item) => !(Number(item.down) > 0) && (Number(item.up) >= 1 || !!item.kept);
+const rested = (item, now) => item.seen_at == null || now - item.seen_at >= FAV_REST;
 export const isNew = (item, now) => item.seen_at == null && !(Number(item.down) > 0) && now - Number(item.added_at ?? 0) <= NEW_WINDOW;
 
 // novelty x taste. Never seen: 1. Seen: back toward 1 over 3 days, faster when voted up.
@@ -111,8 +118,14 @@ export function newStream(ctx, scope, now) {
     // a profile grid is chronological, pinned posts are shown separately
     list = list.filter((c) => !c.pinned).sort((a, b) => (b.up_at ?? now) - (a.up_at ?? now) || (a.id < b.id ? -1 : 1));
   }
+  // Home is favorites only once there are FAV_HOME_MIN of them (fewer: the normal mix, new files and favorites first)
+  let favOnly = false;
+  if (scope === 'home') {
+    const favs = list.filter((c) => isFavorited(c.item));
+    if (favs.length >= FAV_HOME_MIN) { list = favs; favOnly = true; }
+  }
   const id = newId(ctx, now);
-  streamsOf(ctx).set(id, { id, scope, at: now, pool: list, known: new Set(list.map((c) => c.first)), emitted: [], dealtDown: new Map(), recent: [], profile, done: false });
+  streamsOf(ctx).set(id, { id, scope, favOnly, at: now, pool: list, known: new Set(list.map((c) => c.first)), emitted: [], dealtDown: new Map(), recent: [], profile, done: false });
   return id;
 }
 
@@ -129,12 +142,19 @@ function lastCard(ctx, s) {
 
 // Files that arrived (or finished processing) after the stream was built join its pool while they are new, so
 // an app that keeps its stream open still gets them: the post that holds one (by its first item), or the loose file.
+// A favorites-only Home instead takes files favorited since it was built (hearted on Reels or Explore, say).
 function joinArrivals(ctx, s, now) {
   const { db } = ctx;
   const reels = s.scope === 'reels';
-  const rows = db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
-    WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND i.seen_at IS NULL AND i.added_at >= ? ${reels ? "AND i.kind = 'video'" : ''} ORDER BY i.key`).all(now - NEW_WINDOW);
-  const unknown = rows.filter((it) => !s.known.has(it.key) && !storiesFolder(it) && isNew(it, now));
+  const home = !!s.favOnly;
+  const kept = home ? new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.saved = 1 OR p.pinned = 1`).all().map((r) => r.v)) : new Set();
+  const rows = (home
+    ? db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+      WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND COALESCE(i.down, 0) = 0 ORDER BY i.key`).all().filter((it) => Number(it.up) >= 1 || kept.has(it.key))
+    : db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+      WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND i.seen_at IS NULL AND i.added_at >= ? ${reels ? "AND i.kind = 'video'" : ''} ORDER BY i.key`).all(now - NEW_WINDOW))
+    .map((it) => (kept.has(it.key) ? { ...it, kept: 1 } : it));
+  const unknown = rows.filter((it) => !s.known.has(it.key) && !storiesFolder(it) && (home ? isFavorited(it) : isNew(it, now)));
   if (!unknown.length) return;
   // one pass over the live and queued posts: which post holds each file (reels: only reel posts)
   const holder = new Map();
@@ -150,7 +170,7 @@ function joinArrivals(ctx, s, now) {
       const first = parseKeys(p)[0];
       if (!first || (first !== it.key && s.known.has(first))) continue;
       const fi = first === it.key ? it : getItem.get(first);
-      if (!fi) continue;
+      if (!fi || (home && !isFavorited(fi))) continue;
       s.known.add(first);
       s.pool.push({ id: p.id, acct: p.acct, folder: fi.folder ?? '', status: p.status, up_at: p.up_at, pinned: p.pinned, first, item: fi });
     } else {
@@ -169,13 +189,16 @@ function holderOf(ctx, key, scope) {
 
 // The stream's copy of a candidate's seen / vote state is from when it was built; a file seen or voted on since
 // (in another stream, or on another tab) is no longer new, or rests as a favorite.
+// Home re-reads every candidate and drops one that is no longer favorited (thumbed down, heart undone).
 function refreshFront(ctx, s, now) {
   const get = ctx.db.prepare('SELECT seen_at, up, down FROM items WHERE key = ?');
+  const home = !!s.favOnly;
   for (const c of s.pool) {
-    if (!isNew(c.item, now) && !isFav(c.item, now)) continue;
+    if (!home && !isNew(c.item, now) && !isFav(c.item, now)) continue;
     const r = get.get(c.first);
     if (r) c.item = { ...c.item, seen_at: r.seen_at, up: r.up, down: r.down };
   }
+  if (home) s.pool = s.pool.filter((c) => isFavorited(c.item));
 }
 
 function pickOne(ctx, s, now) {
@@ -197,6 +220,10 @@ function pickOne(ctx, s, now) {
   let group = null;
   const weights = (allowed) => {
     const w = base(allowed);
+    if (s.favOnly) {
+      const rest = w.map((x, i) => (x > 0 && rested(s.pool[i].item, now) ? x : 0));
+      return rest.some((x) => x > 0) ? rest : w;
+    }
     const front = {
       new: w.map((x, i) => (x > 0 && isNew(s.pool[i].item, now) ? x : 0)),
       fav: w.map((x, i) => (x > 0 && !isNew(s.pool[i].item, now) && isFav(s.pool[i].item, now) ? x : 0)),
