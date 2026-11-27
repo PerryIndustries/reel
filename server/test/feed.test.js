@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { openDb } from '../lib/db.js';
-import { weight, newStream, page, PAGE_SIZE } from '../lib/feed.js';
+import { weight, newStream, page, PAGE_SIZE, isNew } from '../lib/feed.js';
 
 const H = 3600_000;
 const D = 24 * H;
@@ -365,4 +365,107 @@ test('a profile grid stays chronological and ignores folders', (t) => {
   addAcct(ctx, 'a0');
   for (let i = 0; i < 6; i++) { addItem(ctx, `k${i}`, 'a0', { folder: 'Hentai' }); addPost(ctx, { id: `p${i}`, acct: 'a0', key: `k${i}`, upAt: T - (i + 1) * H }); }
   assert.deepEqual(drain(ctx, 'acct:a0').map((c) => c.id), ['p0', 'p1', 'p2', 'p3', 'p4', 'p5']);
+});
+
+// ---- new uploads first (REEL-3) ---------------------------------------------------------------------------
+// Old files: added a month ago and seen 4 days ago. New files: added an hour ago, never seen.
+const firstKey = (c) => c.media[0].item;
+function addOld(ctx, key, acct, { kind = 'photo', postKind = 'post', folder = 'f' } = {}) {
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,0,0,?)')
+    .run(key, `${folder}/${key}`, folder, kind, acct, T - 30 * D, T - 4 * D);
+  addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind });
+}
+function addNew(ctx, key, acct, { kind = 'photo', postKind = 'post', folder = 'f', post = true, addedAt = T - H } = {}) {
+  ctx.db.prepare('INSERT INTO items(key, path, folder, kind, acct, derived, gone, added_at, up, down, seen_at) VALUES (?,?,?,?,?,1,0,?,0,0,NULL)')
+    .run(key, `${folder}/${key}`, folder, kind, acct, addedAt);
+  if (post) addPost(ctx, { id: `p_${key}`, acct, key, kind: postKind, status: 'queued', dueAt: T + 5 * H });
+}
+function oldAndNew(ctx, { postKind = 'post', kind = 'photo' } = {}) {
+  for (let a = 0; a < 6; a++) {
+    addAcct(ctx, `a${a}`);
+    for (let i = 0; i < 10; i++) addOld(ctx, `old${a}_${i}`, `a${a}`, { kind, postKind });
+    addNew(ctx, `new${a}`, `a${a}`, { kind, postKind });
+  }
+}
+const firstPage = (ctx, scope, now = T) => page(ctx, newStream(ctx, scope, now), null, now).cards;
+
+// fails if new files get the plain novelty weight (then 6 of 66 equal-ish candidates would rarely lead), per scope
+for (const [scope, postKind, kind] of [['home', 'post', 'photo'], ['reels', 'reel', 'video'], ['explore', 'post', 'photo']]) {
+  test(`new uploads: the never-seen files added this week lead a new ${scope} stream`, (t) => {
+    const ctx = makeCtx(t, 31);
+    oldAndNew(ctx, { postKind, kind });
+    const cards = firstPage(ctx, scope);
+    assert.deepEqual(cards.slice(0, 6).map(firstKey).sort(), ['new0', 'new1', 'new2', 'new3', 'new4', 'new5']);
+    assert.ok(cards.slice(6).every((c) => firstKey(c).startsWith('old')), 'then the old ones');
+  });
+}
+
+// fails if any clause of isNew is dropped: the 7-day window, never seen, never thumbed down, no added time
+test('isNew: never seen, never thumbed down and added within 7 days', () => {
+  assert.equal(isNew({ seen_at: null, down: 0, added_at: T - 6 * D }, T), true);
+  assert.equal(isNew({ seen_at: null, down: 0, added_at: T - 8 * D }, T), false, 'older than the window');
+  assert.equal(isNew({ seen_at: T - H, down: 0, added_at: T - H }, T), false, 'seen');
+  assert.equal(isNew({ seen_at: null, down: 1, added_at: T - H }, T), false, 'thumbed down');
+  assert.equal(isNew({ seen_at: null, down: 0, added_at: null }, T), false, 'no added time');
+});
+
+// fails if new files skip the account spacing (one account's batch of new files would come back to back)
+test('new uploads: one account with a batch of new files still never shows twice within 3 cards', (t) => {
+  const ctx = makeCtx(t, 32);
+  for (let a = 0; a < 5; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 8; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  for (let i = 0; i < 5; i++) addNew(ctx, `new${i}`, 'a0');
+  const id = newStream(ctx, 'home', T);
+  const cards = [...page(ctx, id, null, T).cards, ...page(ctx, id, '8', T).cards, ...page(ctx, id, '16', T).cards];
+  const accts = cards.map((c) => c.acct.id);
+  for (let i = 1; i < accts.length; i++) for (let k = 1; k <= 3 && i - k >= 0; k++) assert.notEqual(accts[i], accts[i - k], `card ${i}`);
+  assert.deepEqual(cards.filter((c) => firstKey(c).startsWith('new')).map((c, j) => cards.indexOf(c)), [0, 4, 8, 12, 16], 'each new file as soon as spacing allows');
+});
+
+// fails if new files skip the folder rule (two cards in a row from the folder holding the batch)
+test('new uploads: a batch in one folder alternates with other folders', (t) => {
+  const ctx = makeCtx(t, 33);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`, { folder: 'other' }); }
+  for (let a = 0; a < 6; a++) addNew(ctx, `new${a}`, `a${a}`, { folder: 'batch' });
+  const cards = firstPage(ctx, 'home');
+  const kinds = cards.map((c) => (firstKey(c).startsWith('new') ? 'N' : 'o')).join('');
+  assert.equal(kinds, 'NoNoNoNo');
+});
+
+// fails if the stream keeps its built-time copy of seen_at (a file seen since would still lead)
+test('new uploads: a file seen after the stream was built is no longer dealt first', (t) => {
+  const ctx = makeCtx(t, 34);
+  oldAndNew(ctx);
+  const id = newStream(ctx, 'home', T);
+  ctx.db.prepare("UPDATE items SET seen_at = ? WHERE key IN ('new0','new1','new2')").run(T);
+  const cards = page(ctx, id, null, T).cards;
+  assert.deepEqual(cards.slice(0, 3).map(firstKey).sort(), ['new3', 'new4', 'new5']);
+  assert.ok(!cards.some((c) => ['new0', 'new1', 'new2'].includes(firstKey(c))), 'the seen ones fall back to their low weight');
+});
+
+// fails if files that arrive after a stream was built never join it (an app kept open would never get them)
+test('new uploads: files that arrive while a stream is open join it, loose or queued', (t) => {
+  const ctx = makeCtx(t, 35);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 10; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  const id = newStream(ctx, 'home', T);
+  assert.ok(page(ctx, id, null, T).cards.every((c) => firstKey(c).startsWith('old')));
+  addNew(ctx, 'late_loose', 'a1', { post: false, addedAt: T + 60_000 });
+  addNew(ctx, 'late_queued', 'a2', { addedAt: T + 60_000 });
+  const next = page(ctx, id, '8', T + 2 * 60_000).cards;
+  const keys = next.map(firstKey);
+  assert.ok(keys.includes('late_loose') && keys.includes('late_queued'), `both arrivals on the next page: ${keys}`);
+  assert.equal(keys.filter((k) => k.startsWith('late')).length, 2);
+  assert.equal(ctx.db.prepare("SELECT status FROM posts WHERE id = 'p_late_queued'").get().status, 'live', 'a queued pick is published');
+});
+
+// fails if a loose pick that the scheduler queued meanwhile is dropped (postNow refuses a file already in a post)
+test('new uploads: a loose file queued after the stream was built is dealt as that post', (t) => {
+  const ctx = makeCtx(t, 36);
+  for (let a = 0; a < 6; a++) { addAcct(ctx, `a${a}`); for (let i = 0; i < 6; i++) addOld(ctx, `old${a}_${i}`, `a${a}`); }
+  addNew(ctx, 'fresh', 'a3', { post: false });
+  const id = newStream(ctx, 'home', T);
+  addPost(ctx, { id: 'q_fresh', acct: 'a3', key: 'fresh', status: 'queued', dueAt: T + 3 * H });
+  const cards = page(ctx, id, null, T).cards;
+  assert.equal(cards[0].id, 'q_fresh');
+  assert.equal(ctx.db.prepare("SELECT status FROM posts WHERE id = 'q_fresh'").get().status, 'live');
+  assert.equal(ctx.db.prepare("SELECT COUNT(*) n FROM posts p, json_each(p.items) j WHERE j.value = 'fresh'").get().n, 1, 'no second post for it');
 });

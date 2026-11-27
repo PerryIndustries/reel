@@ -1,6 +1,8 @@
 // Feed streams: the endless scroll behind home, reels, explore and a profile grid.
 // A stream is built once (a snapshot of the candidate posts), kept in memory for 6 h, and paged 8 cards at
-// a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix.
+// a time. Home and reels favour what you have not seen and what you voted up; explore is a uniform mix. In all
+// three, files added in the last 7 days and never seen come first (within the spacing rules), and files that arrive
+// while a stream is open join it.
 // A thumbs-down buries a photo everywhere except a profile grid: each one cuts its odds 50x.
 import { publish, postNow, storiesFolder } from './scheduler.js';
 import { card } from './cards.js';
@@ -12,6 +14,10 @@ const SPACING = 3; // no same account within the last 3 cards (home / explore)
 // No two cards in a row from the same top-level Drive folder (home / explore / reels), whenever another folder has a candidate.
 const MAX_STREAMS = 200;
 export const DOWN = 0.02; // odds kept per thumbs-down
+// New uploads first: a file added in the last 7 days that has never been seen (and never thumbed down) is dealt
+// ahead of everything else in home, reels and explore, within the spacing rules, until it is seen.
+export const NEW_WINDOW = 7 * DAY;
+export const isNew = (item, now) => item.seen_at == null && !(Number(item.down) > 0) && now - Number(item.added_at ?? 0) <= NEW_WINDOW;
 
 // novelty x taste. Never seen: 1. Seen: back toward 1 over 3 days, faster when voted up.
 export function weight(item, now) {
@@ -59,7 +65,7 @@ function candidates(ctx, scope) {
   if (m) { where.push('p.acct = ?'); args.push(m[1]); }
   const rows = db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, p.due_at
     FROM posts p JOIN accounts a ON a.id = p.acct WHERE ${where.join(' AND ')}`).all(...args);
-  const getItem = db.prepare('SELECT key, folder, seen_at, up, down FROM items WHERE key = ?');
+  const getItem = db.prepare('SELECT key, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
   const out = [];
   const seenFirst = new Set();
   for (const p of rows) {
@@ -73,7 +79,7 @@ function candidates(ctx, scope) {
   if (m) return out;
   // Home, reels and explore draw from the whole library: a file in no post yet is a candidate too, and goes up
   // as a post the moment it is picked.
-  const loose = ctx.db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down FROM items i JOIN accounts a ON a.id = i.acct
+  const loose = ctx.db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
     WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 ${scope === 'reels' ? "AND i.kind = 'video'" : ''}
     AND i.key NOT IN (SELECT j.value FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued') AND p.kind <> 'story')`).all();
   for (const it of loose) {
@@ -94,7 +100,7 @@ export function newStream(ctx, scope, now) {
     list = list.filter((c) => !c.pinned).sort((a, b) => (b.up_at ?? now) - (a.up_at ?? now) || (a.id < b.id ? -1 : 1));
   }
   const id = newId(ctx, now);
-  streamsOf(ctx).set(id, { id, scope, at: now, pool: list, emitted: [], dealtDown: new Map(), recent: [], profile, done: false });
+  streamsOf(ctx).set(id, { id, scope, at: now, pool: list, known: new Set(list.map((c) => c.first)), emitted: [], dealtDown: new Map(), recent: [], profile, done: false });
   return id;
 }
 
@@ -109,6 +115,57 @@ function lastFolder(ctx, s) {
   return it ? (it.folder ?? '') : null;
 }
 
+// Files that arrived (or finished processing) after the stream was built join its pool while they are new, so
+// an app that keeps its stream open still gets them: the post that holds one (by its first item), or the loose file.
+function joinArrivals(ctx, s, now) {
+  const { db } = ctx;
+  const reels = s.scope === 'reels';
+  const rows = db.prepare(`SELECT i.key, i.kind, i.folder, i.acct, i.seen_at, i.up, i.down, i.added_at FROM items i JOIN accounts a ON a.id = i.acct
+    WHERE i.derived = 1 AND i.err IS NULL AND i.gone = 0 AND i.seen_at IS NULL AND i.added_at >= ? ${reels ? "AND i.kind = 'video'" : ''} ORDER BY i.key`).all(now - NEW_WINDOW);
+  const unknown = rows.filter((it) => !s.known.has(it.key) && !storiesFolder(it) && isNew(it, now));
+  if (!unknown.length) return;
+  // one pass over the live and queued posts: which post holds each file (reels: only reel posts)
+  const holder = new Map();
+  for (const r of db.prepare(`SELECT p.id, p.acct, p.kind, p.items, p.status, p.up_at, p.pinned, j.value v FROM posts p JOIN accounts a ON a.id = p.acct, json_each(p.items) j
+    WHERE p.status IN ('live','queued') AND p.kind <> 'story' ORDER BY p.id`).all()) if (!holder.has(r.v)) holder.set(r.v, r);
+  const getItem = db.prepare('SELECT key, folder, seen_at, up, down, added_at FROM items WHERE key = ?');
+  for (const it of unknown) {
+    if (s.known.has(it.key)) continue;
+    s.known.add(it.key); // looked at once: a carousel member whose post is already in play is not looked up again
+    const p = holder.get(it.key);
+    if (p) {
+      if (reels && p.kind !== 'reel') continue;
+      const first = parseKeys(p)[0];
+      if (!first || (first !== it.key && s.known.has(first))) continue;
+      const fi = first === it.key ? it : getItem.get(first);
+      if (!fi) continue;
+      s.known.add(first);
+      s.pool.push({ id: p.id, acct: p.acct, folder: fi.folder ?? '', status: p.status, up_at: p.up_at, pinned: p.pinned, first, item: fi });
+    } else {
+      s.known.add(it.key);
+      s.pool.push({ id: null, acct: it.acct, folder: it.folder ?? '', status: 'loose', first: it.key, item: it });
+    }
+  }
+  if (s.pool.length) s.done = false;
+}
+
+// The live or queued post (reels: reel) whose first item is `key`, not one already dealt; null when none.
+function holderOf(ctx, key, scope) {
+  return ctx.db.prepare(`SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.status IN ('live','queued') AND p.kind <> 'story'
+    ${scope === 'reels' ? "AND p.kind = 'reel'" : ''} AND json_extract(p.items, '$[0]') = ? ORDER BY p.id LIMIT 1`).get(key) ?? null;
+}
+
+// The stream's copy of a candidate's seen / thumbs-down state is from when it was built; a file seen or voted on
+// since (in another stream, or on another tab) is no longer new.
+function refreshNew(ctx, s, now) {
+  const get = ctx.db.prepare('SELECT seen_at, down FROM items WHERE key = ?');
+  for (const c of s.pool) {
+    if (!isNew(c.item, now)) continue;
+    const r = get.get(c.first);
+    if (r) c.item = { ...c.item, seen_at: r.seen_at, down: r.down };
+  }
+}
+
 function pickOne(ctx, s, now) {
   const spaced = !s.profile && s.scope !== 'reels';
   const recent = new Set(s.recent.slice(-SPACING));
@@ -120,7 +177,13 @@ function pickOne(ctx, s, now) {
   const prev = lastFolder(ctx, s);
   const otherFolder = prev == null ? s.pool.length : s.pool.filter((c) => c.folder !== prev).length;
   const folderOk = (c) => prev == null || otherFolder === 0 || c.folder !== prev;
-  const weights = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
+  const base = (allowed) => s.pool.map((c) => (folderOk(c) && allowed(c) ? Math.max(uniform ? DOWN ** (Number(c.item.down) || 0) : weight(c.item, now), 1e-9) : 0));
+  // among the cards allowed here, new uploads go first whenever there is one
+  const weights = (allowed) => {
+    const w = base(allowed);
+    const fresh = w.map((x, i) => (x > 0 && isNew(s.pool[i].item, now) ? x : 0));
+    return fresh.some((x) => x > 0) ? fresh : w;
+  };
   let w = weights((c) => !(spaced && recent.has(c.acct)));
   let total = w.reduce((x, y) => x + y, 0);
   if (total <= 0) {
@@ -157,6 +220,7 @@ export function page(ctx, streamId, cursor, now, scope) {
   const start = Math.max(0, Number.parseInt(cursor ?? '0', 10) || 0);
   const cards = [];
   let pos = start;
+  let checked = false;
   while (cards.length < PAGE_SIZE) {
     if (pos < s.emitted.length) {
       const row = ctx.db.prepare('SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.id = ?').get(s.emitted[pos]);
@@ -164,12 +228,16 @@ export function page(ctx, streamId, cursor, now, scope) {
       if (row && (s.profile || !votedOut(ctx, s, row))) cards.push(card(ctx, row, now));
       continue;
     }
+    if (!s.profile && !checked) { checked = true; joinArrivals(ctx, s, now); refreshNew(ctx, s, now); }
     if (s.done) break;
     const i = pickOne(ctx, s, now);
     if (i < 0) { s.done = true; break; }
     const [c] = s.pool.splice(i, 1);
     let row = c.id ? ctx.db.prepare('SELECT p.* FROM posts p JOIN accounts a ON a.id = p.acct WHERE p.id = ?').get(c.id) : postNow(ctx, c.first, now);
-    if (row && row.status === 'queued') row = publish(ctx, c.id, now);
+    // a loose file the scheduler put in a post after the stream was built: deal that post instead
+    if (!row && !c.id) row = holderOf(ctx, c.first, s.scope);
+    if (row && !c.id && s.emitted.includes(row.id)) continue;
+    if (row && row.status === 'queued') row = publish(ctx, row.id, now);
     if (!row || row.status !== 'live') continue;
     s.emitted.push(row.id);
     s.dealtDown.set(row.id, Number(c.item.down) || 0);
