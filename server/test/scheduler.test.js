@@ -354,3 +354,108 @@ test('a gone item also removes queued stories and their pending writer jobs, and
   assert.equal(statusOf(ctx, 'qs'), null);
   assert.deepEqual(jobs(ctx, 'story'), []);
 });
+
+// ---- new uploads take the soonest queued slots (freshFirst) ---------------------------------------------
+// n1 with 9 live posts, `reposts` queued reposts of already-posted items one hour apart, and `fresh` new items.
+function freshSetup(t, { seed = 11, reposts = 6, fresh = 3, multi = 'off' } = {}) {
+  const ctx = makeCtx(t, seed);
+  addAcct(ctx, 'n1', false, { multi });
+  for (let i = 0; i < 9; i++) { addItem(ctx, `live${i}`, 'n1'); addPost(ctx, { id: `l${i}`, acct: 'n1', items: [`live${i}`] }); }
+  for (let i = 0; i < reposts; i++) {
+    addItem(ctx, `old${i}`, 'n1');
+    addPost(ctx, { id: `d${i}`, acct: 'n1', items: [`old${i}`], status: 'down', upAt: T - 20 * D });
+    addPost(ctx, { id: `q${i}`, acct: 'n1', items: [`old${i}`], status: 'queued', dueAt: T + (i + 1) * H });
+  }
+  for (let i = 0; i < fresh; i++) addItem(ctx, `new${i}`, 'n1');
+  return ctx;
+}
+const queuedRows = (ctx) => ctx.db.prepare("SELECT id, acct, items, kind, caption, due_at, cycled FROM posts WHERE status = 'queued' ORDER BY due_at, id").all();
+
+// fails if the slots are taken latest-first, if nothing is swapped, or if the slot's time changes
+test('freshFirst: never-posted items take the soonest repost slots of their account, at the same times', (t) => {
+  const ctx = freshSetup(t);
+  const before = queuedRows(ctx).map((p) => p.due_at);
+  assert.equal(sched.freshFirst(ctx, T), 3);
+  const after = queuedRows(ctx);
+  assert.deepEqual(after.map((p) => p.due_at), before, 'every slot keeps its time');
+  assert.deepEqual(after.slice(0, 3).map((p) => JSON.parse(p.items)[0]).sort(), ['new0', 'new1', 'new2']);
+  assert.ok(after.slice(0, 3).every((p) => p.cycled === 0 && p.caption === '' && p.acct === 'n1' && !/^q\d$/.test(p.id)));
+  assert.deepEqual(after.slice(3).map((p) => p.id), ['q3', 'q4', 'q5'], 'later reposts stay once the new items run out');
+});
+
+// fails if a new item can take another account's slot (one pool for everyone)
+test('freshFirst: a new item never takes a slot of another account', (t) => {
+  const ctx = freshSetup(t, { fresh: 0 });
+  addAcct(ctx, 'n2', false);
+  for (let i = 0; i < 3; i++) addItem(ctx, `other${i}`, 'n2');
+  assert.equal(sched.freshFirst(ctx, T), 0);
+  assert.deepEqual(queuedRows(ctx).map((p) => p.id), ['q0', 'q1', 'q2', 'q3', 'q4', 'q5']);
+});
+
+// fails if a post holding any never-posted item counts as a repost (some instead of every), or if stories are swapped
+test('freshFirst: a queued post with a never-posted item, a half-new carousel and a queued story keep their slots', (t) => {
+  const ctx = freshSetup(t, { reposts: 2, fresh: 2 });
+  addItem(ctx, 'mine', 'n1');
+  addPost(ctx, { id: 'qnew', acct: 'n1', items: ['mine'], status: 'queued', dueAt: T + 10 * 60_000 });
+  addItem(ctx, 'half', 'n1');
+  addPost(ctx, { id: 'qcar', acct: 'n1', items: ['old0', 'half'], status: 'queued', dueAt: T + 20 * 60_000 });
+  addPost(ctx, { id: 'qst', acct: 'n1', items: ['live0'], status: 'queued', dueAt: T + 30 * 60_000, kind: 'story' });
+  assert.equal(sched.freshFirst(ctx, T), 2);
+  const ids = queuedRows(ctx).map((p) => p.id);
+  for (const id of ['qnew', 'qcar', 'qst']) assert.ok(ids.includes(id), `${id} kept`);
+  assert.ok(!ids.includes('q0') && !ids.includes('q1'), 'the two reposts gave their slots');
+});
+
+// fails if the displaced repost's pending writer job is left behind, or the new post skips the caption path
+test('freshFirst: the repost goes with its pending caption job, its items return to the pool, the new post gets its own caption job', (t) => {
+  const ctx = freshSetup(t, { reposts: 1, fresh: 1 });
+  ctx.db.prepare("UPDATE posts SET caption = 'written' WHERE id = 'q0'").run();
+  ctx.db.prepare("INSERT INTO writer_jobs(kind, ref, prio, due_at, status, tries, created_at) VALUES ('caption','q0',1,0,'todo',0,0)").run();
+  sched.tick(ctx, T);
+  assert.equal(statusOf(ctx, 'q0'), null);
+  const slot = queuedRows(ctx).find((p) => p.due_at === T + H);
+  assert.deepEqual(JSON.parse(slot.items), ['new0']);
+  assert.equal(slot.caption, '');
+  assert.ok(jobs(ctx, 'caption').includes(slot.id), 'the new post has a caption job');
+  assert.ok(!jobs(ctx, 'caption').includes('q0'), 'the repost caption job is gone');
+  const inPosts = ctx.db.prepare("SELECT j.value v FROM posts p, json_each(p.items) j WHERE p.status IN ('live','queued')").all().map((r) => r.v);
+  assert.ok(inPosts.includes('old0'), 'the same tick planned old0 again later in the queue');
+  assert.ok(queuedRows(ctx).find((p) => JSON.parse(p.items).includes('old0')).due_at > T + H);
+});
+
+// fails if items already queued are offered again (the second pass would swap more reposts), or if the pick ignores ctx.rand
+test('freshFirst: a second pass changes nothing and the same seed picks the same items', (t) => {
+  const run = (seed) => { const ctx = freshSetup(t, { seed, reposts: 6, fresh: 4 }); sched.freshFirst(ctx, T); return ctx; };
+  const a = run(21);
+  const once = queuedRows(a);
+  assert.equal(sched.freshFirst(a, T + 60_000), 0);
+  assert.deepEqual(queuedRows(a), once);
+  assert.deepEqual(queuedRows(run(21)).map((p) => p.items), once.map((p) => p.items));
+  const orders = new Set([21, 22, 23, 24, 25].map((s) => queuedRows(run(s)).slice(0, 4).map((p) => p.items).join()));
+  assert.ok(orders.size > 1, 'the seed decides which new item takes which slot');
+});
+
+// fails if a carousel built for a slot pulls in already-posted photos of the folder
+test('freshFirst: a carousel made for a slot holds only never-posted photos', (t) => {
+  const ctx = freshSetup(t, { seed: 3, reposts: 6, fresh: 12, multi: 'lots' });
+  sched.freshFirst(ctx, T);
+  const swapped = queuedRows(ctx).filter((p) => !/^q\d$/.test(p.id));
+  assert.ok(swapped.some((p) => JSON.parse(p.items).length > 1), 'some slots became carousels');
+  assert.ok(swapped.every((p) => JSON.parse(p.items).every((k) => k.startsWith('new'))));
+});
+
+// fails if tick does not run freshFirst: a full 48 h queue of reposts would keep new uploads waiting
+test('a tick moves new uploads into the soonest slots of a full queue', (t) => {
+  const ctx = makeCtx(t, 7);
+  setSetting(ctx.db, 'postsPerDay', 20);
+  addAcct(ctx, 'n1', false);
+  for (let i = 0; i < 60; i++) { addItem(ctx, `old${i}`, 'n1'); addPost(ctx, { id: `d${i}`, acct: 'n1', items: [`old${i}`], status: 'down', upAt: T - 20 * D }); }
+  for (let i = 0; i < 9; i++) { addItem(ctx, `live${i}`, 'n1'); addPost(ctx, { id: `l${i}`, acct: 'n1', items: [`live${i}`] }); }
+  sched.tick(ctx, T);
+  const full = queuedRows(ctx).filter((p) => p.kind !== 'story');
+  assert.ok(full.length >= 10 && full.every((p) => p.cycled === 1), 'the queue is all reposts');
+  for (let i = 0; i < 5; i++) addItem(ctx, `new${i}`, 'n1');
+  sched.tick(ctx, T + 60_000);
+  const next = queuedRows(ctx).filter((p) => p.kind !== 'story');
+  assert.deepEqual(next.slice(0, 5).map((p) => JSON.parse(p.items)[0]).sort(), ['new0', 'new1', 'new2', 'new3', 'new4']);
+});

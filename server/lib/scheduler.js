@@ -179,6 +179,47 @@ export function planPosts(ctx, now) {
   return made;
 }
 
+// New uploads take the soonest queued slots. The queue is filled 48 h ahead, so files that arrive after it is
+// full would otherwise wait behind reposts already planned. Each queued post or reel that holds only items
+// already posted somewhere (live or down) gives its slot, soonest due_at first, to items of the SAME account
+// that were never posted and are in no post yet, until those run out. The slot keeps its account and time
+// (so posting pace and quiet hours are unchanged); the repost is deleted with its pending writer jobs and its
+// items go back to the pool, so a later fill plans them again. The new post is a fresh queued post with an
+// empty caption, so it takes the normal caption path (planPosts' 2 h caption job, or publish's fallback). A
+// queued post that holds any never-posted item is never displaced. Stories and highlights are not touched,
+// nor are paused (quiet) accounts. Running it again changes nothing. Returns how many slots it swapped.
+export function freshFirst(ctx, now) {
+  const { db } = ctx;
+  const posted = new Set(db.prepare(`SELECT DISTINCT j.value v FROM posts p, json_each(p.items) j WHERE p.status IN ('live','down') AND p.kind <> 'story'`).all().map((r) => r.v));
+  const inUse = usage(ctx);
+  const accts = new Map(db.prepare('SELECT * FROM accounts WHERE quiet = 0').all().map((a) => [a.id, a]));
+  const pools = new Map();
+  for (const i of db.prepare(`SELECT key, folder, kind, acct FROM items WHERE ${POSTABLE} ORDER BY key`).all()) {
+    if (!accts.has(i.acct) || posted.has(i.key) || inUse.has(i.key) || storiesFolder(i)) continue;
+    if (!pools.has(i.acct)) pools.set(i.acct, []);
+    pools.get(i.acct).push(i);
+  }
+  if (!pools.size) return 0;
+  const slots = db.prepare(`SELECT id, acct, items, due_at FROM posts WHERE status = 'queued' AND kind IN ('post','reel') ORDER BY due_at, id`).all()
+    .filter((p) => pools.has(p.acct) && parseItems(p.items).every((k) => posted.has(k)));
+  let n = 0;
+  tx(db, () => {
+    for (const slot of slots) {
+      const pool = pools.get(slot.acct);
+      if (!pool.length) continue;
+      const acct = accts.get(slot.acct);
+      const first = pool[Math.floor(nextRand(ctx) * pool.length)];
+      const items = groupFor(ctx, first, pool, MULTI[settingsOf(acct).multi] ?? 0);
+      for (const i of items) pool.splice(pool.findIndex((p) => p.key === i.key), 1);
+      db.prepare('DELETE FROM posts WHERE id = ?').run(slot.id);
+      db.prepare("DELETE FROM writer_jobs WHERE ref = ? AND status = 'todo' AND kind IN ('caption','comments','story','rewrite')").run(slot.id);
+      addPost(ctx, acct, items, slot.due_at, now, 0);
+      n++;
+    }
+  });
+  return n;
+}
+
 // Keeps about a day of stories scheduled per account: files from a "stories" folder first, otherwise reshares
 // of the account's own live photos and videos (v1 autoStories).
 export function planStories(ctx, now) {
@@ -344,7 +385,7 @@ export function onGone(ctx, keys, now) {
 export function tick(ctx, now) {
   const steps = [
     ['publish', publishDue], ['expireStories', expireStories], ['takedown', takedown],
-    ['planPosts', planPosts], ['planStories', planStories], ['activity', activityTick],
+    ['freshFirst', freshFirst], ['planPosts', planPosts], ['planStories', planStories], ['activity', activityTick],
   ];
   const out = {};
   for (const [name, fn] of steps) {
