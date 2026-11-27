@@ -7,6 +7,10 @@ import { spawn } from 'node:child_process';
 import { ensureColumn } from './db.js';
 
 export const CLIP = Object.freeze({ maxKeep: 180, min: 15, max: 60, count: 3 });
+// The opening: a small copy of a video's first few seconds (open.mp4) that the phone plays at once while the full file
+// loads under it. Videos shorter than minDur don't get one (the full file is small already). Old videos get theirs from
+// the backfill, a few per tick once the main queue is empty, so the PC stays usable.
+export const OPENING = Object.freeze({ secs: 4, minDur: 6, kbps: 400, perTick: 4 });
 
 const DAY = 24 * 3600_000;
 const TICK_MS = 20_000;
@@ -25,6 +29,7 @@ export function derivedPaths(ctx, key) {
     full: path.join(dir, 'full.jpg'),
     video: path.join(dir, 'video.mp4'),
     poster: path.join(dir, 'poster.jpg'),
+    open: path.join(dir, 'open.mp4'),
   };
 }
 
@@ -85,6 +90,8 @@ function ensureCols(ctx) {
   if (prepared.has(ctx.db)) return;
   ensureColumn(ctx.db, 'items', 'clip_start', 'REAL');
   ensureColumn(ctx.db, 'items', 'clip_dur', 'REAL');
+  // NULL = not looked at yet, 1 = open.mp4 made, 0 = none (too short, or it could not be made)
+  ensureColumn(ctx.db, 'items', 'opening', 'INT');
   prepared.add(ctx.db);
 }
 
@@ -206,6 +213,20 @@ async function derivePhoto(ctx, item, src, dir) {
   }
 }
 
+// open.mp4 from a finished video.mp4: the same picture size (so it lines up exactly over the full file), a low bitrate,
+// a keyframe every second, faststart. -> true when made.
+async function makeOpening(ctx, video, out) {
+  const kb = `${OPENING.kbps}k`;
+  const enc = (v) => ffmpeg(ctx, [
+    '-t', String(OPENING.secs), '-i', video, '-map', '0:v:0', '-map', '0:a:0?', ...v, '-b:v', kb, '-maxrate', kb, '-bufsize', kb,
+    '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '64k', '-ac', '2', '-movflags', '+faststart', '-threads', '2', '-f', 'mp4', '-y', out,
+  ]);
+  let r = await enc(['-c:v', 'h264_nvenc', '-preset', 'p5', '-profile:v', 'high', '-rc', 'vbr', '-g', '25']);
+  if (r.code !== 0) r = await enc(['-c:v', 'libx264', '-profile:v', 'high', '-g', '25']);
+  if (r.code !== 0) { fs.rmSync(out, { force: true }); return false; }
+  return true;
+}
+
 const VIDEO_VF = "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
 async function deriveVideo(ctx, item, src, dir) {
@@ -230,9 +251,11 @@ async function deriveVideo(ctx, item, src, dir) {
     if (r.code !== 0) throw new Error(firstLine(r));
     r = await ffmpeg(ctx, ['-i', poster, '-frames:v', '1', '-vf', PHOTO_FIT(480), '-q:v', '5', '-threads', '2', thumb]);
     if (r.code !== 0) throw new Error(firstLine(r));
+    // an opening that fails is not a failed video: the phone just plays the full file as before
+    const opening = d.dur != null && d.dur >= OPENING.minDur && await makeOpening(ctx, video, path.join(tmp, 'open.mp4')) ? 1 : 0;
     publish(tmp, dir);
-    ctx.db.prepare('UPDATE items SET derived = 1, err = NULL, err_at = NULL, w = ?, h = ?, dur = ?, kind = ? WHERE key = ?')
-      .run(d.w, d.h, d.dur, 'video', item.key);
+    ctx.db.prepare('UPDATE items SET derived = 1, err = NULL, err_at = NULL, w = ?, h = ?, dur = ?, kind = ?, opening = ? WHERE key = ?')
+      .run(d.w, d.h, d.dur, 'video', opening, item.key);
   } catch (e) {
     fs.rmSync(tmp, { recursive: true, force: true });
     throw e;
@@ -306,6 +329,29 @@ export async function deriveOne(ctx, item, now) {
   }
 }
 
+// The backfill: openings for videos derived before openings existed, `limit` at a time, newest first.
+export async function backfillOpenings(ctx, limit = OPENING.perTick) {
+  ensureCols(ctx);
+  const rows = ctx.db.prepare(
+    `SELECT key, dur FROM items WHERE kind = 'video' AND derived = 1 AND err IS NULL AND gone = 0 AND opening IS NULL
+     ORDER BY added_at DESC, key ASC LIMIT ?`,
+  ).all(limit);
+  const set = ctx.db.prepare('UPDATE items SET opening = ? WHERE key = ?');
+  let made = 0;
+  for (const it of rows) {
+    const p = derivedPaths(ctx, it.key);
+    let ok = false;
+    if (it.dur != null && it.dur >= OPENING.minDur && fs.existsSync(p.video)) {
+      const part = path.join(p.dir, 'open.part.mp4');
+      ok = await makeOpening(ctx, p.video, part);
+      if (ok) { try { fs.renameSync(part, p.open); } catch { fs.rmSync(part, { force: true }); ok = false; } }
+    }
+    set.run(ok ? 1 : 0, it.key);
+    if (ok) made++;
+  }
+  return { tried: rows.length, made };
+}
+
 function markOk(ctx, now) {
   ctx.state.derive = { lastErr: null, lastErrAt: ctx.state.derive?.lastErrAt ?? null, lastOkAt: now };
 }
@@ -314,7 +360,7 @@ async function tick(ctx) {
   const t0 = Date.now();
   while (Date.now() - t0 < BUDGET_MS) {
     const item = pickNext(ctx, Date.now());
-    if (!item) break;
+    if (!item) return backfillOpenings(ctx);
     await deriveOne(ctx, item, Date.now());
   }
 }

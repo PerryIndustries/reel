@@ -20,6 +20,8 @@ export function mediaEntry(item) {
     full: video ? null : `${base}/full.jpg`,
     video: video ? `${base}/video.mp4` : null,
     poster: video ? `${base}/poster.jpg` : null,
+    // the small first seconds the phone starts on while the full file loads (see derive.OPENING)
+    open: video && item.opening === 1 ? `${base}/open.mp4` : null,
     w: item.w ?? null,
     h: item.h ?? null,
     dur: video && item.dur != null ? item.dur : null,

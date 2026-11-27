@@ -104,19 +104,21 @@ try {
     return `${before} -> ${await page.evaluate(() => FS.home.items.length)}`;
   });
 
-  // ---- a long scroll: the page never holds more than 24 cards or 3 loaded videos --------------------------------
-  let sampled = 0; let maxCards = 0; let maxVideos = 0; let maxReal = 0; let loadedCards = 0;
-  await check('Scrolling through 200 cards keeps DOM cards <= 24 and <video src> <= 3 at every sample', async () => {
+  // ---- a long scroll: the page never holds more than 24 cards, 3 loaded videos and 3 openings ---------------------
+  let sampled = 0; let maxCards = 0; let maxVideos = 0; let maxReal = 0; let loadedCards = 0; let maxOpen = 0;
+  await check('Scrolling through 200 cards keeps DOM cards <= 24, full <video src> <= 3 and openings <= 3 at every sample', async () => {
     const bad = [];
     const sample = async () => {
       const s = await page.evaluate(() => ({
         cards: document.querySelectorAll('article.post').length,
-        vids: document.querySelectorAll('video[src]').length,
+        vids: document.querySelectorAll('video[src]:not(.ov)').length,
+        open: document.querySelectorAll('video.ov[src]').length,
         items: FS.home.items.length,
       }));
-      sampled++; maxCards = Math.max(maxCards, s.cards); maxVideos = Math.max(maxVideos, s.vids); loadedCards = s.items;
+      sampled++; maxCards = Math.max(maxCards, s.cards); maxVideos = Math.max(maxVideos, s.vids); maxOpen = Math.max(maxOpen, s.open); loadedCards = s.items;
       if (s.cards > 24) bad.push(`cards ${s.cards}`);
       if (s.vids > 3) bad.push(`videos ${s.vids}`);
+      if (s.open > 3) bad.push(`openings ${s.open}`);
     };
     let stuck = 0; let lastItems = 0;
     const deadline = Date.now() + 100_000;
@@ -130,7 +132,7 @@ try {
     for (let i = 0; i < 25; i++) { await page.evaluate(() => window.scrollBy(0, -2500)); await sleep(40); await sample(); }
     if (loadedCards < 200) throw new Error(`only ${loadedCards} cards were loaded`);
     if (bad.length) throw new Error(`${bad.length} bad samples, e.g. ${bad[0]}`);
-    return `${sampled} samples, ${loadedCards} cards loaded, max ${maxCards} cards and ${maxVideos} videos in the page`;
+    return `${sampled} samples, ${loadedCards} cards loaded, max ${maxCards} cards, ${maxVideos} videos and ${maxOpen} openings in the page`;
   });
 
   await check('The long scroll really did put cards and a video in the page', async () => {
@@ -139,31 +141,37 @@ try {
   });
 
   // ---- a feed that is only reels: three videos loaded at once, never a fourth -----------------------------------
-  await check('A run of reels loads exactly 3 videos at the most (reaches 3, never 4)', async () => {
+  await check('A run of reels: at most 3 full videos and 3 openings; a neighbour with an opening holds only that', async () => {
     await page.goto(base + `#/p/${seeded.reelsPost}/more`);
     await page.waitForSelector('article.post', { timeout: 10000 });
-    let max = 0; let maxCards = 0; let steps = 0; let still = 0; let lastY = -1; let over = null;
+    let max = 0; let maxCards = 0; let steps = 0; let still = 0; let lastY = -1; let over = null; let onlyOpen = 0; let maxO = 0;
     for (;;) {
       await page.evaluate(() => window.scrollBy(0, 300));
       await sleep(60);
       const s = await page.evaluate(() => ({
-        v: document.querySelectorAll('video[src]').length,
+        v: document.querySelectorAll('video[src]:not(.ov)').length,
+        o: document.querySelectorAll('video.ov[src]').length,
+        // a feed video that has an opening ready next to it but no full file of its own (the full file waits for its turn)
+        only: [...document.querySelectorAll('#view video[data-osrc]')].filter((v) => !v.getAttribute('src') && v._ov && v._ov.getAttribute('src')).length,
         all: document.querySelectorAll('article.post video').length,
         cards: document.querySelectorAll('article.post').length,
         y: Math.round(window.scrollY),
       }));
       if (s.v > max) max = s.v;
-      if (s.v > 3 && !over) over = s.v;
+      if (s.o > maxO) maxO = s.o;
+      onlyOpen = Math.max(onlyOpen, s.only);
+      if ((s.v > 3 || s.o > 3) && !over) over = `${s.v} videos and ${s.o} openings`;
       maxCards = Math.max(maxCards, s.cards);
       steps++;
       still = s.y === lastY ? still + 1 : 0; lastY = s.y;
       if (still > 12 || steps > 400) break;
     }
-    if (over) throw new Error(`${over} videos had a src at once`);
-    if (max !== 3) throw new Error(`the most videos with a src was ${max}, expected it to reach exactly 3`);
     await page.goto(base + '#/');
     await page.waitForSelector('article.post', { timeout: 10000 });
-    return `${steps} scroll steps, ${maxCards} cards at most, max ${max} videos`;
+    if (over) throw new Error(`${over} had a src at once`);
+    if (max < 1) throw new Error('no video ever got a src');
+    if (!onlyOpen) throw new Error('no neighbour ever held just its opening: every nearby video fetched its full file');
+    return `${steps} scroll steps, ${maxCards} cards at most, max ${max} videos and ${maxO} openings, up to ${onlyOpen} neighbours on their opening only`;
   });
 
   await check('No blob: addresses anywhere in the page', async () => {
@@ -239,9 +247,10 @@ try {
     await page.waitForSelector('#full .rv video', { timeout: 8000, state: 'attached' });
     await sleep(500);
     for (let i = 0; i < 6; i++) { await page.evaluate(() => { const rv = document.getElementById('rv'); rv.scrollTop += rv.clientHeight; }); await sleep(450); }
-    const r = await page.evaluate(() => ({ els: document.querySelectorAll('#full video').length, src: document.querySelectorAll('video[src]').length }));
+    const r = await page.evaluate(() => ({ els: document.querySelectorAll('#full video:not(.ov)').length, src: document.querySelectorAll('video[src]:not(.ov)').length, open: document.querySelectorAll('video.ov').length }));
     if (r.els !== 3) throw new Error(`${r.els} video elements in the viewer`);
     if (r.src > 3) throw new Error(`${r.src} videos with a src`);
+    if (r.open > 3) throw new Error(`${r.open} openings in the page`);
     await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
     return `${r.els} pooled videos`;
   });
@@ -297,7 +306,7 @@ try {
       return { shown: getComputedStyle(pv).display !== 'none', t: pv.querySelector('.t').textContent, pvVid: !!pv.querySelector('video'), w: pv.querySelector('.frame').getBoundingClientRect().width };
     });
     await page.mouse.up();
-    const after = await page.evaluate(() => { const s = document.getElementById('cur'), v = s.querySelector('video[data-pool]'); return { at: v.currentTime / v.duration, pvGone: !s.querySelector('.pv video'), hidden: getComputedStyle(s.querySelector('.pv')).display === 'none', vids: document.querySelectorAll('#full video').length }; });
+    const after = await page.evaluate(() => { const s = document.getElementById('cur'), v = s.querySelector('video[data-pool]'); return { at: v.currentTime / v.duration, pvGone: !s.querySelector('.pv video'), hidden: getComputedStyle(s.querySelector('.pv')).display === 'none', vids: document.querySelectorAll('#full video:not(.ov)').length }; });
     if (!mid.shown || !mid.pvVid) throw new Error(`preview not shown: ${JSON.stringify(mid)}`);
     if (!/^\d+:\d\d \/ \d+:\d\d$/.test(mid.t)) throw new Error(`time label "${mid.t}"`);
     if (mid.w < 120) throw new Error(`preview only ${mid.w}px wide`);
@@ -371,6 +380,248 @@ try {
     return `reload -> ${t1.toFixed(1)}s; finished -> ${t2.toFixed(1)}s`;
   });
 
+  // ---- openings: a video starts on its small first seconds, the full file takes over underneath ------------------
+  // reels whose video has an opening (fixtures v0-v2 have one, v3 not), from the end of the list so no earlier check watched them
+  // every reel in the stream (the first page is a random few), paged through like the app does
+  const allReels = await (async () => {
+    const out = []; let stream; let cursor;
+    for (let i = 0; i < 40; i++) {
+      const qs = new URLSearchParams(); if (stream) qs.set('stream', stream); if (cursor != null) qs.set('cursor', cursor);
+      const p = await (await fetch(base + 'api/reels?' + qs)).json();
+      for (const c of p.cards || []) if (c.media[0] && !out.some((x) => x.id === c.id)) out.push({ id: c.id, item: c.media[0].item, open: !!c.media[0].open });
+      stream = p.stream || stream; cursor = p.cursor;
+      if (cursor == null) break;
+    }
+    return out;
+  })();
+  const openReels = allReels.filter((x) => x.open).reverse();
+  // the full files answer late (a thin connection), so the opening has to carry the start
+  const slowFull = async (ms) => page.route('**/video.mp4', async (route) => { await sleep(ms); route.continue().catch(() => {}); });
+  const fastFull = () => page.unroute('**/video.mp4');
+  // what the screen shows for the current reel: the stand-in's time while it is up, the real video's after
+  const watchCur = () => page.evaluate(() => {
+    window.__seen = [];
+    clearInterval(window.__seenT);
+    window.__seenT = setInterval(() => {
+      const v = document.querySelector('#rv video[data-pool][data-want="1"]'); if (!v) return;
+      const o = v._ov, on = !!(o && o.isConnected && o.classList.contains('on'));
+      window.__seen.push({ ph: on ? 'ov' : 'v', t: on ? o.currentTime : v.currentTime, vm: v.muted, om: o ? o.muted : null, orate: o ? o.playbackRate : null, ovs: document.querySelectorAll(`#rv section[data-k="${v.dataset.idx}"] video.ov`).length, paused: v.paused });
+    }, 30);
+  });
+  const seenOf = () => page.evaluate(() => { clearInterval(window.__seenT); return window.__seen; });
+  const forget = (item) => page.evaluate((k) => { VPOS.clear(k); VPOS.flush(); }, item);
+  await check('A reel with an opening starts on it at once, then the full file takes over at the same moment (no jump back, no restart)', async () => {
+    if (openReels.length < 3) throw new Error(`only ${openReels.length} reels with an opening in the fixtures`);
+    const it = openReels[0];
+    await page.goto(base + '#/settings'); // no video plays here, so nothing writes the spot back
+    await forget(it.item);
+    await slowFull(1500);
+    try {
+      await page.goto(base + `#/reels/${it.id}`);
+      await page.waitForSelector('#rv video[data-pool][data-want="1"]', { timeout: 8000, state: 'attached' });
+      await watchCur();
+      await waitFor(() => page.evaluate(() => window.__seen.some((x) => x.ph === 'v' && x.t > 1) && window.__seen.some((x) => x.ph === 'ov')), 12000, 'the full file to take over');
+      await sleep(400);
+    } finally { await fastFull(); }
+    const seen = await seenOf();
+    const first = seen.findIndex((x) => x.ph === 'ov');
+    const ov = seen.filter((x) => x.ph === 'ov');
+    const handAt = seen.findIndex((x, i) => i > first && x.ph === 'v');
+    if (first < 0) throw new Error('the opening never showed');
+    if (ov[ov.length - 1].t - ov[0].t < 0.8) throw new Error(`the opening only moved ${(ov[ov.length - 1].t - ov[0].t).toFixed(2)}s before the hand-over`);
+    let back = 0;
+    for (let i = first + 1; i < seen.length; i++) back = Math.max(back, seen[i - 1].t - seen[i].t);
+    if (back > 0.15) throw new Error(`the picture jumped back ${back.toFixed(2)}s at the hand-over`);
+    const after = seen.slice(handAt + 3);
+    if (after.some((x) => x.ph === 'ov')) throw new Error('the opening came back after the hand-over');
+    if (after.some((x) => x.ovs)) throw new Error('the stand-in stayed in the page after the hand-over');
+    if (after[after.length - 1].paused) throw new Error('the full file is paused after the hand-over');
+    if (ov.some((x) => !x.om)) throw new Error('the opening played with sound');
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    return `opening up ${ov.length * 30} ms (${ov[0].t.toFixed(2)}-${ov[ov.length - 1].t.toFixed(2)} s), full file from ${seen[handAt].t.toFixed(2)} s, worst step back ${back.toFixed(2)} s`;
+  });
+
+  await check('With sound on, the full file stays silent under the opening and the sound starts with it; 2x follows the opening', async () => {
+    const it = openReels[1];
+    await page.goto(base + '#/settings'); // no video plays here, so nothing writes the spot back
+    await forget(it.item);
+    await page.evaluate(() => { LS.set('muted', false); setMuted(false); });
+    await slowFull(1500);
+    let seen;
+    try {
+      await page.goto(base + `#/reels/${it.id}`);
+      await page.waitForSelector('#rv video[data-pool][data-want="1"]', { timeout: 8000, state: 'attached' });
+      await watchCur();
+      await waitFor(() => page.evaluate(() => window.__seen.some((x) => x.ph === 'ov')), 6000, 'the opening');
+      await page.evaluate(() => { document.querySelector('#rv video[data-pool][data-want="1"]').playbackRate = 2; });
+      await sleep(200);
+      await waitFor(() => page.evaluate(() => window.__seen.some((x) => x.ph === 'v' && x.t > 1)), 12000, 'the full file to take over');
+      await sleep(300);
+      seen = await seenOf();
+    } finally {
+      await fastFull();
+      await page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); if (v) v.playbackRate = 1; LS.set('muted', true); setMuted(true); });
+    }
+    const ov = seen.filter((x) => x.ph === 'ov');
+    if (ov.some((x) => !x.vm)) throw new Error('the full file played its sound while the opening was showing');
+    if (ov.some((x) => !x.om)) throw new Error('the opening itself had sound');
+    if (!ov.some((x) => x.orate === 2)) throw new Error('2x on the reel did not reach the opening');
+    const v = seen.filter((x) => x.ph === 'v').slice(-3);
+    if (v.some((x) => x.vm)) throw new Error('the sound never came on after the hand-over');
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    return `${ov.length} samples on the opening all silent underneath, sound on after`;
+  });
+
+  await check('A reel with a saved spot skips its opening and resumes at the spot', async () => {
+    const it = openReels[2];
+    await page.goto(base + '#/settings');
+    await page.evaluate((k) => { VPOS.put(k, 7, true); VPOS.flush(); }, it.item);
+    await slowFull(800);
+    let seen;
+    try {
+      await page.goto(base + `#/reels/${it.id}`);
+      await page.waitForSelector('#rv video[data-pool][data-want="1"]', { timeout: 8000, state: 'attached' });
+      await watchCur();
+      await waitFor(() => page.evaluate(() => window.__seen.some((x) => x.ph === 'v' && x.t > 7)), 12000, 'the reel at its spot');
+      seen = await seenOf();
+    } finally { await fastFull(); }
+    if (seen.some((x) => x.ph === 'ov')) throw new Error('the opening showed for a reel that resumes part way');
+    const t = await page.evaluate(() => document.querySelector('#rv video[data-pool][data-want="1"]').currentTime);
+    await page.evaluate(() => document.querySelector('#rv [data-closefull]').click());
+    await forget(it.item);
+    if (t < 6.8) throw new Error(`resumed at ${t.toFixed(2)}s, saved 7s`);
+    return `resumed at ${t.toFixed(1)}s, no opening`;
+  });
+
+  await check('The reel next in line that will resume part way loads its full file, not its opening', async () => {
+    await page.goto(base + '#/reels');
+    await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
+    // the next reel in line (first in the Reels list) is one with an opening and a saved spot
+    const ids = await page.evaluate(() => {
+      const st = FS.reels; const i = st.cards.findIndex((c) => c.media[0] && c.media[0].open);
+      if (i < 0) return null;
+      const [b] = st.cards.splice(i, 1); st.cards.unshift(b);
+      const a = st.cards.find((c) => c.id !== b.id);
+      VPOS.put(b.media[0].item, 6, true); VPOS.flush();
+      return { a: a.id, b: b.id, item: b.media[0].item };
+    });
+    if (!ids) throw new Error('no reel with an opening in the Reels list');
+    await page.evaluate((id) => openReelsFor(id), ids.a);
+    await page.waitForFunction(() => document.querySelector('#rv section[data-k="1"] video[data-pool]'), null, { timeout: 8000 });
+    await sleep(500);
+    const n = await page.evaluate(() => { const s = document.querySelector('#rv section[data-k="1"]'), v = s.querySelector('video[data-pool]'); return { src: !!v.getAttribute('src'), ov: s.querySelectorAll('video.ov').length, item: v.dataset.item }; });
+    await page.evaluate((k) => { VPOS.clear(k); VPOS.flush(); document.querySelector('#rv [data-closefull]').click(); }, ids.item);
+    if (n.item !== ids.item) throw new Error(`the next reel is ${n.item}, set up ${ids.item}`);
+    if (!n.src) throw new Error('the next reel holds no full file although it will resume part way');
+    if (n.ov) throw new Error('the next reel holds an opening although it will resume part way');
+    return 'next reel (saved at 6 s) has its full file and no opening';
+  });
+
+  // ---- 2x that outruns a thin connection --------------------------------------------------------------------------
+  await check('2x that outruns the connection: a ring shows while the reel waits, and back at 1x the reel is nudged and moves again', async () => {
+    // a reel without an opening, so nothing stands in over it
+    const plain = allReels.filter((x) => !x.open);
+    if (!plain.length) throw new Error('no reel without an opening in the fixtures');
+    const it = plain[plain.length - 1];
+    await page.goto(base + '#/settings');
+    await page.evaluate((k) => { VPOS.clear(k); VPOS.flush(); }, it.item);
+    const cdpN = await ctx.newCDPSession(page);
+    await cdpN.send('Network.enable');
+    await cdpN.send('Network.setCacheDisabled', { cacheDisabled: true });
+    // the fixture plays at ~330 kbps: 1x keeps up, 2x does not
+    await cdpN.send('Network.emulateNetworkConditions', { offline: false, latency: 40, downloadThroughput: 420e3 / 8, uploadThroughput: 1e6 / 8 });
+    let ring = false; let seeks = 0; let moved = 0;
+    try {
+      await page.goto(base + `#/reels/${it.id}`);
+      await page.waitForFunction(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return v && v.currentTime > 0.5 && !v.paused; }, null, { timeout: 15000 });
+      await page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); window.__seeks = 0; v.addEventListener('seeking', () => window.__seeks++); RV.lock2x = true; reelRate(); });
+      ring = await page.waitForFunction(() => document.querySelector('#rv video[data-pool][data-want="1"]').closest('.r').classList.contains('wait'), null, { timeout: 20000 }).then(() => true, () => false);
+      if (!ring) throw new Error('2x never stalled, or no ring showed while it waited');
+      const stalled = await page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return { rs: v.readyState, paused: v.paused, rate: v.playbackRate }; });
+      if (stalled.rs >= 3 || stalled.paused) throw new Error(`ring without a stall: ${JSON.stringify(stalled)}`);
+      await page.evaluate(() => { RV.lock2x = false; reelRate(); });
+      seeks = await page.evaluate(() => window.__seeks);
+      await cdpN.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      moved = await page.evaluate(async () => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); const t0 = v.currentTime; await new Promise((r) => setTimeout(r, 2500)); return v.currentTime - t0; });
+      const after = await page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return { rate: v.playbackRate, paused: v.paused, ring: v.closest('.r').classList.contains('wait') }; });
+      if (!seeks) throw new Error('back at 1x the stalled reel was not nudged');
+      if (after.rate !== 1 || after.paused) throw new Error(`after 1x: ${JSON.stringify(after)}`);
+      if (moved < 0.8) throw new Error(`the reel moved only ${moved.toFixed(2)}s in 2.5s after going back to 1x`);
+      if (after.ring) throw new Error('the ring stayed up once the reel was moving');
+    } finally {
+      await cdpN.send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }).catch(() => {});
+      await cdpN.send('Network.setCacheDisabled', { cacheDisabled: false }).catch(() => {});
+      await page.evaluate(() => { if (RV){ RV.lock2x = false; reelRate(); } const b = document.querySelector('#rv [data-closefull]'); if (b) b.click(); }).catch(() => {});
+    }
+    return `ring while stalled at 2x, ${seeks} nudge at 1x, then moved ${moved.toFixed(1)}s in 2.5s`;
+  });
+
+  // ---- the feed plays one video at a time, and the one playing holds on until it is mostly gone ------------------
+  await check('Two feed videos on screen: only one plays, it keeps playing while half in view, the other takes over after', async () => {
+    await page.setViewportSize({ width: 390, height: 1700 });
+    try {
+      await page.goto(base + `#/p/${seeded.reelsPost}/more`);
+      await page.waitForSelector('#view video[data-auto]', { timeout: 10000, state: 'attached' });
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await sleep(1500);
+      // the state of the first two videos: how much is in view, how centred, whether each is the one playing
+      const st = () => page.evaluate(() => {
+        const vs = [...document.querySelectorAll('#view video[data-auto]')].slice(0, 2);
+        return vs.map((v) => { const r = v.getBoundingClientRect(); const f = Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) / r.height; return { f: +f.toFixed(2), d: Math.abs((r.top + r.bottom) / 2 - innerHeight / 2), want: v.dataset.want === '1', playing: !v.paused, item: v.dataset.item }; });
+      });
+      const playingNow = () => page.evaluate(() => [...document.querySelectorAll('#view video')].filter((v) => !v.paused && !v.classList.contains('ov') && v.closest('#view')).length);
+      let s = await st();
+      if (s.length < 2 || s[0].f < 0.6 || s[1].f < 0.6) throw new Error(`need two videos in view: ${JSON.stringify(s)}`);
+      await waitFor(async () => (await st()).some((x) => x.playing), 6000, 'a video playing');
+      s = await st();
+      if (await playingNow() !== 1) throw new Error(`${await playingNow()} videos playing with two on screen`);
+      const P = s.findIndex((x) => x.want), Q = 1 - P;
+      const dir = Q > P ? 1 : -1;
+      // move until the other one is the more centred, while the playing one is still more than half in view
+      for (let i = 0; i < 200; i++) { s = await st(); if (s[Q].d < s[P].d - 40 && s[P].f >= 0.55) break; await page.evaluate((y) => window.scrollBy(0, y), dir * 15); await sleep(30); }
+      if (!(s[Q].d < s[P].d - 40 && s[P].f >= 0.55)) throw new Error(`could not set up the challenge: ${JSON.stringify(s)}`);
+      await sleep(600);
+      s = await st();
+      if (!s[P].want || s[Q].want) throw new Error(`a small scroll flipped the playing video: ${JSON.stringify(s)}`);
+      const held = s[P].f;
+      if (await playingNow() !== 1) throw new Error(`${await playingNow()} videos playing`);
+      // now the playing one leaves the screen: the other takes over
+      for (let i = 0; i < 300; i++) { s = await st(); if (s[P].f < 0.4 && s[Q].f >= 0.6) break; await page.evaluate((y) => window.scrollBy(0, y), dir * 15); await sleep(30); }
+      await waitFor(async () => { const x = await st(); return x[Q].want && !x[P].want; }, 4000, 'the other video to take over');
+      await waitFor(async () => (await st())[Q].playing, 6000, 'the other video playing');
+      s = await st();
+      if (s[P].playing) throw new Error('the old video kept playing after the new one took over');
+      return `video ${P + 1} kept playing at ${held} in view with video ${Q + 1} more centred; video ${Q + 1} took over at ${s[P].f}`;
+    } finally {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(base + '#/');
+      await page.waitForSelector('article.post', { timeout: 10000 }).catch(() => {});
+    }
+  });
+
+  await check('Nothing selects or tints blue: a double-tap or long press on a card selects no text, typing boxes still do', async () => {
+    await page.goto(base + '#/');
+    await page.waitForSelector('article.post', { timeout: 10000 });
+    const r = await page.evaluate(() => {
+      const cap = document.querySelector('article.post .cap, article.post .caption, article.post .clamp, article.post .phead');
+      const cs = (el) => getComputedStyle(el);
+      return { user: cs(cap).userSelect || cs(cap).webkitUserSelect, tap: cs(document.documentElement).webkitTapHighlightColor };
+    });
+    const dbl = await (async () => {
+      const box = await page.locator('article.post .phead').first().boundingBox();
+      await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+      return page.evaluate(() => { const t = getSelection().toString(); getSelection().removeAllRanges(); return t; });
+    })();
+    await page.goto(base + '#/c/' + (await page.evaluate(() => document.querySelector('article.post').dataset.post)));
+    const box = await page.waitForSelector('#view input, #view textarea', { timeout: 8000 });
+    const typing = await box.evaluate((el) => getComputedStyle(el).userSelect || getComputedStyle(el).webkitUserSelect);
+    if (r.user !== 'none') throw new Error(`card text is selectable (user-select ${r.user})`);
+    if (dbl.trim()) throw new Error(`a double-tap selected "${dbl.trim().slice(0, 30)}"`);
+    if (!/rgba\(0, 0, 0, 0\)|transparent/.test(r.tap)) throw new Error(`tap highlight ${r.tap}`);
+    if (typing !== 'text' && typing !== 'auto') throw new Error(`the comment box can't select text (${typing})`);
+    return `card text user-select none, double-tap selected nothing, tap highlight ${r.tap}, comment box ${typing}`;
+  });
+
   // ---- photos: tap opens full screen, double-tap / pinch zoom, drag pans, swipe down closes --------------------
   await check('A photo opens full screen on a tap; double-tap and pinch zoom in (sharper copy), drag pans, swipe down closes', async () => {
     const cdp = await ctx.newCDPSession(page);
@@ -442,7 +693,13 @@ try {
     const cur = () => page.evaluate(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); const b = document.getElementById('rvfast'); return v && { rate: v.playbackRate, paused: v.paused, badge: b.hidden ? '' : b.textContent, idx: v.dataset.idx }; });
     await page.goto(base + '#/reels');
     await page.waitForSelector('#rgrid .tile', { timeout: 8000 });
-    await page.locator('#rgrid .tile').first().tap();
+    // the first tile whose post is still up (the made-up world takes posts down as the check runs)
+    const ids = await page.evaluate(() => [...document.querySelectorAll('#rgrid .tile')].map((t) => t.dataset.reelopen));
+    let pick = -1;
+    for (let i = 0; i < ids.length && pick < 0; i++) if ((await fetch(base + 'api/post/' + encodeURIComponent(ids[i]))).status === 200) pick = i;
+    if (pick < 0) throw new Error('no reel tile with a live post');
+    await page.locator('#rgrid .tile').nth(pick).scrollIntoViewIfNeeded();
+    await page.locator('#rgrid .tile').nth(pick).tap();
     await page.waitForFunction(() => { const v = document.querySelector('#rv video[data-pool][data-want="1"]'); return v && v.readyState >= 2 && !v.paused; }, null, { timeout: 10000 });
     const { w, h } = await page.evaluate(() => ({ w: innerWidth, h: innerHeight }));
     const right = [w - 30, h * 0.45], mid = [w / 2, h * 0.45];

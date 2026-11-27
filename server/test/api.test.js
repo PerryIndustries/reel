@@ -60,13 +60,20 @@ test('card shape: relative media URLs, top at most 4, counts from countsAt', asy
   assert.equal(c.caption, 'caption c1');
   assert.deepEqual(c.media[0], {
     kind: 'photo', item: 'p:1#2', thumb: 'media/p_1_2/thumb.jpg', full: 'media/p_1_2/full.jpg',
-    video: null, poster: null, w: 1080, h: 1350, dur: null,
+    video: null, poster: null, open: null, w: 1080, h: 1350, dur: null,
   });
   assert.deepEqual(c.media[1], {
     kind: 'video', item: 'v1', thumb: 'media/v1/thumb.jpg', full: null,
-    video: 'media/v1/video.mp4', poster: 'media/v1/poster.jpg', w: 720, h: 1280, dur: 12.5,
+    video: 'media/v1/video.mp4', poster: 'media/v1/poster.jpg', open: null, w: 720, h: 1280, dur: 12.5,
   });
-  for (const m of c.media) for (const u of [m.thumb, m.full, m.video, m.poster]) {
+  // a video whose opening was made points at it; one without (none yet, or too short) stays null
+  ctx.db.prepare("UPDATE items SET opening = 1 WHERE key = 'v1'").run();
+  const c2 = card(ctx, ctx.db.prepare('SELECT * FROM posts WHERE id = ?').get('c1'), now);
+  assert.equal(c2.media[1].open, 'media/v1/open.mp4');
+  assert.equal(c2.media[0].open, null, 'a photo never has an opening');
+  ctx.db.prepare("UPDATE items SET opening = 0 WHERE key = 'v1'").run();
+  assert.equal(card(ctx, ctx.db.prepare('SELECT * FROM posts WHERE id = ?').get('c1'), now).media[1].open, null);
+  for (const m of c2.media) for (const u of [m.thumb, m.full, m.video, m.poster, m.open]) {
     if (u != null) assert.ok(u.startsWith('media/') && !/^[a-z]+:|^\//.test(u), `not relative: ${u}`);
   }
   const post0 = ctx.db.prepare('SELECT * FROM posts WHERE id = ?').get('c1');
@@ -319,8 +326,8 @@ test('library: every account with its ready files from non-story posts of any st
   assert.equal(npc.following, (await getJson(`${base}/reel/api/acct/npc1`)).body.acct.following, 'the same number the profile page shows');
   assert.deepEqual(r.body.media.own1.map((m) => m.item).sort(), ['k1', 'k2', 'k3', 'vid'], 'deduped, story and unready items left out, queued and down posts counted');
   const entry = (k) => r.body.media.own1.find((m) => m.item === k);
-  assert.deepEqual(entry('k1'), { kind: 'photo', item: 'k1', thumb: 'media/k1/thumb.jpg', full: 'media/k1/full.jpg', video: null, poster: null, w: 1080, h: 1350, dur: null });
-  assert.deepEqual(entry('vid'), { kind: 'video', item: 'vid', thumb: 'media/vid/thumb.jpg', full: null, video: 'media/vid/video.mp4', poster: 'media/vid/poster.jpg', w: 720, h: 1280, dur: 4 });
+  assert.deepEqual(entry('k1'), { kind: 'photo', item: 'k1', thumb: 'media/k1/thumb.jpg', full: 'media/k1/full.jpg', video: null, poster: null, open: null, w: 1080, h: 1350, dur: null });
+  assert.deepEqual(entry('vid'), { kind: 'video', item: 'vid', thumb: 'media/vid/thumb.jpg', full: null, video: 'media/vid/video.mp4', poster: 'media/vid/poster.jpg', open: null, w: 720, h: 1280, dur: 4 });
   assert.deepEqual(r.body.media.npc1.map((m) => m.item), ['k4']);
   assert.deepEqual(r.body.media.own2, []);
   assert.deepEqual(r.body.media.quiet, []);

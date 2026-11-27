@@ -1,4 +1,4 @@
-// Media serving: the derived files (thumb / full / poster / video) streamed with Range support, and the
+// Media serving: the derived files (thumb / full / poster / video / open) streamed with Range support, and the
 // optional static site (REEL_SITE, local testing only). Nothing is ever read whole into memory.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,7 @@ const FILES = Object.freeze({
   'full.jpg': 'image/jpeg',
   'poster.jpg': 'image/jpeg',
   'video.mp4': 'video/mp4',
+  'open.mp4': 'video/mp4',
 });
 
 const SITE_TYPES = Object.freeze({

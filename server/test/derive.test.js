@@ -8,7 +8,7 @@ import { tempEnv, removeTempDir } from './helpers.js';
 import { loadConfig } from '../lib/config.js';
 import { makeLog } from '../lib/log.js';
 import { openDb } from '../lib/db.js';
-import { deriveOne, pickNext, derivedPaths, slug, CLIP, photoArgs, zoomFile, ZOOM_PX } from '../lib/derive.js';
+import { deriveOne, pickNext, derivedPaths, slug, CLIP, photoArgs, zoomFile, ZOOM_PX, OPENING, backfillOpenings } from '../lib/derive.js';
 
 const haveFfmpeg = spawnSync('ffmpeg', ['-version'], { windowsHide: true }).status === 0
   && spawnSync('ffprobe', ['-version'], { windowsHide: true }).status === 0;
@@ -35,6 +35,8 @@ before(() => {
   ff(['-f', 'lavfi', '-i', 'testsrc=size=1600x1200:rate=1', '-frames:v', '1', path.join(fixDir, 'photo.jpg')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=1280x720:rate=10:duration=3', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3',
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', path.join(fixDir, 'short.mp4')]);
+  ff(['-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=25:duration=10', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=10',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', '-c:a', 'aac', '-shortest', path.join(fixDir, 'ten.mp4')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=1:duration=200', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
     '-preset', 'ultrafast', '-g', '10', path.join(fixDir, 'long.mp4')]);
   ff(['-f', 'lavfi', '-i', 'testsrc=size=1921x1081:rate=5:duration=1', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1',
@@ -150,6 +152,9 @@ test('200 s video splits into <= 3 clip items of 15-60 s, parent not postable', 
   const dur = Number(probe(out.video, 'format=duration').format.duration);
   assert.ok(Math.abs(dur - clip.clip_dur) < 2, `output ${dur}s vs ${clip.clip_dur}s`);
   assert.equal(row(ctx, clip.key).derived, 1);
+  // a clip is its own video, with its own opening cut from the clip
+  assert.equal(row(ctx, clip.key).opening, 1);
+  assert.ok(fs.existsSync(out.open), 'the clip has open.mp4');
 });
 
 test('a corrupt source records err and is not retried within 24 h', opts, async (t) => {
@@ -263,4 +268,52 @@ test('zoom copy: cut from the source up to 2560 px on first ask, kept, and full.
   assert.equal(await zoomFile(ctx, 'z3'), derivedPaths(ctx, 'z3').full);
   // not a photo, or not an item: nothing
   assert.equal(await zoomFile(ctx, 'nope'), null);
+});
+
+const dimsOf = (file) => { const v = probe(file, 'stream=codec_type,width,height').streams.find((x) => x.codec_type === 'video'); return [v.width, v.height]; };
+
+test('a video of 6 s or more gets open.mp4: its first 4 s, same picture size, faststart, far smaller than the full file', opts, async (t) => {
+  const ctx = makeCtx(t);
+  assert.equal(await deriveOne(ctx, addItem(ctx, 'ten', 'ten.mp4', 'video'), NOW), 'ok');
+  const p = derivedPaths(ctx, 'ten');
+  assert.equal(row(ctx, 'ten').opening, 1);
+  assert.ok(fs.existsSync(p.open), 'open.mp4 made');
+  assert.deepEqual(dimsOf(p.open), dimsOf(p.video), 'lines up exactly over the full file');
+  const dur = Number(probe(p.open, 'format=duration').format.duration);
+  assert.ok(Math.abs(dur - OPENING.secs) < 0.3, `opening ${dur}s`);
+  const streams = probe(p.open, 'stream=codec_type,codec_name').streams;
+  assert.ok(streams.some((s) => s.codec_type === 'audio' && s.codec_name === 'aac'), 'keeps the sound');
+  const atoms = topLevelAtoms(p.open);
+  assert.ok(atoms.indexOf('moov') < atoms.indexOf('mdat'), `faststart: ${atoms.join(',')}`);
+  const share = fs.statSync(p.video).size * OPENING.secs / 10;
+  assert.ok(fs.statSync(p.open).size < share * 0.75, `opening ${fs.statSync(p.open).size} B vs the full file's first ${OPENING.secs} s ~${Math.round(share)} B`);
+  // a 3 s video gets none: the full file is small already
+  assert.equal(await deriveOne(ctx, addItem(ctx, 'short', 'short.mp4', 'video'), NOW), 'ok');
+  assert.equal(row(ctx, 'short').opening, 0);
+  assert.equal(fs.existsSync(derivedPaths(ctx, 'short').open), false);
+});
+
+test('backfill: old videos get their opening a few at a time, newest first; short ones and photos are marked done', opts, async (t) => {
+  const ctx = makeCtx(t);
+  for (const [k, f, at] of [['old', 'ten.mp4', NOW - 30], ['mid', 'ten.mp4', NOW - 20], ['new', 'ten.mp4', NOW - 10], ['tiny', 'short.mp4', NOW], ['ph', 'photo.jpg', NOW]]) {
+    assert.equal(await deriveOne(ctx, addItem(ctx, k, f, f.endsWith('.jpg') ? 'photo' : 'video', at), NOW), 'ok');
+  }
+  // as they were before openings existed
+  for (const k of ['old', 'mid', 'new', 'tiny']) fs.rmSync(derivedPaths(ctx, k).open, { force: true });
+  ctx.db.prepare('UPDATE items SET opening = NULL').run();
+  const r1 = await backfillOpenings(ctx, 2);
+  assert.deepEqual(r1, { tried: 2, made: 1 }, 'tiny (newest, too short) then new');
+  assert.equal(row(ctx, 'tiny').opening, 0);
+  assert.equal(row(ctx, 'new').opening, 1);
+  assert.equal(row(ctx, 'old').opening, null, 'left for a later tick');
+  assert.ok(fs.existsSync(derivedPaths(ctx, 'new').open));
+  assert.equal(fs.existsSync(path.join(derivedPaths(ctx, 'new').dir, 'open.part.mp4')), false, 'no half-written file left');
+  assert.deepEqual(await backfillOpenings(ctx, 5), { tried: 2, made: 2 });
+  assert.equal(row(ctx, 'ph').opening, null, 'photos are never looked at');
+  assert.deepEqual(await backfillOpenings(ctx, 5), { tried: 0, made: 0 }, 'nothing left');
+  // a video whose full file is missing is marked done without one, and the phone keeps using the full file
+  ctx.db.prepare("UPDATE items SET opening = NULL WHERE key = 'old'").run();
+  fs.rmSync(derivedPaths(ctx, 'old').video);
+  assert.deepEqual(await backfillOpenings(ctx, 5), { tried: 1, made: 0 });
+  assert.equal(row(ctx, 'old').opening, 0);
 });

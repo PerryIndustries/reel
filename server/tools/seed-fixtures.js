@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { openDb } from '../lib/db.js';
+import { openDb, ensureColumn } from '../lib/db.js';
 import { makeTargets, commentTimes } from '../lib/engagement.js';
 import { slug } from '../lib/derive.js';
 
@@ -55,7 +55,14 @@ function makeBases(dir) {
       '-movflags', '+faststart', video]);
     ffmpeg(['-i', video, '-frames:v', '1', '-q:v', '5', poster]);
     ffmpeg(['-i', poster, '-vf', 'scale=90:-2', '-q:v', '6', thumb]);
-    return { video, poster, thumb, w: 180, h: 320, dur: 12 };
+    // the opening (first 4 s, as derive makes it); v3 has none, like a video the backfill has not reached yet
+    let open = null;
+    if (i < 3) {
+      open = path.join(dir, `v${i}-open.mp4`);
+      ffmpeg(['-t', '4', '-i', video, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-profile:v', 'baseline', '-preset', 'ultrafast', '-g', '10',
+        '-c:a', 'aac', '-b:a', '16k', '-movflags', '+faststart', open]);
+    }
+    return { video, poster, thumb, open, w: 180, h: 320, dur: 12 };
   });
   return { photos, videos };
 }
@@ -88,6 +95,8 @@ export function seedFixtures(dataDir, { now = Date.now(), posts: nPosts = 300 } 
   // items: every post uses fresh items so slugs stay unique (carousels take 3 photos)
   const insItem = db.prepare(`INSERT INTO items(key, path, folder, drive_id, kind, w, h, dur, size, md5, parent, acct, derived, err, gone, added_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,NULL,?,1,NULL,0,?)`);
+  ensureColumn(db, 'items', 'opening', 'INT');
+  const setOpening = db.prepare('UPDATE items SET opening = ? WHERE key = ?');
   let itemN = 0;
   const makeItem = (acct, kind) => {
     const key = `d_seed${String(itemN).padStart(4, '0')}`;
@@ -99,12 +108,14 @@ export function seedFixtures(dataDir, { now = Date.now(), posts: nPosts = 300 } 
       fs.copyFileSync(b.video, path.join(dir, 'video.mp4'));
       fs.copyFileSync(b.poster, path.join(dir, 'poster.jpg'));
       fs.copyFileSync(b.thumb, path.join(dir, 'thumb.jpg'));
+      if (b.open) fs.copyFileSync(b.open, path.join(dir, 'open.mp4'));
     } else {
       b = bases.photos[itemN % bases.photos.length];
       fs.copyFileSync(b.full, path.join(dir, 'full.jpg'));
       fs.copyFileSync(b.thumb, path.join(dir, 'thumb.jpg'));
     }
     insItem.run(key, null, 'seed', key, kind, b.w, b.h, kind === 'video' ? b.dur : null, 1000, null, acct.id, now);
+    if (kind === 'video') setOpening.run(b.open ? 1 : 0, key);
     itemN++;
     return key;
   };

@@ -74,6 +74,13 @@ test('no Range gives the whole file, HEAD gives headers only, images are image/j
   assert.equal(head.status, 200);
   assert.equal(head.headers['content-length'], '1000');
   assert.equal(head.body.length, 0);
+  // the opening is served like the full file, with ranges, and is simply not found where none was made
+  assert.equal((await raw(e.base, 'GET', '/reel/media/p_1_2/open.mp4')).status, 404);
+  fs.writeFileSync(path.join(e.ctx.cfg.derivedDir, 'p_1_2', 'open.mp4'), video.subarray(0, 300));
+  const op = await raw(e.base, 'GET', '/reel/media/p_1_2/open.mp4', { range: 'bytes=0-9' });
+  assert.equal(op.status, 206);
+  assert.equal(op.headers['content-type'], 'video/mp4');
+  assert.equal(op.headers['content-range'], 'bytes 0-9/300');
   const img = await raw(e.base, 'GET', '/reel/media/p_1_2/thumb.jpg');
   assert.equal(img.headers['content-type'], 'image/jpeg');
   assert.equal((await raw(e.base, 'GET', '/reel/media/p_1_2/full.jpg')).status, 404, 'missing file');

@@ -38,6 +38,12 @@ body{background:var(--bg);color:var(--fg);font:15px/1.4 var(--font);overscroll-b
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 a{color:inherit;text-decoration:none}
 html{touch-action:manipulation;-webkit-text-size-adjust:100%}
+/* nothing in the app selects or tints on a long press, double-tap, drag or pinch (iPhone paints that blue), and photos
+   don't open the save sheet; typing boxes still select and paste */
+html{-webkit-tap-highlight-color:transparent}
+body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,select,[contenteditable]{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+img,video{-webkit-user-drag:none}
 input,textarea,select{font:inherit;font-size:16px;color:var(--fg);background:var(--soft);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%;min-width:0}
 textarea{min-height:90px;resize:vertical}
 button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -255,6 +261,9 @@ main{padding-bottom:calc(var(--bar) + env(safe-area-inset-bottom,0px) + 20px);ma
 .rv::-webkit-scrollbar{display:none}
 .rv .r{position:relative;height:100vh;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always}
 .rv video{width:100%;height:100%;object-fit:contain}
+video.ov{position:absolute;pointer-events:none;opacity:0;object-fit:contain;max-height:none;aspect-ratio:auto;background:transparent}
+video.ov.on{opacity:1}
+.rv .r.wait::before{content:"";position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:ptrspin .8s linear infinite;pointer-events:none;z-index:1}
 .rv .side{position:absolute;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);display:flex;flex-direction:column;gap:18px;align-items:center;font-size:12px;font-weight:600}
 .rv .side button,.rv .side a{display:flex;flex-direction:column;align-items:center;gap:3px;color:#fff}
 .rv .side svg{width:30px;height:30px}
@@ -508,13 +517,20 @@ const VM = {
     v.src = v.dataset.vsrc;
   },
   unload(v){ if (v === WARM.v) return; if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); } },
-  // keep the (up to) 3 feed videos nearest the middle of the screen loaded, everything else empty
+  // the (up to) 3 feed videos nearest the middle of the screen are ready, everything else empty
   sync(){
     const vids = [...document.querySelectorAll("#view video[data-vsrc]")];
-    if (VM.hold){ vids.forEach(VM.unload); return; }
+    if (VM.hold){ vids.forEach(v => { VM.unload(v); OPEN.drop(v); }); return; }
     const mid = innerHeight / 2;
     const rows = vids.map(v => { const r = v.getBoundingClientRect(); return { v, d: Math.abs((r.top + r.bottom) / 2 - mid), vis: r.bottom > -innerHeight * .6 && r.top < innerHeight * 1.6 }; }).sort((x, y) => x.d - y.d);
-    rows.forEach((x, i) => { if (i < 3 && x.vis) VM.load(x.v, true); else VM.unload(x.v); }); // the cards either side buffer too, so they start at once
+    rows.forEach((x, i) => {
+      if (i >= 3 || !x.vis){ VM.unload(x.v); OPEN.drop(x.v); return; }
+      // The 3 nearest hold their opening. Only the middle one fetches its full file (one without an opening: all 3, as
+      // before), so on a thin connection the video being watched gets the whole pipe instead of sharing it.
+      // one that will resume part way (VPOS) gets nothing from an opening: it loads its full file, as before
+      const o = OPEN.resumes(x.v.dataset.item) ? null : OPEN.prep(x.v, x.v.dataset.osrc);
+      if ((FEED.cur && FEED.cur.isConnected ? x.v === FEED.cur : i === 0) || !o) VM.load(x.v, true);
+    });
   },
   claim(){ VM.hold++; VM.sync(); },
   release(){ VM.hold = Math.max(0, VM.hold - 1); VM.sync(); },
@@ -523,7 +539,7 @@ const VM = {
 // closing a video carries on with what was already downloaded instead of fetching it again from the start.
 const WARM = {
   v: null, t: 0,
-  keep(v){ WARM.drop(); v.dataset.want = "0"; v.pause(); WARM.v = v; WARM.t = setTimeout(WARM.drop, 4000); },
+  keep(v){ WARM.drop(); OPEN.drop(v); v.dataset.want = "0"; v.pause(); WARM.v = v; WARM.t = setTimeout(WARM.drop, 4000); },
   take(src){ const v = WARM.v; if (!v || v.getAttribute("src") !== src) return null; clearTimeout(WARM.t); WARM.v = null;
     if (v._vposDone){ v._vposDone = false; try { v.currentTime = 0; } catch(_){} } // watched to the end: from the top
     return v; },
@@ -531,15 +547,17 @@ const WARM = {
 };
 // The viewer's video goes back into the feed card that shows the same file, in place of its empty <video>.
 function warmIntoFeed(v, w){
+  OPEN.drop(v);
   if (autoIO) autoIO.unobserve(v);
   for (const k of ["vsrc", "item", "auto"]) { if (v.dataset[k] != null) w.dataset[k] = v.dataset[k]; else delete w.dataset[k]; }
   delete w.dataset.pool; delete w.dataset.idx;
   w.setAttribute("style", v.getAttribute("style") || ""); w.poster = v.poster; w.loop = true; w.muted = feedMuted;
   v.replaceWith(w);
+  if (FEED.cur === v) FEED.cur = w;
   if (w.dataset.auto) autoplayIO().observe(w);
 }
 let vmTick = 0;
-window.addEventListener("scroll", () => { if (!vmTick) vmTick = requestAnimationFrame(() => { vmTick = 0; VM.sync(); }); }, { passive: true });
+window.addEventListener("scroll", () => { if (!vmTick) vmTick = requestAnimationFrame(() => { vmTick = 0; FEED.pick(); VM.sync(); }); }, { passive: true });
 
 /* ================= where each video was left ================= */
 // Kept per library item (a clip of a long video is its own item, with its own file). Every video's time is remembered
@@ -611,6 +629,8 @@ function showMuted(){ document.querySelectorAll("[data-rmute],[data-mute]").forE
 // iPhone only starts a video with sound when a tap started it. One it refuses plays muted instead of sitting frozen.
 function playVid(v){
   playedVids.add(v);
+  if (v._ov) OPEN.start(v);
+  if (OPEN.on.has(v)) v.muted = true; // under its opening the full file is silent; the sound starts with it at the hand-over
   const p = v.play(); if (!p) return;
   p.then(() => oneSound(v), () => {});
   p.catch(err => {
@@ -629,6 +649,104 @@ function unlockVids(root){
     p.then(() => { if (x.dataset.want !== "1") x.pause(); x.muted = was; }).catch(() => { x.muted = was; });
   }
 }
+/* ================= openings: a video starts at once on its first few seconds ================= */
+// The PC makes open.mp4 for each video (its first 4 s at a low bitrate, the same picture size). A video that has one
+// shows it on a stand-in <video class="ov"> laid exactly over the real one while the real one's full file loads
+// underneath, playing silently. Once the real one holds the next stretch it jumps to the stand-in's time, and the stand-in
+// goes on the real one's first frame there: the picture carries on and the sound (if on) starts with the full file. The
+// real <video> keeps owning everything else (VPOS, sound, 2x, the scrub bar, WARM); the stand-in is always muted and never
+// takes a tap. Without an opening (old videos not backfilled yet, short ones) nothing changes.
+const OPEN = {
+  on: new Set(), // real videos whose stand-in is showing
+  timer: 0,
+  ahead(v, t){ const b = v.buffered; for (let i = 0; i < b.length; i++) if (b.start(i) <= t + 0.05 && b.end(i) > t) return b.end(i) - t; return 0; },
+  // Ready the opening next to v without showing it (~250 KB, so neighbours can all hold theirs). -> the stand-in, or null.
+  prep(v, url){
+    if (!url || !v.parentElement || (v.dataset.item && v._ovDone === v.dataset.item)) return null;
+    let o = v._ov;
+    if (o && o.isConnected && o.dataset.src === url) return o;
+    OPEN.drop(v);
+    o = document.createElement("video");
+    o.className = "ov"; o.muted = true; o.defaultMuted = true; o.playsInline = true; o.setAttribute("playsinline", ""); o.setAttribute("muted", "");
+    o.preload = "auto"; o.dataset.src = url; o._of = v; v._ov = o;
+    o.src = url;
+    v.after(o); OPEN.fit(o, v);
+    // iPhone buffers only a video that has played: play it silently for a moment
+    const p = o.play(); if (p) p.then(() => { if (!OPEN.on.has(v)){ o.pause(); try { o.currentTime = 0; } catch(_){} } }, () => {});
+    return o;
+  },
+  resumes: item => !!item && VPOS.at(item) > 0.5,
+  // Only when the full file starts from the top and isn't already buffered there (VPOS resumes go straight to it).
+  useful(v){
+    const o = v._ov;
+    if (!o || o.error || (v.dataset.item && (v._ovDone === v.dataset.item || OPEN.resumes(v.dataset.item)))) return false;
+    if (v.currentTime > 0.5) return false;
+    return !(v.readyState >= 3 && OPEN.ahead(v, v.currentTime) >= 1.5);
+  },
+  // v was asked to play: show its opening over it now (or let the opening go when the full file is ready anyway)
+  start(v){
+    const o = v._ov; if (!o || OPEN.on.has(v)) return;
+    if (!OPEN.useful(v)){ OPEN.drop(v); return; }
+    OPEN.on.add(v); v.muted = true;
+    OPEN.fit(o, v); o.playbackRate = v.playbackRate || 1;
+    if (o.ended){ try { o.currentTime = 0; } catch(_){} }
+    o.play().catch(() => {});
+    const show = () => { if (OPEN.on.has(v)) o.classList.add("on"); };
+    if (o.requestVideoFrameCallback) o.requestVideoFrameCallback(show); else o.addEventListener("playing", show, { once: true });
+    if (!OPEN.timer) OPEN.timer = setInterval(OPEN.tick, 100);
+  },
+  fit(o, v){ const st = o.style; st.left = v.offsetLeft + "px"; st.top = v.offsetTop + "px"; st.width = v.offsetWidth + "px"; st.height = v.offsetHeight + "px"; },
+  tick(){
+    for (const v of [...OPEN.on]){
+      const o = v._ov;
+      if (!o || !v.isConnected || !o.isConnected){ OPEN.drop(v); continue; }
+      OPEN.fit(o, v);
+      if (v._ovAt != null){ if (performance.now() - v._ovJumpAt > 2500) OPEN.done(v); continue; } // its frame never came: hand over anyway
+      if (!v.getAttribute("src") || v.readyState < 1 || !(v.duration > 0)) continue;
+      const t = o.ended ? o.duration : o.currentTime, end = v.duration;
+      const at = Math.min(t + 0.25 * (o.playbackRate || 1), Math.max(0, end - 0.1));
+      if (OPEN.ahead(v, at) >= Math.min(1.2, end - at - 0.05)) OPEN.jump(v, at);
+    }
+    if (!OPEN.on.size){ clearInterval(OPEN.timer); OPEN.timer = 0; }
+  },
+  // the full file has the stretch from `at`: put it there, and swap on its first frame at that time
+  jump(v, at){
+    v._ovAt = at; v._ovJumpAt = performance.now(); v._ovSeek = true;
+    try { v.currentTime = at; } catch(_){ OPEN.drop(v); return; }
+    if (v.paused && v.dataset.want === "1" && !v._ov.paused) v.play().catch(() => {});
+    const cb = (now, meta) => {
+      if (!OPEN.on.has(v) || v._ovAt == null) return;
+      if (meta.mediaTime >= at - 0.08){ OPEN.done(v); return; }
+      v.requestVideoFrameCallback(cb);
+    };
+    if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(cb); else v.addEventListener("seeked", () => OPEN.on.has(v) && OPEN.done(v), { once: true });
+  },
+  done(v){ if (v.dataset.item) v._ovDone = v.dataset.item; OPEN.drop(v); },
+  // the stand-in goes; the real video carries on exactly as it would have without one
+  drop(v){
+    const o = v._ov, was = OPEN.on.delete(v);
+    v._ovAt = null; v._ov = null;
+    if (o){ o.classList.remove("on"); o.pause(); o.removeAttribute("src"); o.load(); o.remove(); }
+    if (was) OPEN.sound(v);
+  },
+  // a stand-in that was showing goes (a reel swiped away, a card scrolled off before it handed over)
+  stop(v){ if (OPEN.on.has(v)) OPEN.drop(v); },
+  // the sound the app is set to, once the full file shows. iPhone may refuse it outside a tap: then quiet for now, as playVid does
+  sound(v){
+    if ((v.closest("#full") ? reelsMuted : feedMuted) || !v.muted || v.dataset.want !== "1" || !v.isConnected) return;
+    v.muted = false;
+    const t0 = performance.now();
+    const back = () => { if (performance.now() - t0 > 400 || v.dataset.want !== "1") return; v.muted = true; v.play().catch(() => {}); fbMuted = true; setMuted(true, false); showMuted(); };
+    v.addEventListener("pause", back, { once: true }); setTimeout(() => v.removeEventListener("pause", back), 450);
+  },
+};
+// the stand-in follows its video: pause, play, 2x; a seek that isn't the hand-over (the scrub bar) lets it go
+document.addEventListener("pause", e => { const v = e.target; if (OPEN.on.has(v) && v._ovAt == null) v._ov.pause(); }, true);
+document.addEventListener("play", e => { const v = e.target; if (OPEN.on.has(v) && !v._ov.ended) v._ov.play().catch(() => {}); }, true);
+document.addEventListener("ratechange", e => { const v = e.target; if (OPEN.on.has(v)) v._ov.playbackRate = v.playbackRate; }, true);
+document.addEventListener("seeking", e => { const v = e.target; if (!OPEN.on.has(v)) return; if (v._ovSeek) v._ovSeek = false; else OPEN.drop(v); }, true);
+// nothing gives a stand-in sound, or the video under one before the hand-over
+document.addEventListener("volumechange", e => { const v = e.target; if (v instanceof HTMLVideoElement && !v.muted && (v._of || OPEN.on.has(v))) v.muted = true; }, true);
 // The next tap anywhere is a real gesture: if sound is what was chosen (saved), give it back to the app inside that tap, and unlock
 // whatever videos got a src since the last one. The sound button itself is left to its own handler.
 document.addEventListener("click", e => {
@@ -649,13 +767,46 @@ setInterval(() => {
     if (v.dataset.want === "1" && v.getAttribute("src") && (v.paused || v.ended) && !$("#full").innerHTML) playVid(v);
   }
 }, 2500);
+// One feed video plays at a time, and the one playing keeps playing until it is mostly off the screen: a video next to it
+// takes over only once the playing one is less than half in view, and then it is the most centred one that is at least
+// 60% in view. (It used to be every video 60% in view, so two short cards on screen both played and a small scroll
+// flipped between them.)
+const FEED = {
+  cur: null, raf: 0,
+  seen: new WeakMap(), // video -> how much of it is in view, from the observer (it clips carousels too)
+  frac(v){
+    if (FEED.seen.has(v)) return FEED.seen.get(v);
+    const r = v.getBoundingClientRect(); if (!r.height) return 0;
+    return Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0)) / r.height;
+  },
+  later(){ if (!FEED.raf) FEED.raf = requestAnimationFrame(() => { FEED.raf = 0; FEED.pick(); }); },
+  pick(){
+    if (VM.hold) return; // the full-screen viewer has the videos
+    const vids = [...document.querySelectorAll("#view video[data-auto]")];
+    let cur = FEED.cur && FEED.cur.isConnected && vids.includes(FEED.cur) ? FEED.cur : null;
+    if (!cur || FEED.frac(cur) < 0.5){
+      const mid = innerHeight / 2; let best = null, bd = Infinity;
+      for (const v of vids){
+        if (FEED.frac(v) < 0.6) continue;
+        const r = v.getBoundingClientRect(), d = Math.abs((r.top + r.bottom) / 2 - mid);
+        if (d < bd){ bd = d; best = v; }
+      }
+      cur = best;
+    }
+    for (const v of vids) if (v !== cur && v.dataset.want === "1"){ v.dataset.want = "0"; v.pause(); OPEN.stop(v); }
+    FEED.cur = cur;
+    if (!cur || cur.dataset.want === "1") return;
+    cur.dataset.want = "1";
+    VM.sync();
+    if (cur._ov) OPEN.start(cur);
+    if (cur.getAttribute("src")){ cur.muted = feedMuted; playVid(cur); }
+    else cur.addEventListener("loadstart", () => { if (cur.dataset.want === "1"){ cur.muted = feedMuted; playVid(cur); } }, { once: true });
+  },
+};
 let autoIO = null;
 function autoplayIO(){
-  if (!autoIO) autoIO = new IntersectionObserver(es => es.forEach(en => {
-    const v = en.target; v.dataset.want = en.isIntersecting ? "1" : "0";
-    if (en.isIntersecting){ VM.sync(); if (v.getAttribute("src")){ v.muted = feedMuted; playVid(v); } else v.addEventListener("loadstart", () => { if (v.dataset.want === "1"){ v.muted = feedMuted; playVid(v); } }, { once: true }); }
-    else v.pause();
-  }), { threshold: .6 });
+  if (!autoIO) autoIO = new IntersectionObserver(es => { es.forEach(en => FEED.seen.set(en.target, en.isIntersecting ? en.intersectionRatio : 0)); FEED.later(); },
+    { threshold: [0, .25, .5, .6, .75, 1] });
   return autoIO;
 }
 
@@ -688,7 +839,7 @@ function seenObserver(){
 const TASTE = {}; // hearts given to a photo during this visit
 const arOf = m => (m.w && m.h) ? `--ar:${(m.w / m.h).toFixed(4)}` : "";
 function slideHTML(m){
-  if (m.kind === "video") return `<div class="slide"><video data-vsrc="${esc(m.video)}" data-item="${esc(m.item || "")}" data-auto="1" poster="${esc(m.poster || m.thumb)}" style="${arOf(m)}" muted loop playsinline preload="none"></video><button class="mute" type="button" data-mute aria-label="Sound">${feedMuted ? I.muted : I.sound}</button></div>`;
+  if (m.kind === "video") return `<div class="slide"><video data-vsrc="${esc(m.video)}" data-item="${esc(m.item || "")}"${m.open ? ` data-osrc="${esc(m.open)}"` : ""} data-auto="1" poster="${esc(m.poster || m.thumb)}" style="${arOf(m)}" muted loop playsinline preload="none"></video><button class="mute" type="button" data-mute aria-label="Sound">${feedMuted ? I.muted : I.sound}</button></div>`;
   return `<div class="slide"><img src="${esc(m.full)}" alt="" loading="lazy" decoding="async" style="${arOf(m)}"></div>`;
 }
 function storyOf(aid){ return (S.stories || []).find(g => g.acct.id === aid); }
@@ -1359,6 +1510,7 @@ function openReels(list, start, st){
       let v = RV.pool[j % 3]; const s = RV.secs[j], m = RV.cards[j].media[0];
       const w = v.dataset.idx !== String(j) && WARM.take(m.video);
       if (w){ // the feed's copy, already loaded and at the right time
+        OPEN.drop(v);
         if (autoIO) autoIO.unobserve(w);
         if (v.getAttribute("src")){ VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.load(); }
         v.remove();
@@ -1366,13 +1518,19 @@ function openReels(list, start, st){
         w.dataset.pool = "1"; w.dataset.idx = j; w.dataset.want = "0"; w.dataset.item = m.item || ""; w.loop = true;
         RV.pool[j % 3] = v = w;
       } else if (v.dataset.idx !== String(j)){
+        OPEN.drop(v);
         VPOS.leave(v); v.pause(); v.removeAttribute("src"); v.dataset.idx = j; v.dataset.want = "0"; v.dataset.item = m.item || "";
-        v.poster = m.poster || m.thumb; v.src = m.video; v.load(); // VPOS puts it back where it was once it has loaded
-      }
+        v.poster = m.poster || m.thumb;
+        // a neighbour with an opening holds only that; its full file is fetched once it is the one playing. One that will
+        // resume part way (VPOS) gets nothing from an opening, so it loads its full file as before.
+        if (j === k || !m.open || OPEN.resumes(m.item)) v.src = m.video;
+        v.load(); // VPOS puts it back where it was once it has loaded
+      } else if (j === k && !v.getAttribute("src")){ v.src = m.video; v.load(); }
       if (v.parentElement !== s) s.prepend(v);
+      if (m.open && !OPEN.resumes(m.item)) OPEN.prep(v, m.open);
     }
     rv.querySelectorAll(".r.paused").forEach(x => x.classList.remove("paused"));
-    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; playVid(v); } else { v.pause(); v.playbackRate = 1; } });
+    RV.pool.forEach((v, i) => { const j = +v.dataset.idx; const cur = j === k; v.dataset.want = cur ? "1" : "0"; if (cur){ v.muted = reelsMuted; playVid(v); } else { v.pause(); OPEN.stop(v); v.playbackRate = 1; } });
     reelRate();
     if (RV.st && k >= RV.cards.length - 3 && !RV.loading) loadMoreReels(addSecs);
   };
@@ -1393,13 +1551,20 @@ async function loadMoreReels(addSecs){
   } catch(e){ /* the reels already loaded keep playing */ }
   finally { if (RV) RV.loading = false; }
 }
-const reelVid = sec => sec && sec.querySelector("video");
+const reelVid = sec => sec && sec.querySelector("video:not(.ov)");
 const curReelVid = () => RV && reelVid(RV.secs[RV.k]);
 // 2x while a side is held, or all the time once locked (it stays locked from reel to reel until unlocked or closed)
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 function reelRate(){
   if (!RV) return;
   const fast = RV.held2x || RV.lock2x, v = curReelVid();
-  if (v) v.playbackRate = fast ? 2 : 1;
+  if (v){
+    const was = v.playbackRate; v.playbackRate = fast ? 2 : 1;
+    // 2x needs twice the data; on a thin connection it runs the buffer dry and the reel sits waiting. Back at 1x, a seek in
+    // place gets the player going again as soon as the data is there instead of leaving it stuck. iPhone can also leave the
+    // picture frozen after any rate change, so there every change gets the same nudge.
+    if (was !== v.playbackRate && !v.paused && v.currentTime > 0 && !OPEN.on.has(v) && (IOS || (!fast && v.readyState < 3))){ try { v.currentTime = v.currentTime; } catch(_){} }
+  }
   const b = $("#rvfast"); if (!b) return;
   b.hidden = !fast;
   b.innerHTML = RV.lock2x ? `2x locked <span class="hint2">hold, drag up to unlock</span>` : `2x <span class="hint2">drag down to lock</span>`;
@@ -1478,7 +1643,14 @@ function wireScrub(sec){
   const bar = sc.querySelector(".bar"), fillEl = sc.querySelector(".fill"), knob = sc.querySelector(".knob");
   const vd = () => reelVid(sec);
   const show = f => { const pct = Math.min(100, Math.max(0, f * 100)) + "%"; fillEl.style.width = pct; knob.style.left = pct; };
-  const tick = setInterval(() => { if (!sec.dataset.built){ clearInterval(tick); return; } const v = vd(); if (v && v.duration && !sec.classList.contains("scrubbing")) show(v.currentTime / v.duration); }, 250);
+  const tick = setInterval(() => {
+    if (!sec.dataset.built){ clearInterval(tick); return; }
+    const v = vd(); if (v && v.duration && !sec.classList.contains("scrubbing")) show(v.currentTime / v.duration);
+    // a ring while the reel is playing but waiting for data for more than half a second (not while its opening covers it)
+    const stuck = !!(v && v.dataset.want === "1" && v.getAttribute("src") && !v.paused && v.readyState < 3 && !OPEN.on.has(v));
+    v && (v._stuckAt = stuck ? (v._stuckAt || performance.now()) : 0);
+    sec.classList.toggle("wait", stuck && performance.now() - v._stuckAt > 500);
+  }, 250);
   sec._tick = tick;
   const pvBox = sec.querySelector(".pv"), frame = pvBox.querySelector(".frame"), tEl = pvBox.querySelector(".t");
   let pv = null, want = 0, busy = false;
@@ -1532,6 +1704,7 @@ function closeFull(){
   RV = null;
   unparkFeed();
   if (had) VM.release();
+  FEED.pick();
   document.querySelectorAll('#view video[data-want="1"]').forEach(v => { if (v.getAttribute("src")) playVid(v); });
 }
 /* ---------- pinch a photo right in the feed (Instagram): it grows over everything and springs back on release ---------- */
@@ -1684,7 +1857,7 @@ document.addEventListener("click", async e => {
     catch(err){ if (!isDown(err)) toast("Couldn't save that: " + err.message); }
     return;
   }
-  if ("rmute" in t.dataset){ setMuted(!reelsMuted); rv.querySelectorAll("video").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
+  if ("rmute" in t.dataset){ setMuted(!reelsMuted); rv.querySelectorAll("video:not(.ov)").forEach(x => x.muted = reelsMuted); rv.querySelectorAll("[data-rmute]").forEach(b => b.innerHTML = reelsMuted ? I.muted : I.sound); if (!reelsMuted) unlockVids(rv); return; }
   if ("share" in t.dataset) toast("Shared");
 });
 
